@@ -1,9 +1,9 @@
 """Atlas — Celery Application Instance."""
+
 from __future__ import annotations
 
-from celery import Celery
-
 from app.core.config import get_settings
+from celery import Celery
 
 settings = get_settings()
 

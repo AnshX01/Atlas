@@ -1,4 +1,5 @@
 """Atlas — Pydantic v2 schemas for Auth endpoints."""
+
 from __future__ import annotations
 
 import uuid

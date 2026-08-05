@@ -4,13 +4,13 @@ Atlas Backend — Structured JSON Logging.
 Uses structlog to produce machine-readable JSON logs compatible
 with ELK / Datadog ingestion pipelines.
 """
+
 from __future__ import annotations
 
 import logging
 import sys
 
 import structlog
-
 from app.core.config import get_settings
 
 
@@ -47,8 +47,7 @@ def configure_logging() -> None:
     if settings.is_development:
         # Pretty console output in dev
         structlog.configure(
-            processors=shared_processors
-            + [structlog.dev.ConsoleRenderer(colors=True)],
+            processors=shared_processors + [structlog.dev.ConsoleRenderer(colors=True)],
             logger_factory=structlog.stdlib.LoggerFactory(),
             wrapper_class=structlog.stdlib.BoundLogger,
             cache_logger_on_first_use=True,

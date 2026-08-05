@@ -4,17 +4,17 @@ Atlas — Triage Agent.
 Scores incoming items (emails, PRs, issues) from 1-100.
 Uses temperature=0 and Pydantic structured outputs to prevent hallucination.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
-
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.domain.interfaces.base_connector import BaseAgent
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
 
 logger = get_logger(__name__)
 

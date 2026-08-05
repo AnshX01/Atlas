@@ -1,12 +1,12 @@
 """Atlas — Infrastructure: Async SQLAlchemy engine and session factory."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 logger = get_logger(__name__)
 

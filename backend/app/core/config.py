@@ -4,6 +4,7 @@ Atlas Backend — Application Configuration.
 Driven entirely by environment variables (12-factor app).
 Pydantic Settings validates all values at startup.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache

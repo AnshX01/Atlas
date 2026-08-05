@@ -1,11 +1,10 @@
 """Atlas — Daily Briefing, OmniSearch, Connectors, and Actions API routers."""
+
 from __future__ import annotations
 
 import time
 import uuid
 from datetime import UTC, datetime
-
-from fastapi import APIRouter, BackgroundTasks, Depends, Path, status
 
 from app.api.deps import get_current_user, require_idempotency_key
 from app.domain.models.connector import ConnectorProvider
@@ -20,8 +19,9 @@ from app.domain.schemas import (
     OmniSearchResponse,
     SyncTriggerResponse,
 )
-from app.services.briefing_service import BriefingService
 from app.services.ai.supervisor_agent import run_atlas_pipeline
+from app.services.briefing_service import BriefingService
+from fastapi import APIRouter, BackgroundTasks, Depends, Path, status
 
 # ── Briefing Router ───────────────────────────────────────────────────────────
 briefing_router = APIRouter(prefix="/briefing", tags=["Briefing"])
@@ -89,7 +89,7 @@ async def omni_search(
             timestamp=datetime.now(UTC),
             source_ids=state.get("citations", []),
         )
-        for item in context_items[:payload.limit]
+        for item in context_items[: payload.limit]
     ]
 
     return OmniSearchResponse(
@@ -113,9 +113,9 @@ async def list_connectors(
     current_user: User = Depends(get_current_user),
 ) -> list[ConnectorResponse]:
     """Return all connectors (active and inactive) for the authenticated user."""
-    from sqlalchemy import select
     from app.domain.models.connector import Connector
     from app.infrastructure.database import get_session_factory
+    from sqlalchemy import select
 
     factory = get_session_factory()
     async with factory() as session:
@@ -139,11 +139,12 @@ async def create_connector(
     Create a new connector for the current user and provider.
     If a connector for this provider already exists, return the existing one with 200.
     """
-    from sqlalchemy import select
+    import uuid as _uuid
+
     from app.domain.models.connector import Connector, ConnectorStatus
     from app.infrastructure.database import get_session_factory
     from fastapi import Response
-    import uuid as _uuid
+    from sqlalchemy import select
 
     factory = get_session_factory()
     async with factory() as session:
@@ -184,10 +185,10 @@ async def trigger_sync(
     Manually trigger a background sync job for the specified provider.
     The sync runs asynchronously via Celery. Track progress via WebSocket.
     """
-    from sqlalchemy import select
     from app.domain.models.connector import Connector
     from app.infrastructure.database import get_session_factory
     from app.workers.sync_tasks import sync_connector_job
+    from sqlalchemy import select
 
     factory = get_session_factory()
     async with factory() as session:
@@ -200,14 +201,13 @@ async def trigger_sync(
 
     if not connector:
         from fastapi import HTTPException
+
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"No active {provider.value} connector found",
         )
 
-    task = sync_connector_job.apply_async(
-        args=[str(current_user.id), str(connector.id)]
-    )
+    task = sync_connector_job.apply_async(args=[str(current_user.id), str(connector.id)])
 
     return SyncTriggerResponse(
         task_id=task.id,

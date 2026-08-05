@@ -4,32 +4,47 @@ Revision ID: 001
 Revises: None
 Create Date: 2026-08-05
 """
+
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "001"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
     # ── Create ENUM types ──────────────────────────────────────────────────────
     connector_provider_enum = postgresql.ENUM(
-        "google_workspace", "github", "slack", "notion", "jira", "linear", "local_fs",
+        "google_workspace",
+        "github",
+        "slack",
+        "notion",
+        "jira",
+        "linear",
+        "local_fs",
         name="connectorprovider",
     )
     connector_status_enum = postgresql.ENUM(
-        "active", "inactive", "error", "rate_limited", "requires_reauth",
+        "active",
+        "inactive",
+        "error",
+        "rate_limited",
+        "requires_reauth",
         name="connectorstatus",
     )
     sync_status_enum = postgresql.ENUM(
-        "pending", "running", "success", "partial", "failed",
+        "pending",
+        "running",
+        "success",
+        "partial",
+        "failed",
         name="syncstatus",
     )
 
@@ -48,8 +63,18 @@ def upgrade() -> None:
         sa.Column("is_active", sa.Boolean, nullable=False, server_default="true"),
         sa.Column("is_verified", sa.Boolean, nullable=False, server_default="false"),
         sa.Column("settings_json", postgresql.JSONB, nullable=False, server_default="{}"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index("ix_users_email", "users", ["email"], unique=True)
@@ -60,11 +85,23 @@ def upgrade() -> None:
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("provider", sa.Enum(name="connectorprovider"), nullable=False),
-        sa.Column("status", sa.Enum(name="connectorstatus"), nullable=False, server_default="inactive"),
+        sa.Column(
+            "status", sa.Enum(name="connectorstatus"), nullable=False, server_default="inactive"
+        ),
         sa.Column("display_name", sa.String(256), nullable=True),
         sa.Column("external_account_id", sa.String(256), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
     )
@@ -79,8 +116,18 @@ def upgrade() -> None:
         sa.Column("refresh_token", sa.Text, nullable=True),
         sa.Column("token_type", sa.String(32), nullable=False, server_default="Bearer"),
         sa.Column("scope", sa.Text, nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(["connector_id"], ["connectors.id"], ondelete="CASCADE"),
         sa.UniqueConstraint("connector_id"),
@@ -97,8 +144,18 @@ def upgrade() -> None:
         sa.Column("items_failed", sa.Integer, nullable=False, server_default="0"),
         sa.Column("error_msg", sa.Text, nullable=True),
         sa.Column("meta_json", postgresql.JSONB, nullable=False, server_default="{}"),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.ForeignKeyConstraint(["connector_id"], ["connectors.id"], ondelete="CASCADE"),
     )

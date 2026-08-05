@@ -4,14 +4,13 @@ Atlas — Daily Briefing Service.
 Aggregates triage results from all connectors into the daily briefing.
 Generates Focus Score and sorted list of prioritized BriefingItems.
 """
+
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
 from statistics import mean
 from typing import Any
-
-from sqlalchemy import select
 
 from app.core.logging import get_logger
 from app.domain.models.connector import Connector, ConnectorStatus
@@ -20,6 +19,7 @@ from app.infrastructure.database import get_session_factory
 from app.infrastructure.qdrant_client import semantic_search
 from app.services.ai.supervisor_agent import run_atlas_pipeline
 from sentence_transformers import SentenceTransformer
+from sqlalchemy import select
 
 logger = get_logger(__name__)
 
@@ -113,18 +113,24 @@ class BriefingService:
             payload = r.get("payload", {})
             item_type = payload.get("type", "document")
             # Normalise type to match BriefingItem schema
-            item_type = item_type if item_type in ("email", "pr", "issue", "calendar", "document", "task") else "document"
+            item_type = (
+                item_type
+                if item_type in ("email", "pr", "issue", "calendar", "document", "task")
+                else "document"
+            )
             text_chunk = payload.get("text_chunk", "")
             title = text_chunk[:80] if text_chunk else "Untitled"
-            items.append({
-                "id": r["id"],
-                "type": item_type,
-                "title": title,
-                "sender": payload.get("sender_email", payload.get("author", "")),
-                "preview": text_chunk[:200],
-                "source": _source_label(payload.get("type", "document")),
-                "timestamp": payload.get("timestamp", datetime.now(UTC).isoformat()),
-            })
+            items.append(
+                {
+                    "id": r["id"],
+                    "type": item_type,
+                    "title": title,
+                    "sender": payload.get("sender_email", payload.get("author", "")),
+                    "preview": text_chunk[:200],
+                    "source": _source_label(payload.get("type", "document")),
+                    "timestamp": payload.get("timestamp", datetime.now(UTC).isoformat()),
+                }
+            )
         return items
 
     async def generate_briefing(self) -> DailyBriefingResponse:

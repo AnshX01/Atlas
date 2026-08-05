@@ -5,6 +5,7 @@ Syncs Gmail (messages) and Google Calendar (events).
 Implements exponential backoff for rate limits.
 Detects 401s and signals requires_reauth.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -13,6 +14,13 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from app.core.logging import get_logger
+from app.core.security import decrypt_token, encrypt_token
+from app.domain.interfaces.base_connector import BaseConnector
+from app.domain.models.connector import Connector, ConnectorStatus, OAuthToken
+from app.infrastructure.database import get_session_factory
+from app.infrastructure.neo4j_client import upsert_meeting_node, upsert_message_node
+from app.workers.embedding_tasks import batch_embed_chunks
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -24,14 +32,6 @@ from tenacity import (
     stop_after_attempt,
     wait_exponential_jitter,
 )
-
-from app.core.logging import get_logger
-from app.core.security import decrypt_token, encrypt_token
-from app.domain.interfaces.base_connector import BaseConnector
-from app.domain.models.connector import Connector, ConnectorStatus, OAuthToken
-from app.infrastructure.database import get_session_factory
-from app.infrastructure.neo4j_client import upsert_message_node, upsert_meeting_node
-from app.workers.embedding_tasks import batch_embed_chunks
 
 logger = get_logger(__name__)
 
@@ -93,8 +93,8 @@ class GoogleWorkspaceConnector(BaseConnector):
 
     async def authenticate(self, auth_code: str) -> None:
         """Exchange authorization code for tokens and persist them."""
-        from google_auth_oauthlib.flow import Flow
         from app.core.config import get_settings
+        from google_auth_oauthlib.flow import Flow
 
         settings = get_settings()
         flow = Flow.from_client_config(
@@ -178,16 +178,16 @@ class GoogleWorkspaceConnector(BaseConnector):
                 # Parse sender display name and email from "Display Name <email>" or bare "email"
                 if "<" in from_header and ">" in from_header:
                     sender_name = from_header[: from_header.index("<")].strip().strip('"')
-                    sender_email = from_header[from_header.index("<") + 1 : from_header.index(">")].strip()
+                    sender_email = from_header[
+                        from_header.index("<") + 1 : from_header.index(">")
+                    ].strip()
                 else:
                     sender_email = from_header.strip()
                     sender_name = ""
 
                 snippet = msg.get("snippet", "")
                 internal_date = msg.get("internalDate", "0")
-                timestamp_str = datetime.fromtimestamp(
-                    int(internal_date) / 1000, UTC
-                ).isoformat()
+                timestamp_str = datetime.fromtimestamp(int(internal_date) / 1000, UTC).isoformat()
 
                 chunks.append(
                     {
@@ -259,9 +259,7 @@ class GoogleWorkspaceConnector(BaseConnector):
             start_time = event.get("start", {}).get(
                 "dateTime", event.get("start", {}).get("date", "")
             )
-            end_time = event.get("end", {}).get(
-                "dateTime", event.get("end", {}).get("date", "")
-            )
+            end_time = event.get("end", {}).get("dateTime", event.get("end", {}).get("date", ""))
             attendees = event.get("attendees", [])
             attendee_emails = [a["email"] for a in attendees if "email" in a]
 

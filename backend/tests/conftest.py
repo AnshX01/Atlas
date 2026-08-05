@@ -1,8 +1,10 @@
 """Backend tests — conftest.py"""
+
 import pytest
-from httpx import AsyncClient, ASGITransport
-from app.main import app
 from app.infrastructure.database import Base, engine
+from app.main import app
+from httpx import ASGITransport, AsyncClient
+
 
 @pytest.fixture(autouse=True)
 async def setup_db():
@@ -12,6 +14,7 @@ async def setup_db():
     yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
 
 @pytest.fixture
 async def async_client():

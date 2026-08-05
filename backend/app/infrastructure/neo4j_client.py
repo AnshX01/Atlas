@@ -1,12 +1,12 @@
 """Atlas — Infrastructure: Neo4j async driver wrapper."""
+
 from __future__ import annotations
 
 from typing import Any
 
-from neo4j import AsyncDriver, AsyncGraphDatabase
-
 from app.core.config import get_settings
 from app.core.logging import get_logger
+from neo4j import AsyncDriver, AsyncGraphDatabase
 
 logger = get_logger(__name__)
 
@@ -125,7 +125,9 @@ MERGE (u)-[:OWNS]->(t)
             },
         )
     except Exception as e:
-        logger.warning("Neo4j upsert_task_node failed", issue_id=issue_id, user_id=user_id, error=str(e))
+        logger.warning(
+            "Neo4j upsert_task_node failed", issue_id=issue_id, user_id=user_id, error=str(e)
+        )
         return
 
 
@@ -161,7 +163,9 @@ MERGE (m)-[:SENT_BY]->(p)
             },
         )
     except Exception as e:
-        logger.warning("Neo4j upsert_message_node failed", msg_id=msg_id, user_id=user_id, error=str(e))
+        logger.warning(
+            "Neo4j upsert_message_node failed", msg_id=msg_id, user_id=user_id, error=str(e)
+        )
         return
 
 
@@ -202,7 +206,9 @@ MERGE (mt)-[:ATTENDED_BY]->(p)
                 {"event_id": event_id, "user_id": user_id, "email": email},
             )
     except Exception as e:
-        logger.warning("Neo4j upsert_meeting_node failed", event_id=event_id, user_id=user_id, error=str(e))
+        logger.warning(
+            "Neo4j upsert_meeting_node failed", event_id=event_id, user_id=user_id, error=str(e)
+        )
         return
 
 
@@ -230,7 +236,9 @@ MERGE (u)-[:OWNS]->(d)
             },
         )
     except Exception as e:
-        logger.warning("Neo4j upsert_document_node failed", file_path=file_path, user_id=user_id, error=str(e))
+        logger.warning(
+            "Neo4j upsert_document_node failed", file_path=file_path, user_id=user_id, error=str(e)
+        )
         return
 
 

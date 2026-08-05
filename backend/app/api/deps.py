@@ -6,25 +6,27 @@ Provides reusable dependencies for:
   - Current authenticated user
   - Idempotency key validation
 """
+
 from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncGenerator
 
+from app.core.exceptions import AuthenticationError
+from app.core.security import decode_token
+from app.domain.models.user import User
+from app.infrastructure.database import get_async_session
 from fastapi import Depends, Header, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AuthenticationError
-from app.core.security import decode_token
-from app.domain.models.user import User
-from app.infrastructure.database import get_async_session
-
 _bearer = HTTPBearer(auto_error=False)
 
 
-async def get_db(session: AsyncSession = Depends(get_async_session)) -> AsyncGenerator[AsyncSession, None]:
+async def get_db(
+    session: AsyncSession = Depends(get_async_session),
+) -> AsyncGenerator[AsyncSession, None]:
     """Yield a database session. Alias for use in router dependencies."""
     yield session
 

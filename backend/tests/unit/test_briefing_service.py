@@ -1,7 +1,8 @@
-import pytest
-from app.services.briefing_service import _compute_focus_score
+from datetime import UTC, datetime
+
 from app.domain.schemas import BriefingItem
-from datetime import datetime, UTC
+from app.services.briefing_service import _compute_focus_score
+
 
 def create_mock_item(score: int) -> BriefingItem:
     return BriefingItem(
@@ -14,10 +15,12 @@ def create_mock_item(score: int) -> BriefingItem:
         timestamp=datetime.now(UTC),
     )
 
+
 def test_focus_score_empty_returns_zero():
     score, label = _compute_focus_score([])
     assert score == 0
     assert label == "✨ Clear Day"
+
 
 def test_focus_score_single_item():
     items = [create_mock_item(85)]
@@ -25,6 +28,7 @@ def test_focus_score_single_item():
     # 85 * 0.7 + 0 * 0.3 = 59
     assert score == 59
     assert label == "🟡 Moderate Focus Day"
+
 
 def test_focus_score_weighted_formula():
     items = [
@@ -41,6 +45,7 @@ def test_focus_score_weighted_formula():
     assert score == 65
     assert label == "🟡 Moderate Focus Day"
 
+
 def test_focus_label_high():
     items = [create_mock_item(100), create_mock_item(95), create_mock_item(90)]
     # top 3 avg = 95, rest avg = 0 -> 95 * 0.7 = 66
@@ -55,6 +60,7 @@ def test_focus_label_high():
     assert score >= 80
     assert label == "🔴 High Focus Day"
 
+
 def test_focus_label_moderate():
     items = [
         create_mock_item(80),
@@ -67,6 +73,7 @@ def test_focus_label_moderate():
     assert 55 <= score < 80
     assert label == "🟡 Moderate Focus Day"
 
+
 def test_focus_label_light():
     items = [
         create_mock_item(40),
@@ -78,6 +85,7 @@ def test_focus_label_light():
     score, label = _compute_focus_score(items)
     assert 30 <= score < 55
     assert label == "🟢 Light Day"
+
 
 def test_focus_label_clear():
     items = [

@@ -1,14 +1,14 @@
 """Atlas — SyncLog ORM model."""
+
 from __future__ import annotations
 
 import enum
 import uuid
 
+from app.domain.models.base import Base
 from sqlalchemy import Enum, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from app.domain.models.base import Base
 
 
 class SyncStatus(str, enum.Enum):
@@ -29,9 +29,7 @@ class SyncLog(Base):
 
     __tablename__ = "sync_logs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     connector_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("connectors.id", ondelete="CASCADE"),
@@ -49,7 +47,7 @@ class SyncLog(Base):
     meta_json: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
 
     # ── Relationships ─────────────────────────────────────────────────────────
-    connector: Mapped["Connector"] = relationship(  # noqa: F821
+    connector: Mapped[Connector] = relationship(  # noqa: F821
         "Connector", back_populates="sync_logs"
     )
 

@@ -10,12 +10,12 @@ Startup sequence:
   6. Register WebSocket endpoint for real-time updates
   7. Register RFC 7807 exception handlers
 """
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from typing import Any
 
-import structlog
 from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
@@ -28,15 +28,14 @@ from app.api.v1 import (
 )
 from app.api.v1.auth import router as auth_router
 from app.core.config import get_settings
-from app.core.security import decode_token
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging, get_logger
+from app.core.security import decode_token
 from app.infrastructure.database import dispose_engine
 from app.infrastructure.neo4j_client import (
     close_neo4j_driver,
     initialize_schema_constraints,
 )
-from app.infrastructure.qdrant_client import ensure_user_collection
 from app.infrastructure.redis_client import close_redis_pool, subscribe_sync_events
 
 logger = get_logger(__name__)
@@ -113,7 +112,9 @@ def create_app() -> FastAPI:
 
     # ── WebSocket: Real-time Sync Events ──────────────────────────────────────
     @app.websocket("/ws/{user_id}")
-    async def sync_events_websocket(websocket: WebSocket, user_id: str, token: str = Query(default="")) -> None:
+    async def sync_events_websocket(
+        websocket: WebSocket, user_id: str, token: str = Query(default="")
+    ) -> None:
         """
         WebSocket endpoint: relay Redis Pub/Sub sync events to the Electron client.
 

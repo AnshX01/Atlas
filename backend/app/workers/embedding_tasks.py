@@ -4,17 +4,17 @@ Atlas — Celery Embedding Tasks.
 Batch-generates and stores vector embeddings for text chunks.
 Uses local SentenceTransformer model to avoid API costs for embedding.
 """
+
 from __future__ import annotations
 
 import asyncio
 import uuid
 from typing import Any
 
-from celery.utils.log import get_task_logger
-from sentence_transformers import SentenceTransformer
-
 from app.infrastructure.qdrant_client import upsert_vectors
 from app.workers.celery_app import celery_app
+from celery.utils.log import get_task_logger
+from sentence_transformers import SentenceTransformer
 
 logger = get_task_logger(__name__)
 
@@ -52,9 +52,7 @@ def batch_embed_chunks(user_id: str, chunks: list[dict[str, Any]]) -> dict:
     Returns:
         {"embedded": int, "failed": int}
     """
-    return asyncio.get_event_loop().run_until_complete(
-        _async_embed(uuid.UUID(user_id), chunks)
-    )
+    return asyncio.get_event_loop().run_until_complete(_async_embed(uuid.UUID(user_id), chunks))
 
 
 async def _async_embed(user_id: uuid.UUID, chunks: list[dict[str, Any]]) -> dict:

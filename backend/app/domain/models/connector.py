@@ -1,14 +1,14 @@
 """Atlas — Connector & OAuthToken ORM models."""
+
 from __future__ import annotations
 
 import enum
 import uuid
 
+from app.domain.models.base import Base
 from sqlalchemy import Enum, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-from app.domain.models.base import Base
 
 
 class ConnectorProvider(str, enum.Enum):
@@ -41,18 +41,14 @@ class Connector(Base):
 
     __tablename__ = "connectors"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    provider: Mapped[ConnectorProvider] = mapped_column(
-        Enum(ConnectorProvider), nullable=False
-    )
+    provider: Mapped[ConnectorProvider] = mapped_column(Enum(ConnectorProvider), nullable=False)
     status: Mapped[ConnectorStatus] = mapped_column(
         Enum(ConnectorStatus), default=ConnectorStatus.INACTIVE, nullable=False
     )
@@ -60,11 +56,11 @@ class Connector(Base):
     external_account_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
     # ── Relationships ─────────────────────────────────────────────────────────
-    user: Mapped["User"] = relationship("User", back_populates="connectors")  # noqa: F821
-    oauth_token: Mapped["OAuthToken | None"] = relationship(
+    user: Mapped[User] = relationship("User", back_populates="connectors")  # noqa: F821
+    oauth_token: Mapped[OAuthToken | None] = relationship(
         "OAuthToken", back_populates="connector", uselist=False, cascade="all, delete-orphan"
     )
-    sync_logs: Mapped[list["SyncLog"]] = relationship(  # noqa: F821
+    sync_logs: Mapped[list[SyncLog]] = relationship(  # noqa: F821
         "SyncLog", back_populates="connector", cascade="all, delete-orphan"
     )
 
@@ -81,9 +77,7 @@ class OAuthToken(Base):
 
     __tablename__ = "oauth_tokens"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     connector_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("connectors.id", ondelete="CASCADE"),

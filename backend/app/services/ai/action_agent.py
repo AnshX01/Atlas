@@ -6,17 +6,17 @@ Uses Pydantic structured outputs to prevent raw text leakage.
 Supported actions (Phase 1): draft_email, search_and_summarize
 Planned (Phase 2): reply_email, merge_pr, close_issue, create_calendar_event
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
-from pydantic import BaseModel, Field
-
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.domain.interfaces.base_connector import BaseAgent
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field
 
 logger = get_logger(__name__)
 

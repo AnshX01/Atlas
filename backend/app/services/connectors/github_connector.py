@@ -4,6 +4,7 @@ Atlas — GitHub Connector.
 Syncs Issues and Pull Requests. Handles GitHub webhooks for real-time events.
 Implements exponential backoff for secondary rate limits (Retry-After header).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -12,14 +13,6 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from github import Auth, Github, GithubException, RateLimitExceededException
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential_jitter,
-)
-
 from app.core.logging import get_logger
 from app.core.security import decrypt_token, encrypt_token
 from app.domain.interfaces.base_connector import BaseConnector
@@ -27,6 +20,13 @@ from app.domain.models.connector import Connector, ConnectorStatus, OAuthToken
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.neo4j_client import upsert_pr_node, upsert_task_node
 from app.workers.embedding_tasks import batch_embed_chunks
+from github import Auth, Github, GithubException, RateLimitExceededException
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 logger = get_logger(__name__)
 
@@ -124,20 +124,22 @@ class GitHubConnector(BaseConnector):
                 for pr in pulls:
                     if pr.updated_at.replace(tzinfo=UTC) < since:
                         break
-                    chunks.append({
-                        "id": str(uuid.uuid4()),
-                        "source_id": str(pr.id),
-                        "type": "pr",
-                        "text": f"PR #{pr.number}: {pr.title}\n\n{pr.body or ''}",
-                        "timestamp": pr.updated_at.isoformat(),
-                        "metadata": {
-                            "repo": repo.full_name,
-                            "pr_number": pr.number,
-                            "url": pr.html_url,
-                            "author": pr.user.login,
-                            "state": pr.state,
-                        },
-                    })
+                    chunks.append(
+                        {
+                            "id": str(uuid.uuid4()),
+                            "source_id": str(pr.id),
+                            "type": "pr",
+                            "text": f"PR #{pr.number}: {pr.title}\n\n{pr.body or ''}",
+                            "timestamp": pr.updated_at.isoformat(),
+                            "metadata": {
+                                "repo": repo.full_name,
+                                "pr_number": pr.number,
+                                "url": pr.html_url,
+                                "author": pr.user.login,
+                                "state": pr.state,
+                            },
+                        }
+                    )
                     await upsert_pr_node(
                         str(self.user_id),
                         str(pr.id),
@@ -171,20 +173,24 @@ class GitHubConnector(BaseConnector):
             )
             chunks: list[dict] = []
             for issue in issues:
-                chunks.append({
-                    "id": str(uuid.uuid4()),
-                    "source_id": str(issue.id),
-                    "type": "issue",
-                    "text": f"Issue #{issue.number}: {issue.title}\n\n{issue.body or ''}",
-                    "timestamp": issue.updated_at.isoformat(),
-                    "metadata": {
-                        "repo": issue.repository.full_name if hasattr(issue, "repository") else "",
-                        "issue_number": issue.number,
-                        "url": issue.html_url,
-                        "author": issue.user.login if issue.user else "",
-                        "state": issue.state,
-                    },
-                })
+                chunks.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "source_id": str(issue.id),
+                        "type": "issue",
+                        "text": f"Issue #{issue.number}: {issue.title}\n\n{issue.body or ''}",
+                        "timestamp": issue.updated_at.isoformat(),
+                        "metadata": {
+                            "repo": issue.repository.full_name
+                            if hasattr(issue, "repository")
+                            else "",
+                            "issue_number": issue.number,
+                            "url": issue.html_url,
+                            "author": issue.user.login if issue.user else "",
+                            "state": issue.state,
+                        },
+                    }
+                )
                 await upsert_task_node(
                     str(self.user_id),
                     str(issue.id),

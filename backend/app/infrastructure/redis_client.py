@@ -1,4 +1,5 @@
 """Atlas — Infrastructure: Redis client for Pub/Sub and Celery."""
+
 from __future__ import annotations
 
 import json
@@ -6,7 +7,6 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import redis.asyncio as aioredis
-
 from app.core.config import get_settings
 from app.core.logging import get_logger
 

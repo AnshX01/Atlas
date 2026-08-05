@@ -1,22 +1,21 @@
 """Atlas — Infrastructure: Qdrant vector store client."""
+
 from __future__ import annotations
 
 import uuid
 from typing import Any
 
+from app.core.config import get_settings
+from app.core.logging import get_logger
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
     Filter,
     FilterSelector,
     MatchValue,
-    PointIdsList,
     PointStruct,
     VectorParams,
 )
-
-from app.core.config import get_settings
-from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -111,9 +110,7 @@ async def semantic_search(
     query_filter = None
 
     if source_filter:
-        query_filter = Filter(
-            must=[{"key": "type", "match": MatchValue(value=source_filter)}]
-        )
+        query_filter = Filter(must=[{"key": "type", "match": MatchValue(value=source_filter)}])
 
     results = await client.search(
         collection_name=_collection_name(user_id),

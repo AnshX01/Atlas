@@ -1,8 +1,10 @@
 """Unit tests for security module."""
+
 from __future__ import annotations
 
-import os
 import base64
+import os
+
 import pytest
 
 # Patch env vars before importing security
@@ -19,12 +21,11 @@ os.environ.setdefault("POSTGRES_PASSWORD", "test")
 from app.core.security import (
     create_access_token,
     create_refresh_token,
+    decode_token,
     decrypt_token,
-    encode,
     encrypt_token,
     hash_password,
     verify_password,
-    decode_token,
 )
 
 
@@ -59,7 +60,9 @@ class TestJWT:
 
     def test_expired_token_raises(self):
         from datetime import timedelta
+
         from jose import JWTError
+
         token = create_access_token(subject="user", expires_delta=timedelta(seconds=-1))
         with pytest.raises(JWTError):
             decode_token(token)
@@ -77,6 +80,7 @@ class TestEncryption:
         encrypted = encrypt_token("test_token")
         # Should be valid base64
         import base64
+
         decoded = base64.urlsafe_b64decode(encrypted + "==")
         assert len(decoded) > 12  # at least nonce (12) + some ciphertext
 

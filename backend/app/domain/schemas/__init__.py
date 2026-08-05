@@ -1,13 +1,13 @@
 """Atlas — Pydantic schemas for Briefing, Search, Connectors, and Actions."""
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
-
 from app.domain.models.connector import ConnectorProvider
+from pydantic import BaseModel, Field
 
 
 # ── Briefing Schemas ──────────────────────────────────────────────────────────

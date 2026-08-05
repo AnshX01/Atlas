@@ -8,20 +8,19 @@ Each job:
   3. Writes a SyncLog entry
   4. Publishes progress events to Redis Pub/Sub
 """
+
 from __future__ import annotations
 
 import asyncio
 import uuid
 from datetime import UTC, datetime
 
-from celery import shared_task
-from celery.utils.log import get_task_logger
-
 from app.domain.models.connector import ConnectorProvider, ConnectorStatus
 from app.domain.models.sync_log import SyncLog, SyncStatus
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.redis_client import publish_sync_event
 from app.workers.celery_app import celery_app
+from celery.utils.log import get_task_logger
 
 logger = get_task_logger(__name__)
 
@@ -68,8 +67,8 @@ async def _async_sync_connector(task, user_id: uuid.UUID, connector_id: uuid.UUI
     factory = get_session_factory()
 
     async with factory() as session:
-        from sqlalchemy import select
         from app.domain.models.connector import Connector
+        from sqlalchemy import select
 
         stmt = select(Connector).where(
             Connector.id == connector_id,
@@ -166,8 +165,8 @@ def sync_all_active_connectors() -> dict:
 
 
 async def _async_sync_all() -> dict:
-    from sqlalchemy import select
     from app.domain.models.connector import Connector
+    from sqlalchemy import select
 
     factory = get_session_factory()
     async with factory() as session:

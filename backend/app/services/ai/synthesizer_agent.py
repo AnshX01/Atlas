@@ -7,20 +7,21 @@ Implements strict RAG per Section 6.2:
   3. Cross-encoder Reranking
   4. Citation-enforced Generation (Temperature=0)
 """
+
 from __future__ import annotations
 
 import uuid
 from typing import Any
 
+from app.core.config import get_settings
+from app.core.logging import get_logger
+from app.domain.interfaces.base_connector import BaseAgent
+from app.infrastructure import neo4j_client
+from app.infrastructure import qdrant_client as qc
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder, SentenceTransformer
-
-from app.core.config import get_settings
-from app.core.logging import get_logger
-from app.domain.interfaces.base_connector import BaseAgent
-from app.infrastructure import neo4j_client, qdrant_client as qc
 
 logger = get_logger(__name__)
 
@@ -76,7 +77,9 @@ class SynthesizerAgent(BaseAgent):
     async def _rewrite_query(self, query: str) -> list[str]:
         """Expand the user's query into multiple search-optimized variants."""
         settings = get_settings()
-        llm = ChatOpenAI(model=settings.OPENAI_MODEL, temperature=0.0, api_key=settings.OPENAI_API_KEY)
+        llm = ChatOpenAI(
+            model=settings.OPENAI_MODEL, temperature=0.0, api_key=settings.OPENAI_API_KEY
+        )
 
         prompt = f"""Rewrite the following query into 3 search-optimized variants for a semantic search engine.
 Return ONLY a JSON array of 3 strings. No explanation.
@@ -85,6 +88,7 @@ Query: {query}"""
 
         response = await llm.ainvoke([HumanMessage(content=prompt)])
         import json
+
         try:
             variants = json.loads(response.content.strip())
             if isinstance(variants, list):
@@ -205,9 +209,7 @@ Query: {query}"""
             output: RAGOutput = await llm.ainvoke(
                 [
                     SystemMessage(content=SYNTHESIS_SYSTEM_PROMPT),
-                    HumanMessage(
-                        content=f"Context:\n{context_text}\n\nUser Question: {query}"
-                    ),
+                    HumanMessage(content=f"Context:\n{context_text}\n\nUser Question: {query}"),
                 ]
             )
 

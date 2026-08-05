@@ -1,22 +1,18 @@
 """Atlas — Authentication API router."""
+
 from __future__ import annotations
 
 import uuid
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import RedirectResponse
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.api.deps import get_db, get_current_user
+from app.api.deps import get_current_user, get_db
 from app.core.config import get_settings
 from app.core.security import (
     create_access_token,
     create_refresh_token,
+    decode_token,
     hash_password,
     verify_password,
-    decode_token,
 )
 from app.domain.models.connector import Connector, ConnectorProvider, ConnectorStatus
 from app.domain.models.user import User
@@ -28,11 +24,16 @@ from app.domain.schemas.auth import (
     TokenResponse,
     UserResponse,
 )
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 # ── Helper ────────────────────────────────────────────────────────────────────
+
 
 async def _get_or_create_connector(
     session: AsyncSession,
@@ -63,6 +64,7 @@ async def _get_or_create_connector(
 
 
 # ── Registration / Login / Refresh / Me ──────────────────────────────────────
+
 
 @router.post(
     "/register",
@@ -175,6 +177,7 @@ async def get_me(current_user: User = Depends(get_current_user)) -> UserResponse
 
 # ── OAuth Initiate Endpoints ──────────────────────────────────────────────────
 
+
 @router.get("/oauth/google/initiate", summary="Initiate Google OAuth flow")
 async def google_oauth_initiate(
     current_user: User = Depends(get_current_user),
@@ -235,6 +238,7 @@ async def github_oauth_initiate(
 
 # ── OAuth Callback Endpoints ──────────────────────────────────────────────────
 
+
 @router.get("/oauth/google/callback", summary="Google OAuth callback")
 async def google_oauth_callback(
     code: str,
@@ -293,9 +297,7 @@ async def github_oauth_callback(
             raise ValueError("Invalid token purpose")
         user_id = uuid.UUID(state_data["sub"])
 
-        connector_row = await _get_or_create_connector(
-            session, user_id, ConnectorProvider.GITHUB
-        )
+        connector_row = await _get_or_create_connector(session, user_id, ConnectorProvider.GITHUB)
 
         from app.services.connectors.github_connector import GitHubConnector
 

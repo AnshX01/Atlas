@@ -4,6 +4,7 @@ Atlas — Local File System Connector.
 Uses watchdog to monitor local directories for file changes.
 Supported formats: .txt, .md, .pdf, .docx, .py, .ts, .json, .yaml
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -13,6 +14,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from app.core.config import get_settings
+from app.core.logging import get_logger
+from app.domain.interfaces.base_connector import BaseConnector
+from app.domain.models.connector import Connector
+from app.infrastructure.neo4j_client import upsert_document_node
+from app.infrastructure.qdrant_client import delete_by_source_id
+from app.services.chunker import chunk_text
+from app.workers.embedding_tasks import batch_embed_chunks
 from watchdog.events import (
     FileCreatedEvent,
     FileDeletedEvent,
@@ -22,20 +31,22 @@ from watchdog.events import (
 )
 from watchdog.observers import Observer
 
-from app.core.config import get_settings
-from app.core.logging import get_logger
-from app.domain.interfaces.base_connector import BaseConnector
-from app.domain.models.connector import Connector
-from app.infrastructure.neo4j_client import upsert_document_node
-from app.infrastructure.qdrant_client import delete_by_source_id
-from app.services.chunker import chunk_text
-from app.workers.embedding_tasks import batch_embed_chunks
-
 logger = get_logger(__name__)
 
 SUPPORTED_EXTENSIONS = {
-    ".txt", ".md", ".pdf", ".docx", ".py", ".ts", ".tsx",
-    ".js", ".json", ".yaml", ".yml", ".csv", ".rst",
+    ".txt",
+    ".md",
+    ".pdf",
+    ".docx",
+    ".py",
+    ".ts",
+    ".tsx",
+    ".js",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".csv",
+    ".rst",
 }
 
 
@@ -195,7 +206,9 @@ class LocalFSConnector(BaseConnector):
                         try:
                             content = file_path.read_text(encoding="utf-8", errors="ignore")
                             text_chunks = chunk_text(content)
-                            mtime = datetime.fromtimestamp(file_path.stat().st_mtime, UTC).isoformat()
+                            mtime = datetime.fromtimestamp(
+                                file_path.stat().st_mtime, UTC
+                            ).isoformat()
                             chunks = [
                                 {
                                     "id": str(uuid.uuid4()),
@@ -227,7 +240,7 @@ class LocalFSConnector(BaseConnector):
                                 error=str(e),
                             )
                     yield event
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     continue
         finally:
             await self.teardown()

@@ -15,20 +15,20 @@ Graph State:
     citations      Source IDs from RAG pipeline
     error          Any error encountered during processing
 """
+
 from __future__ import annotations
 
 import uuid
 from typing import Any, Literal, TypedDict
-
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_openai import ChatOpenAI
-from langgraph.graph import END, StateGraph
 
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.services.ai.action_agent import ActionAgent
 from app.services.ai.synthesizer_agent import SynthesizerAgent
 from app.services.ai.triage_agent import TriageAgent
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+from langgraph.graph import END, StateGraph
 
 logger = get_logger(__name__)
 

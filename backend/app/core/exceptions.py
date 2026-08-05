@@ -3,6 +3,7 @@ Atlas Backend — Exception Handlers & RFC 7807 Error Responses.
 
 All HTTP error responses conform to RFC 7807 "Problem Details for HTTP APIs".
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -142,9 +143,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(Exception)
-    async def unhandled_exception_handler(
-        request: Request, exc: Exception
-    ) -> ORJSONResponse:
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> ORJSONResponse:
         # Never leak internal tracebacks to clients
         return _problem_response(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

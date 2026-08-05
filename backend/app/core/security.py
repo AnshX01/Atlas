@@ -6,6 +6,7 @@ Handles:
   - AES-256-GCM encryption/decryption for OAuth tokens at rest
   - Password hashing (bcrypt)
 """
+
 from __future__ import annotations
 
 import base64
@@ -13,11 +14,10 @@ import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-
 from app.core.config import get_settings
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from jose import jwt
+from passlib.context import CryptContext
 
 # ── Password hashing ──────────────────────────────────────────────────────────
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -52,10 +52,7 @@ def create_access_token(
     """
     settings = get_settings()
     now = datetime.now(UTC)
-    expire = now + (
-        expires_delta
-        or timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
+    expire = now + (expires_delta or timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES))
     payload: dict[str, Any] = {
         "sub": subject,
         "iat": now,

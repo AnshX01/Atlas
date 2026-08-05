@@ -4,11 +4,13 @@ Atlas — Abstract Base Interfaces for Connectors and Agents.
 All concrete connectors must extend BaseConnector.
 All AI agents must extend BaseAgent.
 """
+
 from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from app.domain.models.connector import Connector
@@ -31,7 +33,7 @@ class BaseConnector(ABC):
         - Scope all DB writes to the owning user_id (RBAC).
     """
 
-    def __init__(self, connector: "Connector", user_id: uuid.UUID) -> None:
+    def __init__(self, connector: Connector, user_id: uuid.UUID) -> None:
         self.connector = connector
         self.user_id = user_id
         self.provider = connector.provider

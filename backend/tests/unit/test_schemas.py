@@ -1,9 +1,10 @@
 """Unit tests for Pydantic schemas."""
+
 from __future__ import annotations
 
 import pytest
+from app.domain.schemas.auth import LoginRequest, RegisterRequest
 from pydantic import ValidationError
-from app.domain.schemas.auth import RegisterRequest, LoginRequest
 
 
 class TestRegisterRequest:
