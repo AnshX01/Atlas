@@ -1,0 +1,313 @@
+"""Atlas — Authentication API router."""
+from __future__ import annotations
+
+import uuid
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import RedirectResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_db, get_current_user
+from app.core.config import get_settings
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    hash_password,
+    verify_password,
+    decode_token,
+)
+from app.domain.models.connector import Connector, ConnectorProvider, ConnectorStatus
+from app.domain.models.user import User
+from app.domain.schemas.auth import (
+    AuthResponse,
+    LoginRequest,
+    RefreshRequest,
+    RegisterRequest,
+    TokenResponse,
+    UserResponse,
+)
+
+router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+# ── Helper ────────────────────────────────────────────────────────────────────
+
+async def _get_or_create_connector(
+    session: AsyncSession,
+    user_id: uuid.UUID,
+    provider: ConnectorProvider,
+) -> Connector:
+    """Return existing connector for user+provider, or create an INACTIVE one."""
+    result = await session.execute(
+        select(Connector).where(
+            Connector.user_id == user_id,
+            Connector.provider == provider,
+        )
+    )
+    connector = result.scalar_one_or_none()
+    if connector is not None:
+        return connector
+
+    connector = Connector(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        provider=provider,
+        status=ConnectorStatus.INACTIVE,
+    )
+    session.add(connector)
+    await session.commit()
+    await session.refresh(connector)
+    return connector
+
+
+# ── Registration / Login / Refresh / Me ──────────────────────────────────────
+
+@router.post(
+    "/register",
+    response_model=AuthResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register a new Atlas user",
+)
+async def register(
+    payload: RegisterRequest,
+    session: AsyncSession = Depends(get_db),
+) -> AuthResponse:
+    """Create a new user account and return JWT token pair."""
+    existing = await session.execute(select(User).where(User.email == payload.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"User with email {payload.email} already exists",
+        )
+
+    user = User(
+        id=uuid.uuid4(),
+        email=payload.email,
+        hashed_password=hash_password(payload.password),
+        full_name=payload.full_name,
+    )
+    session.add(user)
+    await session.commit()
+    await session.refresh(user)
+
+    access_token = create_access_token(str(user.id))
+    refresh_token = create_refresh_token(str(user.id))
+    settings = get_settings()
+
+    return AuthResponse(
+        tokens=TokenResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        ),
+        user=UserResponse.model_validate(user),
+    )
+
+
+@router.post("/login", response_model=AuthResponse, summary="Login and receive JWT tokens")
+async def login(
+    payload: LoginRequest,
+    session: AsyncSession = Depends(get_db),
+) -> AuthResponse:
+    """Authenticate with email/password and return JWT token pair."""
+    result = await session.execute(select(User).where(User.email == payload.email))
+    user = result.scalar_one_or_none()
+
+    if not user or not verify_password(payload.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is disabled",
+        )
+
+    settings = get_settings()
+    return AuthResponse(
+        tokens=TokenResponse(
+            access_token=create_access_token(str(user.id)),
+            refresh_token=create_refresh_token(str(user.id)),
+            expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        ),
+        user=UserResponse.model_validate(user),
+    )
+
+
+@router.post("/refresh", response_model=TokenResponse, summary="Refresh access token")
+async def refresh_token(
+    payload: RefreshRequest,
+    session: AsyncSession = Depends(get_db),
+) -> TokenResponse:
+    """Exchange a valid refresh token for a new access + refresh token pair."""
+    try:
+        token_data = decode_token(payload.refresh_token)
+        if token_data.get("type") != "refresh":
+            raise ValueError("Not a refresh token")
+        user_id = uuid.UUID(token_data["sub"])
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid refresh token: {exc}",
+        ) from exc
+
+    user = await session.get(User, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    settings = get_settings()
+    return TokenResponse(
+        access_token=create_access_token(str(user.id)),
+        refresh_token=create_refresh_token(str(user.id)),
+        expires_in=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+
+
+@router.get("/me", response_model=UserResponse, summary="Get current user profile")
+async def get_me(current_user: User = Depends(get_current_user)) -> UserResponse:
+    """Return the authenticated user's profile."""
+    return UserResponse.model_validate(current_user)
+
+
+# ── OAuth Initiate Endpoints ──────────────────────────────────────────────────
+
+@router.get("/oauth/google/initiate", summary="Initiate Google OAuth flow")
+async def google_oauth_initiate(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return a Google OAuth authorization URL for the authenticated user."""
+    from google_auth_oauthlib.flow import Flow
+
+    settings = get_settings()
+
+    state_token = create_access_token(
+        str(current_user.id),
+        expires_delta=timedelta(minutes=10),
+        extra_claims={"purpose": "oauth_state"},
+    )
+
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": settings.GOOGLE_CLIENT_ID,
+                "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [settings.GOOGLE_REDIRECT_URI],
+            }
+        },
+        scopes=settings.google_scopes_list,
+        redirect_uri=settings.GOOGLE_REDIRECT_URI,
+    )
+    auth_url, _ = flow.authorization_url(
+        state=state_token,
+        access_type="offline",
+        include_granted_scopes="true",
+    )
+    return {"auth_url": auth_url}
+
+
+@router.get("/oauth/github/initiate", summary="Initiate GitHub OAuth flow")
+async def github_oauth_initiate(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return a GitHub OAuth authorization URL for the authenticated user."""
+    settings = get_settings()
+
+    state_token = create_access_token(
+        str(current_user.id),
+        expires_delta=timedelta(minutes=10),
+        extra_claims={"purpose": "oauth_state"},
+    )
+
+    auth_url = (
+        f"https://github.com/login/oauth/authorize"
+        f"?client_id={settings.GITHUB_CLIENT_ID}"
+        f"&state={state_token}"
+        f"&scope=repo,user:email"
+    )
+    return {"auth_url": auth_url}
+
+
+# ── OAuth Callback Endpoints ──────────────────────────────────────────────────
+
+@router.get("/oauth/google/callback", summary="Google OAuth callback")
+async def google_oauth_callback(
+    code: str,
+    state: str | None = None,
+    session: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    """Handle Google OAuth redirect. Exchange code for tokens and activate connector."""
+    if state is None:
+        return RedirectResponse(
+            "http://localhost:3000/settings?error=google_auth_failed",
+            status_code=302,
+        )
+
+    try:
+        state_data = decode_token(state)
+        if state_data.get("purpose") != "oauth_state":
+            raise ValueError("Invalid token purpose")
+        user_id = uuid.UUID(state_data["sub"])
+
+        connector_row = await _get_or_create_connector(
+            session, user_id, ConnectorProvider.GOOGLE_WORKSPACE
+        )
+
+        from app.services.connectors.google_workspace import GoogleWorkspaceConnector
+
+        connector = GoogleWorkspaceConnector(connector=connector_row, user_id=user_id)
+        await connector.authenticate(code)
+
+        return RedirectResponse(
+            "http://localhost:3000/settings?connected=google",
+            status_code=302,
+        )
+    except Exception:
+        return RedirectResponse(
+            "http://localhost:3000/settings?error=google_auth_failed",
+            status_code=302,
+        )
+
+
+@router.get("/oauth/github/callback", summary="GitHub OAuth callback")
+async def github_oauth_callback(
+    code: str,
+    state: str | None = None,
+    session: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    """Handle GitHub OAuth redirect. Exchange code for tokens and activate connector."""
+    if state is None:
+        return RedirectResponse(
+            "http://localhost:3000/settings?error=github_auth_failed",
+            status_code=302,
+        )
+
+    try:
+        state_data = decode_token(state)
+        if state_data.get("purpose") != "oauth_state":
+            raise ValueError("Invalid token purpose")
+        user_id = uuid.UUID(state_data["sub"])
+
+        connector_row = await _get_or_create_connector(
+            session, user_id, ConnectorProvider.GITHUB
+        )
+
+        from app.services.connectors.github_connector import GitHubConnector
+
+        connector = GitHubConnector(connector=connector_row, user_id=user_id)
+        await connector.authenticate(code)
+
+        return RedirectResponse(
+            "http://localhost:3000/settings?connected=github",
+            status_code=302,
+        )
+    except Exception:
+        return RedirectResponse(
+            "http://localhost:3000/settings?error=github_auth_failed",
+            status_code=302,
+        )

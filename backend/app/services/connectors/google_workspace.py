@@ -1,0 +1,357 @@
+"""
+Atlas — Google Workspace Connector.
+
+Syncs Gmail (messages) and Google Calendar (events).
+Implements exponential backoff for rate limits.
+Detects 401s and signals requires_reauth.
+"""
+from __future__ import annotations
+
+import asyncio
+import uuid
+from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from google.auth.exceptions import RefreshError
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
+
+from app.core.logging import get_logger
+from app.core.security import decrypt_token, encrypt_token
+from app.domain.interfaces.base_connector import BaseConnector
+from app.domain.models.connector import Connector, ConnectorStatus, OAuthToken
+from app.infrastructure.database import get_session_factory
+from app.infrastructure.neo4j_client import upsert_message_node, upsert_meeting_node
+from app.workers.embedding_tasks import batch_embed_chunks
+
+logger = get_logger(__name__)
+
+
+class GoogleWorkspaceConnector(BaseConnector):
+    """
+    Connector for Gmail (read) and Google Calendar (read).
+
+    Phase 1 implementation: Read-only sync. Write actions in Phase 2.
+    """
+
+    PROVIDER = "google_workspace"
+
+    def __init__(self, connector: Connector, user_id: uuid.UUID) -> None:
+        super().__init__(connector, user_id)
+        self._creds: Credentials | None = None
+
+    async def _load_credentials(self) -> Credentials:
+        """Load and refresh OAuth credentials from the DB."""
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        factory = get_session_factory()
+
+        async with factory() as session:
+            token_row = await session.get(OAuthToken, self.connector.id)
+            if not token_row:
+                raise ValueError(f"No OAuth token for connector {self.connector.id}")
+
+            access_token = decrypt_token(token_row.access_token)
+            refresh_token = (
+                decrypt_token(token_row.refresh_token) if token_row.refresh_token else None
+            )
+
+        creds = Credentials(
+            token=access_token,
+            refresh_token=refresh_token,
+            client_id=settings.GOOGLE_CLIENT_ID,
+            client_secret=settings.GOOGLE_CLIENT_SECRET,
+            token_uri="https://oauth2.googleapis.com/token",
+            scopes=settings.google_scopes_list,
+        )
+
+        if creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(Request())
+                # Persist refreshed token
+                async with factory() as session:
+                    token_row = await session.get(OAuthToken, self.connector.id)
+                    if token_row:
+                        token_row.access_token = encrypt_token(creds.token)
+                        session.add(token_row)
+                        await session.commit()
+            except RefreshError:
+                await self._mark_requires_reauth()
+                raise
+
+        return creds
+
+    async def authenticate(self, auth_code: str) -> None:
+        """Exchange authorization code for tokens and persist them."""
+        from google_auth_oauthlib.flow import Flow
+        from app.core.config import get_settings
+
+        settings = get_settings()
+        flow = Flow.from_client_config(
+            {
+                "web": {
+                    "client_id": settings.GOOGLE_CLIENT_ID,
+                    "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "redirect_uris": [settings.GOOGLE_REDIRECT_URI],
+                }
+            },
+            scopes=settings.google_scopes_list,
+            redirect_uri=settings.GOOGLE_REDIRECT_URI,
+        )
+        flow.fetch_token(code=auth_code)
+        creds = flow.credentials
+
+        factory = get_session_factory()
+        async with factory() as session:
+            existing = await session.get(OAuthToken, self.connector.id)
+            if existing:
+                existing.access_token = encrypt_token(creds.token)
+                existing.refresh_token = encrypt_token(creds.refresh_token or "")
+                session.add(existing)
+            else:
+                token = OAuthToken(
+                    id=uuid.uuid4(),
+                    connector_id=self.connector.id,
+                    access_token=encrypt_token(creds.token),
+                    refresh_token=encrypt_token(creds.refresh_token or ""),
+                    scope=" ".join(creds.scopes or []),
+                )
+                session.add(token)
+
+            self.connector.status = ConnectorStatus.ACTIVE
+            session.add(self.connector)
+            await session.commit()
+
+        logger.info("Google Workspace authenticated", connector_id=str(self.connector.id))
+
+    @retry(
+        retry=retry_if_exception_type(HttpError),
+        wait=wait_exponential_jitter(initial=2, max=60),
+        stop=stop_after_attempt(5),
+    )
+    def _sync_gmail(
+        self, service: Any, since: datetime
+    ) -> tuple[dict[str, int], list[dict[str, Any]], list[dict[str, Any]]]:
+        """Sync Gmail messages since the given datetime.
+
+        Returns:
+            A 3-tuple of (result_dict, chunks_list, neo4j_data_list).
+            neo4j_data_list contains dicts with keys needed to call upsert_message_node.
+        """
+        since_ts = int(since.timestamp())
+        query = f"after:{since_ts}"
+
+        results = service.users().messages().list(userId="me", q=query, maxResults=100).execute()
+        messages = results.get("messages", [])
+        synced = 0
+        chunks: list[dict[str, Any]] = []
+        neo4j_data: list[dict[str, Any]] = []
+
+        for msg_ref in messages:
+            try:
+                msg = (
+                    service.users()
+                    .messages()
+                    .get(userId="me", id=msg_ref["id"], format="metadata")
+                    .execute()
+                )
+
+                # Extract headers into a lookup dict
+                headers_list = msg.get("payload", {}).get("headers", [])
+                headers = {h["name"]: h["value"] for h in headers_list}
+
+                subject = headers.get("Subject", "")
+                from_header = headers.get("From", "")
+
+                # Parse sender display name and email from "Display Name <email>" or bare "email"
+                if "<" in from_header and ">" in from_header:
+                    sender_name = from_header[: from_header.index("<")].strip().strip('"')
+                    sender_email = from_header[from_header.index("<") + 1 : from_header.index(">")].strip()
+                else:
+                    sender_email = from_header.strip()
+                    sender_name = ""
+
+                snippet = msg.get("snippet", "")
+                internal_date = msg.get("internalDate", "0")
+                timestamp_str = datetime.fromtimestamp(
+                    int(internal_date) / 1000, UTC
+                ).isoformat()
+
+                chunks.append(
+                    {
+                        "id": str(uuid.uuid4()),
+                        "source_id": msg["id"],
+                        "type": "email",
+                        "text": f"{subject}\n{snippet}",
+                        "timestamp": timestamp_str,
+                        "metadata": {
+                            "subject": subject,
+                            "sender_email": sender_email,
+                            "sender_name": sender_name,
+                        },
+                    }
+                )
+
+                neo4j_data.append(
+                    {
+                        "msg_id": msg["id"],
+                        "subject": subject,
+                        "sender_email": sender_email,
+                        "sender_name": sender_name,
+                        "timestamp": timestamp_str,
+                    }
+                )
+
+                logger.debug("Gmail message synced", msg_id=msg_ref["id"])
+                synced += 1
+            except HttpError as e:
+                if e.resp.status == 401:
+                    # Cannot call async _mark_requires_reauth from a sync thread;
+                    # re-raise so the caller can handle it.
+                    raise
+                logger.warning("Failed to fetch Gmail message", msg_id=msg_ref["id"], error=str(e))
+
+        return {"synced": synced, "failed": 0, "skipped": 0}, chunks, neo4j_data
+
+    @retry(
+        retry=retry_if_exception_type(HttpError),
+        wait=wait_exponential_jitter(initial=2, max=60),
+        stop=stop_after_attempt(5),
+    )
+    def _sync_calendar(
+        self, service: Any, since: datetime
+    ) -> tuple[dict[str, int], list[dict[str, Any]], list[dict[str, Any]]]:
+        """Sync Google Calendar events since the given datetime.
+
+        Returns:
+            A 3-tuple of (result_dict, chunks_list, neo4j_data_list).
+            neo4j_data_list contains dicts with keys needed to call upsert_meeting_node.
+        """
+        events_result = (
+            service.events()
+            .list(
+                calendarId="primary",
+                timeMin=since.isoformat(),
+                maxResults=50,
+                singleEvents=True,
+                orderBy="startTime",
+            )
+            .execute()
+        )
+        events = events_result.get("items", [])
+        synced = 0
+        chunks: list[dict[str, Any]] = []
+        neo4j_data: list[dict[str, Any]] = []
+
+        for event in events:
+            start_time = event.get("start", {}).get(
+                "dateTime", event.get("start", {}).get("date", "")
+            )
+            end_time = event.get("end", {}).get(
+                "dateTime", event.get("end", {}).get("date", "")
+            )
+            attendees = event.get("attendees", [])
+            attendee_emails = [a["email"] for a in attendees if "email" in a]
+
+            chunks.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "source_id": event["id"],
+                    "type": "calendar",
+                    "text": f"{event.get('summary', '')}\n{event.get('description', '')}",
+                    "timestamp": start_time,
+                    "metadata": {
+                        "attendees": attendee_emails,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                    },
+                }
+            )
+
+            neo4j_data.append(
+                {
+                    "event_id": event["id"],
+                    "title": event.get("summary", ""),
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "attendees": attendee_emails,
+                }
+            )
+
+            logger.debug("Calendar event synced", event_id=event.get("id"))
+            synced += 1
+
+        return {"synced": synced, "failed": 0, "skipped": 0}, chunks, neo4j_data
+
+    async def sync(self) -> dict[str, int]:
+        """Sync Gmail + Calendar from the past 7 days."""
+        creds = await self._load_credentials()
+        since = datetime.now(UTC) - timedelta(days=7)
+
+        gmail_service = build("gmail", "v1", credentials=creds)
+        calendar_service = build("calendar", "v3", credentials=creds)
+
+        gmail_result, gmail_chunks, gmail_neo4j = await asyncio.to_thread(
+            self._sync_gmail, gmail_service, since
+        )
+        cal_result, cal_chunks, cal_neo4j = await asyncio.to_thread(
+            self._sync_calendar, calendar_service, since
+        )
+
+        # Write Neo4j nodes asynchronously (failures are silently logged inside helpers)
+        await asyncio.gather(
+            *[
+                upsert_message_node(
+                    str(self.user_id),
+                    item["msg_id"],
+                    item["subject"],
+                    item["sender_email"],
+                    item["sender_name"],
+                    item["timestamp"],
+                )
+                for item in gmail_neo4j
+            ],
+            *[
+                upsert_meeting_node(
+                    str(self.user_id),
+                    item["event_id"],
+                    item["title"],
+                    item["start_time"],
+                    item["end_time"],
+                    item["attendees"],
+                )
+                for item in cal_neo4j
+            ],
+        )
+
+        # Dispatch all chunks to Qdrant via Celery embedding task
+        all_chunks = gmail_chunks + cal_chunks
+        if all_chunks:
+            batch_embed_chunks.delay(str(self.user_id), all_chunks)
+
+        total = {
+            "synced": gmail_result["synced"] + cal_result["synced"],
+            "failed": gmail_result["failed"] + cal_result["failed"],
+            "skipped": 0,
+        }
+        logger.info("Google Workspace sync complete", **total, user_id=str(self.user_id))
+        return total
+
+    async def watch(self) -> AsyncIterator[dict[str, Any]]:
+        """Placeholder: real-time Gmail push via Google Pub/Sub (Phase 2)."""
+        logger.info("Google Workspace watch not yet implemented — polling fallback active")
+        while True:
+            await asyncio.sleep(300)  # 5-minute polling interval
+            yield {"type": "poll_tick", "payload": {}}

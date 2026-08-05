@@ -1,0 +1,283 @@
+/* ============================================================
+   Atlas — Global Design System
+   Section 8.2: Design Tokens & Theming
+   ============================================================ */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
+
+/* ── CSS Design Tokens ──────────────────────────────────────── */
+:root {
+  /* Light Mode */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8fafc;
+  --bg-tertiary: #f1f5f9;
+  --bg-glass: rgba(255, 255, 255, 0.7);
+
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #94a3b8;
+
+  --border-default: rgba(0, 0, 0, 0.08);
+  --border-subtle: rgba(0, 0, 0, 0.04);
+
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-glow: rgba(59, 130, 246, 0.2);
+
+  --status-urgent: #ef4444;
+  --status-high: #f97316;
+  --status-medium: #eab308;
+  --status-low: #22c55e;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
+  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  --shadow-glow: 0 0 20px var(--accent-glow);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  --transition-fast: 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-normal: 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  --transition-slow: 350ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dark {
+  /* Dark Mode — Atlas Black */
+  --bg-primary: #09090b;
+  --bg-secondary: #111113;
+  --bg-tertiary: #18181b;
+  --bg-glass: rgba(17, 17, 19, 0.8);
+
+  --text-primary: #f8fafc;
+  --text-secondary: #a1a1aa;
+  --text-muted: #52525b;
+
+  --border-default: rgba(255, 255, 255, 0.08);
+  --border-subtle: rgba(255, 255, 255, 0.04);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-glow: 0 0 24px rgba(59, 130, 246, 0.25);
+}
+
+/* ── Reset & Base ───────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  font-family: "Inter", system-ui, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  transition: background-color var(--transition-normal), color var(--transition-normal);
+  overflow: hidden; /* Electron window — no OS scrollbar */
+}
+
+/* ── Typography Scale ───────────────────────────────────────── */
+h1 { font-size: 2rem;    font-weight: 700; letter-spacing: -0.03em; line-height: 1.2; }
+h2 { font-size: 1.5rem;  font-weight: 600; letter-spacing: -0.02em; line-height: 1.3; }
+h3 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.01em; line-height: 1.4; }
+h4 { font-size: 1rem;    font-weight: 600; line-height: 1.5; }
+p  { color: var(--text-secondary); line-height: 1.7; }
+
+/* ── Utility Classes ────────────────────────────────────────── */
+.glass {
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-glass);
+}
+
+.glow {
+  box-shadow: var(--shadow-glow);
+}
+
+.focus-score-high  { color: var(--status-urgent); }
+.focus-score-med   { color: var(--status-medium); }
+.focus-score-low   { color: var(--status-low); }
+
+/* ── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ── Selection ──────────────────────────────────────────────── */
+::selection {
+  background: var(--accent-glow);
+  color: var(--text-primary);
+}
+
+/* ── Focus Ring ─────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ── App Layout ─────────────────────────────────────────────── */
+.app-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  grid-template-rows: 48px 1fr;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.app-topbar {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px);
+  -webkit-app-region: drag; /* Electron drag */
+}
+
+.app-sidebar {
+  grid-column: 1;
+  grid-row: 2;
+  border-right: 1px solid var(--border-subtle);
+  overflow-y: auto;
+}
+
+.app-main {
+  grid-column: 2;
+  grid-row: 2;
+  overflow-y: auto;
+  padding: 2rem;
+}
+
+/* ── Priority Score Badge Colors ────────────────────────────── */
+.priority-urgent { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+.priority-high   { background: rgba(249, 115, 22, 0.15); color: #f97316; }
+.priority-medium { background: rgba(234, 179, 8, 0.15); color: #ca8a04; }
+.priority-low    { background: rgba(34, 197, 94, 0.15); color: #16a34a; }
+
+/* ── Skeleton Loader ────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 25%,
+    var(--bg-secondary) 50%,
+    var(--bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+@keyframes skeleton-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ── Command Bar Overlay ────────────────────────────────────── */
+.command-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  z-index: 9998;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 15vh;
+}
+
+.command-bar {
+  width: min(680px, 90vw);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg), var(--shadow-glow);
+  overflow: hidden;
+}
+
+.command-input {
+  width: 100%;
+  padding: 1rem 1.25rem;
+  font-size: 1.125rem;
+  font-family: "Inter", sans-serif;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  caret-color: var(--accent);
+}
+
+.command-results {
+  max-height: 400px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.command-result-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1.25rem;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.command-result-item:hover,
+.command-result-item[data-selected="true"] {
+  background: var(--bg-glass);
+}
+
+/* ── Briefing Card ──────────────────────────────────────────── */
+.briefing-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem;
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+  cursor: pointer;
+}
+
+.briefing-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ── Atlas Focus Score Ring ─────────────────────────────────── */
+.focus-ring-container {
+  position: relative;
+  width: 120px;
+  height: 120px;
+}
+
+.focus-ring-svg {
+  transform: rotate(-90deg);
+}
+
+.focus-ring-track {
+  fill: none;
+  stroke: var(--bg-tertiary);
+  stroke-width: 8;
+}
+
+.focus-ring-fill {
+  fill: none;
+  stroke-width: 8;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
