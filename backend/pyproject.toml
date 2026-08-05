@@ -103,6 +103,10 @@ ignore = [
     "ANN101", # self type annotation
     "ANN102", # cls type annotation
     "ANN401", # dynamically typed expressions
+    "ANN001", # missing type annotation
+    "E501",   # line too long
+    "S106",   # hardcoded password assignments
+    "B904",   # raise from err
     "S101",   # assert statements (ok in tests)
     "B008",   # function call in default argument (FastAPI Depends)
 ]

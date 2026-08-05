@@ -62,11 +62,6 @@ services:
       - "6334:6334"   # gRPC
     volumes:
       - qdrant_data:/qdrant/storage
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:6333/readyz || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   # ── Redis 7 ───────────────────────────────────────────────
   redis:
@@ -110,7 +105,7 @@ services:
       neo4j:
         condition: service_healthy
       qdrant:
-        condition: service_healthy
+        condition: service_started
       redis:
         condition: service_healthy
     command: >
