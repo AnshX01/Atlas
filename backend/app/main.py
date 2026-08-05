@@ -13,6 +13,7 @@ Startup sequence:
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -43,7 +44,7 @@ settings = get_settings()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage application lifecycle — startup and shutdown."""
     # ── Startup ───────────────────────────────────────────────────────────────
     configure_logging()

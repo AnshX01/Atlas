@@ -93,7 +93,7 @@ Query: {query}"""
             variants = json.loads(response.content.strip())
             if isinstance(variants, list):
                 return [query] + variants[:3]
-        except Exception:
+        except Exception:  # noqa: S110
             pass
         return [query]
 
@@ -158,7 +158,7 @@ Query: {query}"""
             return candidates[:top_k]
 
         scores = reranker.predict(pairs)
-        scored = sorted(zip(candidates, scores), key=lambda x: x[1], reverse=True)
+        scored = sorted(zip(candidates, scores, strict=False), key=lambda x: x[1], reverse=True)
         return [item for item, _ in scored[:top_k]]
 
     async def run(self, state: dict[str, Any]) -> dict[str, Any]:

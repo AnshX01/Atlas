@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
-class ConnectorProvider(str, enum.Enum):
+class ConnectorProvider(enum.StrEnum):
     """Enumeration of supported third-party integration providers."""
 
     GOOGLE_WORKSPACE = "google_workspace"
@@ -23,7 +23,7 @@ class ConnectorProvider(str, enum.Enum):
     LOCAL_FS = "local_fs"
 
 
-class ConnectorStatus(str, enum.Enum):
+class ConnectorStatus(enum.StrEnum):
     """Current sync status of a connector."""
 
     ACTIVE = "active"

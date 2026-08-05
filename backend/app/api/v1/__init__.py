@@ -143,7 +143,6 @@ async def create_connector(
 
     from app.domain.models.connector import Connector, ConnectorStatus
     from app.infrastructure.database import get_session_factory
-    from fastapi import Response
     from sqlalchemy import select
 
     factory = get_session_factory()

@@ -84,9 +84,9 @@ def upgrade() -> None:
         "connectors",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("provider", sa.Enum(name="connectorprovider"), nullable=False),
+        sa.Column("provider", sa.Enum(name="connectorprovider", create_type=False), nullable=False),
         sa.Column(
-            "status", sa.Enum(name="connectorstatus"), nullable=False, server_default="inactive"
+            "status", sa.Enum(name="connectorstatus", create_type=False), nullable=False, server_default="inactive"
         ),
         sa.Column("display_name", sa.String(256), nullable=True),
         sa.Column("external_account_id", sa.String(256), nullable=True),
@@ -139,7 +139,7 @@ def upgrade() -> None:
         "sync_logs",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("connector_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("status", sa.Enum(name="syncstatus"), nullable=False, server_default="pending"),
+        sa.Column("status", sa.Enum(name="syncstatus", create_type=False), nullable=False, server_default="pending"),
         sa.Column("items_synced", sa.Integer, nullable=False, server_default="0"),
         sa.Column("items_failed", sa.Integer, nullable=False, server_default="0"),
         sa.Column("error_msg", sa.Text, nullable=True),

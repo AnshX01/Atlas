@@ -61,6 +61,7 @@ class BaseConnector(ABC):
         Each event is a dict with at least {"type": str, "payload": dict}.
         """
 
+    @abstractmethod
     async def teardown(self) -> None:
         """
         Optional cleanup (revoke webhook, close WebSocket, etc.).
