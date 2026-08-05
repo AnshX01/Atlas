@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Providers } from "./providers";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopBar } from "@/components/layout/TopBar";
 import { CommandBar } from "@/components/composite/CommandBar";
@@ -19,16 +19,7 @@ export const metadata: Metadata = {
   },
 };
 
-// React Query client
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 1000 * 60 * 5,   // 5 minutes
-      retry: 2,
-      refetchOnWindowFocus: false,
-    },
-  },
-});
+// Query client is now initialized in Providers component
 
 export default function RootLayout({
   children,
@@ -52,13 +43,15 @@ export default function RootLayout({
           Skip to main content
         </a>
 
-        <div className="app-layout">
-          <TopBar />
-          <Sidebar />
-          <main id="main-content" className="app-main" role="main">
-            {children}
-          </main>
-        </div>
+        <Providers>
+          <div className="app-layout">
+            <TopBar />
+            <Sidebar />
+            <main id="main-content" className="app-main" role="main">
+              {children}
+            </main>
+          </div>
+        </Providers>
 
         {/* Global Command Bar overlay */}
         <CommandBar />

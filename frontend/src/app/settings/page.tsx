@@ -1,9 +1,12 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Settings, Zap, Shield, Monitor, Bell, Plug, ChevronRight, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Toast } from "@/components/ui/Toast";
+import { connectorsAPI } from "@/lib/api/connectors";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { cn } from "@/lib/utils";
 
@@ -78,8 +81,18 @@ export default function SettingsPage() {
   const [notifications, setNotifications] = useState(true);
   const [draftedByAtlas, setDraftedByAtlas] = useState(false);
 
+  const searchParams = useSearchParams();
+  const connectedParam = searchParams.get("connected");
+  const errorParam = searchParams.get("error");
+
   return (
     <div className="max-w-3xl mx-auto">
+      {connectedParam && (
+        <Toast message={`Successfully connected ${connectedParam}`} type="success" />
+      )}
+      {errorParam && (
+        <Toast message={`Connection failed: ${errorParam}`} type="error" />
+      )}
       {/* Header */}
       <motion.div
         className="mb-8"
@@ -253,7 +266,16 @@ export default function SettingsPage() {
                       Connected ✓
                     </Button>
                   ) : (
-                    <Button size="sm" variant="primary" id={`connect-${integration.id}`}>
+                    <Button 
+                      size="sm" 
+                      variant="primary" 
+                      id={`connect-${integration.id}`}
+                      onClick={() => {
+                        if (integration.id === "google" || integration.id === "github") {
+                          connectorsAPI.initiateOAuth(integration.id);
+                        }
+                      }}
+                    >
                       Connect
                     </Button>
                   )}
