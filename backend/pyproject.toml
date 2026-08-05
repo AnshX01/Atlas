@@ -6,7 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "atlas-backend"
 version = "0.1.0"
 description = "Atlas Personal Command Center — FastAPI Backend"
-readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     # ── Web Framework ─────────────────────────────────────────────
@@ -123,3 +122,6 @@ ignore_missing_imports = true
 
 [tool.coverage.run]
 omit = ["tests/*", "alembic/*"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
