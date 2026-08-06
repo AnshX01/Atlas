@@ -51,9 +51,15 @@ def upgrade() -> None:
         create_type=False,
     )
 
-    op.execute("CREATE TYPE IF NOT EXISTS connectorprovider AS ENUM ('google_workspace', 'github', 'slack', 'notion', 'jira', 'linear', 'local_fs')")
-    op.execute("CREATE TYPE IF NOT EXISTS connectorstatus AS ENUM ('active', 'inactive', 'error', 'rate_limited', 'requires_reauth')")
-    op.execute("CREATE TYPE IF NOT EXISTS syncstatus AS ENUM ('pending', 'running', 'success', 'partial', 'failed')")
+    op.execute(
+        "CREATE TYPE IF NOT EXISTS connectorprovider AS ENUM ('google_workspace', 'github', 'slack', 'notion', 'jira', 'linear', 'local_fs')"
+    )
+    op.execute(
+        "CREATE TYPE IF NOT EXISTS connectorstatus AS ENUM ('active', 'inactive', 'error', 'rate_limited', 'requires_reauth')"
+    )
+    op.execute(
+        "CREATE TYPE IF NOT EXISTS syncstatus AS ENUM ('pending', 'running', 'success', 'partial', 'failed')"
+    )
 
     # ── users ──────────────────────────────────────────────────────────────────
     op.create_table(
