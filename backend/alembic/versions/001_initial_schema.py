@@ -30,6 +30,7 @@ def upgrade() -> None:
         "linear",
         "local_fs",
         name="connectorprovider",
+        create_type=False,
     )
     connector_status_enum = postgresql.ENUM(
         "active",
@@ -38,6 +39,7 @@ def upgrade() -> None:
         "rate_limited",
         "requires_reauth",
         name="connectorstatus",
+        create_type=False,
     )
     sync_status_enum = postgresql.ENUM(
         "pending",
@@ -46,11 +48,12 @@ def upgrade() -> None:
         "partial",
         "failed",
         name="syncstatus",
+        create_type=False,
     )
 
-    connector_provider_enum.create(op.get_bind(), checkfirst=True)
-    connector_status_enum.create(op.get_bind(), checkfirst=True)
-    sync_status_enum.create(op.get_bind(), checkfirst=True)
+    op.execute("CREATE TYPE IF NOT EXISTS connectorprovider AS ENUM ('google_workspace', 'github', 'slack', 'notion', 'jira', 'linear', 'local_fs')")
+    op.execute("CREATE TYPE IF NOT EXISTS connectorstatus AS ENUM ('active', 'inactive', 'error', 'rate_limited', 'requires_reauth')")
+    op.execute("CREATE TYPE IF NOT EXISTS syncstatus AS ENUM ('pending', 'running', 'success', 'partial', 'failed')")
 
     # ── users ──────────────────────────────────────────────────────────────────
     op.create_table(
@@ -84,10 +87,10 @@ def upgrade() -> None:
         "connectors",
         sa.Column("id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("provider", sa.Enum(name="connectorprovider", create_type=False), nullable=False),
+        sa.Column("provider", connector_provider_enum, nullable=False),
         sa.Column(
             "status",
-            sa.Enum(name="connectorstatus", create_type=False),
+            connector_status_enum,
             nullable=False,
             server_default="inactive",
         ),
@@ -144,7 +147,7 @@ def upgrade() -> None:
         sa.Column("connector_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column(
             "status",
-            sa.Enum(name="syncstatus", create_type=False),
+            sync_status_enum,
             nullable=False,
             server_default="pending",
         ),
