@@ -6,10 +6,11 @@ interface SkeletonProps {
   className?: string;
   lines?: number;
   circle?: boolean;
+  style?: React.CSSProperties;
 }
 
 /** Single shimmer skeleton block. Never use blocking spinners — Section 3.4. */
-export function Skeleton({ className, circle }: SkeletonProps) {
+export function Skeleton({ className, circle, style }: SkeletonProps) {
   return (
     <div
       role="status"
@@ -19,6 +20,7 @@ export function Skeleton({ className, circle }: SkeletonProps) {
         circle ? "rounded-full" : "rounded-lg",
         className
       )}
+      style={style}
     />
   );
 }

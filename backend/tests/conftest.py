@@ -3,6 +3,7 @@
 import pytest
 from app.infrastructure.database import Base, engine
 from app.main import app
+import sqlalchemy as sa
 from httpx import ASGITransport, AsyncClient
 
 
@@ -10,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 async def setup_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+        await conn.execute(sa.text("DROP TYPE IF EXISTS connectorprovider, connectorstatus, syncstatus CASCADE"))
         await conn.run_sync(Base.metadata.create_all)
     yield
     async with engine.begin() as conn:
