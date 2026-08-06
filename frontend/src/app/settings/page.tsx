@@ -189,7 +189,7 @@ export default function SettingsPage() {
                 </span>
               </SettingRow>
               <SettingRow
-                label="\"Drafted by Atlas\" Signature"
+                label='"Drafted by Atlas" Signature'
                 description="Append a subtle Atlas signature to emails drafted by the Action Agent. Disabled for Pro users by default."
               >
                 <Toggle

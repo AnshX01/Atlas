@@ -11,7 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
-class SyncStatus(enum.StrEnum):
+class SyncStatus(str, enum.Enum):  # noqa: UP042
     """Outcome status of a sync run."""
 
     PENDING = "pending"
