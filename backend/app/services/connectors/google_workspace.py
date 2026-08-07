@@ -188,13 +188,36 @@ class GoogleWorkspaceConnector(BaseConnector):
             neo4j_data_list contains dicts with keys needed to call upsert_message_node.
         """
         since_ts = int(since.timestamp())
-        query = f"after:{since_ts}"
+        # Only fetch unread, important emails (skip promotions, social, spam)
+        query = f"after:{since_ts} is:unread is:important category:primary"
 
-        results = service.users().messages().list(userId="me", q=query, maxResults=100).execute()
+        results = service.users().messages().list(userId="me", q=query, maxResults=50).execute()
         messages = results.get("messages", [])
         synced = 0
         chunks: list[dict[str, Any]] = []
         neo4j_data: list[dict[str, Any]] = []
+
+        # Transactional/no-action senders and subject keywords to skip
+        _skip_senders = {
+            "noreply@github.com",
+            "notifications@github.com",
+            "github.com",
+            "noreply@linear.app",
+            "noreply@atlassian.net",
+            "jira@",
+            "noreply@notion.so",
+        }
+        _skip_subject_keywords = [
+            "otp", "one-time password", "verification code",
+            "verify your email", "confirm your email",
+            "order delivered", "delivery update", "out for delivery",
+            "your order has been", "shipment", "tracking",
+            "payment receipt", "invoice", "subscription renewed",
+            "password reset", "reset your password",
+            "sign-in attempt", "new login",
+            "unsubscribe", "newsletter",
+            "promotional", "sale", "discount", "offer",
+        ]
 
         for msg_ref in messages:
             try:
@@ -224,16 +247,12 @@ class GoogleWorkspaceConnector(BaseConnector):
 
                 # Skip automated service emails that are better handled by their
                 # native connectors (GitHub notifications, JIRA, Linear, etc.)
-                _skip_senders = {
-                    "noreply@github.com",
-                    "notifications@github.com",
-                    "github.com",
-                    "noreply@linear.app",
-                    "noreply@atlassian.net",
-                    "jira@",
-                    "noreply@notion.so",
-                }
                 if any(skip in sender_email.lower() for skip in _skip_senders):
+                    continue
+
+                # Skip transactional/no-action emails (OTPs, deliveries, receipts)
+                subject_lower = subject.lower()
+                if any(kw in subject_lower for kw in _skip_subject_keywords):
                     continue
 
                 snippet = msg.get("snippet", "")
