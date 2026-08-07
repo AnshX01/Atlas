@@ -52,13 +52,35 @@ def upgrade() -> None:
     )
 
     op.execute(
-        "CREATE TYPE IF NOT EXISTS connectorprovider AS ENUM ('google_workspace', 'github', 'slack', 'notion', 'jira', 'linear', 'local_fs')"
+        """
+        DO $$ BEGIN
+            CREATE TYPE connectorprovider AS ENUM (
+                'google_workspace', 'github', 'slack', 'notion',
+                'jira', 'linear', 'local_fs'
+            );
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        """
     )
     op.execute(
-        "CREATE TYPE IF NOT EXISTS connectorstatus AS ENUM ('active', 'inactive', 'error', 'rate_limited', 'requires_reauth')"
+        """
+        DO $$ BEGIN
+            CREATE TYPE connectorstatus AS ENUM (
+                'active', 'inactive', 'error', 'rate_limited', 'requires_reauth'
+            );
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        """
     )
     op.execute(
-        "CREATE TYPE IF NOT EXISTS syncstatus AS ENUM ('pending', 'running', 'success', 'partial', 'failed')"
+        """
+        DO $$ BEGIN
+            CREATE TYPE syncstatus AS ENUM (
+                'pending', 'running', 'success', 'partial', 'failed'
+            );
+        EXCEPTION WHEN duplicate_object THEN NULL;
+        END $$;
+        """
     )
 
     # ── users ──────────────────────────────────────────────────────────────────
