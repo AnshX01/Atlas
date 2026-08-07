@@ -1,9 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Settings, Zap, Shield, Monitor, Bell, Plug, ChevronRight, Moon, Sun } from "lucide-react";
+import { Settings, Zap, Shield, Bell, Plug, ChevronRight, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/ui/Toast";
 import { connectorsAPI } from "@/lib/api/connectors";
@@ -74,6 +74,23 @@ function Toggle({
   );
 }
 
+function SettingsToasts() {
+  const searchParams = useSearchParams();
+  const connectedParam = searchParams.get("connected");
+  const errorParam = searchParams.get("error");
+
+  return (
+    <>
+      {connectedParam && (
+        <Toast message={`Successfully connected ${connectedParam}`} type="success" />
+      )}
+      {errorParam && (
+        <Toast message={`Connection failed: ${errorParam}`} type="error" />
+      )}
+    </>
+  );
+}
+
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
   const { theme, toggleTheme } = useAppStore();
@@ -81,18 +98,11 @@ export default function SettingsPage() {
   const [notifications, setNotifications] = useState(true);
   const [draftedByAtlas, setDraftedByAtlas] = useState(false);
 
-  const searchParams = useSearchParams();
-  const connectedParam = searchParams.get("connected");
-  const errorParam = searchParams.get("error");
-
   return (
     <div className="max-w-3xl mx-auto">
-      {connectedParam && (
-        <Toast message={`Successfully connected ${connectedParam}`} type="success" />
-      )}
-      {errorParam && (
-        <Toast message={`Connection failed: ${errorParam}`} type="error" />
-      )}
+      <Suspense fallback={null}>
+        <SettingsToasts />
+      </Suspense>
       {/* Header */}
       <motion.div
         className="mb-8"

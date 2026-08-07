@@ -1,18 +1,24 @@
 "use client";
 
 import React, { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
+import { Zap, Eye, EyeOff, ArrowRight, Mail, Lock, User } from "lucide-react";
 import { useAuthStore } from "../../lib/store/useAuthStore";
 import { authAPI } from "../../lib/api/auth";
-import { Button } from "../../components/ui/Button";
-import { Input } from "../../components/ui/Input";
+
+interface FormField {
+  value: string;
+  error: string;
+}
 
 export default function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [fullName, setFullName] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [email, setEmail] = useState<FormField>({ value: "", error: "" });
+  const [password, setPassword] = useState<FormField>({ value: "", error: "" });
+  const [fullName, setFullName] = useState<FormField>({ value: "", error: "" });
+  const [showPassword, setShowPassword] = useState(false);
+  const [globalError, setGlobalError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
   const setTokens = useAuthStore((state) => state.setTokens);
@@ -20,113 +26,266 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setGlobalError(null);
     setLoading(true);
 
     try {
       if (isRegister) {
-        const data = await authAPI.register(email, password, fullName);
+        const data = await authAPI.register(email.value, password.value, fullName.value || undefined);
         setTokens(data.tokens.access_token, data.tokens.refresh_token);
         setUser(data.user);
       } else {
-        const data = await authAPI.login(email, password);
+        const data = await authAPI.login(email.value, password.value);
         setTokens(data.tokens.access_token, data.tokens.refresh_token);
         setUser(data.user);
       }
       router.push("/briefing");
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Authentication failed. Please try again.");
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      setGlobalError(axiosErr.response?.data?.detail || "Authentication failed. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-950 p-4">
-      <div className="w-full max-w-md bg-zinc-900 rounded-xl border border-zinc-800 shadow-2xl overflow-hidden backdrop-blur-sm">
-        <div className="p-8">
-          <div className="flex items-center gap-2 mb-8">
-            <div className="w-8 h-8 rounded-lg bg-blue-500 flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(59,130,246,0.5)]">
-              A
-            </div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">Atlas</h1>
+    <div className="min-h-screen flex items-center justify-center bg-[#09090b] relative overflow-hidden p-4">
+      {/* Ambient background orbs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div
+          className="absolute -top-40 -left-40 w-96 h-96 rounded-full opacity-20"
+          style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)" }}
+        />
+        <div
+          className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full opacity-10"
+          style={{ background: "radial-gradient(circle, #6366f1 0%, transparent 70%)" }}
+        />
+        <div
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full opacity-5"
+          style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 60%)" }}
+        />
+      </div>
+
+      {/* Grid pattern */}
+      <div
+        className="absolute inset-0 opacity-[0.02]"
+        style={{
+          backgroundImage: `linear-gradient(rgba(255,255,255,0.3) 1px, transparent 1px),
+                            linear-gradient(90deg, rgba(255,255,255,0.3) 1px, transparent 1px)`,
+          backgroundSize: "40px 40px",
+        }}
+      />
+
+      <motion.div
+        className="w-full max-w-sm relative z-10"
+        initial={{ opacity: 0, y: 24 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+      >
+        {/* Logo */}
+        <motion.div
+          className="flex items-center justify-center gap-3 mb-10"
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.1 }}
+        >
+          <div
+            className="w-10 h-10 rounded-2xl flex items-center justify-center"
+            style={{
+              background: "linear-gradient(135deg, #3b82f6, #6366f1)",
+              boxShadow: "0 0 32px rgba(59, 130, 246, 0.4)",
+            }}
+          >
+            <Zap size={18} className="text-white" />
           </div>
-          
-          <h2 className="text-xl font-semibold text-white mb-6">
-            {isRegister ? "Create an account" : "Welcome back"}
-          </h2>
-          
-          {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg">
-              {error}
-            </div>
-          )}
-          
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {isRegister && (
-              <div>
-                <label className="block text-sm font-medium text-zinc-400 mb-1">
-                  Full Name
-                </label>
-                <Input
-                  type="text"
-                  required
-                  value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
-                  placeholder="John Doe"
-                  className="w-full bg-zinc-950 border-zinc-800 text-white placeholder-zinc-600 focus:border-blue-500/50 focus:ring-blue-500/20 transition-all"
-                />
-              </div>
+          <span className="text-xl font-bold text-white tracking-tight">Atlas</span>
+        </motion.div>
+
+        {/* Card */}
+        <div
+          className="rounded-2xl border border-white/[0.08] p-8"
+          style={{
+            background: "rgba(17, 17, 19, 0.8)",
+            backdropFilter: "blur(20px)",
+            boxShadow: "0 32px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)",
+          }}
+        >
+          {/* Tab switcher */}
+          <div
+            className="flex p-1 rounded-xl mb-8"
+            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            {["Sign In", "Sign Up"].map((tab, i) => (
+              <button
+                key={tab}
+                onClick={() => {
+                  setIsRegister(i === 1);
+                  setGlobalError(null);
+                }}
+                className="flex-1 py-2 rounded-lg text-sm font-medium transition-all duration-200"
+                style={{
+                  background: (i === 1) === isRegister ? "rgba(59, 130, 246, 0.15)" : "transparent",
+                  color: (i === 1) === isRegister ? "#60a5fa" : "rgba(255,255,255,0.4)",
+                  boxShadow: (i === 1) === isRegister ? "0 0 12px rgba(59, 130, 246, 0.2)" : "none",
+                }}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+
+          {/* Error */}
+          <AnimatePresence>
+            {globalError && (
+              <motion.div
+                initial={{ opacity: 0, y: -8, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: "auto" }}
+                exit={{ opacity: 0, y: -8, height: 0 }}
+                className="mb-5 p-3 rounded-xl text-sm"
+                style={{
+                  background: "rgba(239, 68, 68, 0.08)",
+                  border: "1px solid rgba(239, 68, 68, 0.2)",
+                  color: "#f87171",
+                }}
+              >
+                {globalError}
+              </motion.div>
             )}
+          </AnimatePresence>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Full Name (register only) */}
+            <AnimatePresence>
+              {isRegister && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                >
+                  <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.5)" }}>
+                    Full Name
+                  </label>
+                  <div className="relative">
+                    <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,0.3)" }} />
+                    <input
+                      id="login-fullname"
+                      type="text"
+                      value={fullName.value}
+                      onChange={(e) => setFullName({ value: e.target.value, error: "" })}
+                      placeholder="Alex Chen"
+                      className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/20 transition-all duration-200 outline-none"
+                      style={{
+                        background: "rgba(255,255,255,0.04)",
+                        border: fullName.error ? "1px solid rgba(239,68,68,0.5)" : "1px solid rgba(255,255,255,0.08)",
+                      }}
+                      onFocus={(e) => { e.target.style.borderColor = "rgba(59, 130, 246, 0.5)"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.08)"; }}
+                      onBlur={(e) => { e.target.style.borderColor = "rgba(255,255,255,0.08)"; e.target.style.boxShadow = "none"; }}
+                    />
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Email */}
             <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-1">
+              <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.5)" }}>
                 Email Address
               </label>
-              <Input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="w-full bg-zinc-950 border-zinc-800 text-white placeholder-zinc-600 focus:border-blue-500/50 focus:ring-blue-500/20 transition-all"
-              />
+              <div className="relative">
+                <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,0.3)" }} />
+                <input
+                  id="login-email"
+                  type="email"
+                  required
+                  value={email.value}
+                  onChange={(e) => setEmail({ value: e.target.value, error: "" })}
+                  placeholder="you@example.com"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/20 transition-all duration-200 outline-none"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: email.error ? "1px solid rgba(239,68,68,0.5)" : "1px solid rgba(255,255,255,0.08)",
+                  }}
+                  onFocus={(e) => { e.target.style.borderColor = "rgba(59, 130, 246, 0.5)"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.08)"; }}
+                  onBlur={(e) => { e.target.style.borderColor = "rgba(255,255,255,0.08)"; e.target.style.boxShadow = "none"; }}
+                />
+              </div>
             </div>
+
+            {/* Password */}
             <div>
-              <label className="block text-sm font-medium text-zinc-400 mb-1">
+              <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.5)" }}>
                 Password
               </label>
-              <Input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full bg-zinc-950 border-zinc-800 text-white placeholder-zinc-600 focus:border-blue-500/50 focus:ring-blue-500/20 transition-all"
-              />
+              <div className="relative">
+                <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,0.3)" }} />
+                <input
+                  id="login-password"
+                  type={showPassword ? "text" : "password"}
+                  required
+                  value={password.value}
+                  onChange={(e) => setPassword({ value: e.target.value, error: "" })}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-11 py-3 rounded-xl text-sm text-white placeholder-white/20 transition-all duration-200 outline-none"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: password.error ? "1px solid rgba(239,68,68,0.5)" : "1px solid rgba(255,255,255,0.08)",
+                  }}
+                  onFocus={(e) => { e.target.style.borderColor = "rgba(59, 130, 246, 0.5)"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.08)"; }}
+                  onBlur={(e) => { e.target.style.borderColor = "rgba(255,255,255,0.08)"; e.target.style.boxShadow = "none"; }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 transition-colors"
+                  style={{ color: "rgba(255,255,255,0.3)" }}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              {isRegister && (
+                <p className="mt-1.5 text-[11px]" style={{ color: "rgba(255,255,255,0.25)" }}>
+                  Min 8 chars, one uppercase letter, one digit.
+                </p>
+              )}
             </div>
-            <Button
+
+            {/* Submit button */}
+            <motion.button
+              id="login-submit-btn"
               type="submit"
               disabled={loading}
-              className="w-full h-11 bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-lg shadow-blue-500/20 transition-all"
-            >
-              {loading ? "Please wait..." : isRegister ? "Sign Up" : "Sign In"}
-            </Button>
-          </form>
-          
-          <div className="mt-6 text-center text-sm text-zinc-400">
-            {isRegister ? "Already have an account?" : "Don't have an account?"}{" "}
-            <button
-              onClick={() => {
-                setIsRegister(!isRegister);
-                setError(null);
+              whileTap={{ scale: 0.98 }}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white mt-6 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              style={{
+                background: "linear-gradient(135deg, #3b82f6, #6366f1)",
+                boxShadow: loading ? "none" : "0 0 24px rgba(59, 130, 246, 0.3), 0 4px 16px rgba(0,0,0,0.3)",
               }}
-              className="text-blue-400 hover:text-blue-300 font-medium transition-colors"
             >
-              {isRegister ? "Sign In" : "Sign Up"}
-            </button>
-          </div>
+              {loading ? (
+                <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              ) : (
+                <>
+                  {isRegister ? "Create Account" : "Continue"}
+                  <ArrowRight size={15} />
+                </>
+              )}
+            </motion.button>
+          </form>
+
+          {/* Footer note */}
+          <p className="mt-6 text-center text-xs" style={{ color: "rgba(255,255,255,0.25)" }}>
+            Your data never leaves your machine.{" "}
+            <span style={{ color: "rgba(59, 130, 246, 0.7)" }}>Privacy-first by design.</span>
+          </p>
         </div>
-      </div>
+
+        {/* Version tag */}
+        <p className="mt-6 text-center text-[11px]" style={{ color: "rgba(255,255,255,0.15)" }}>
+          Atlas v0.1.0 · Beta
+        </p>
+      </motion.div>
     </div>
   );
 }

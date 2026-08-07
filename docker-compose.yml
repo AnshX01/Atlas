@@ -166,6 +166,7 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules   # anonymous volume to preserve node_modules
+      - /app/.next          # anonymous volume to prevent ENOENT errors with host volume
     depends_on:
       - backend
     command: npm run dev

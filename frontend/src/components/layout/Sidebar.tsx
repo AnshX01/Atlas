@@ -5,10 +5,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Search, Settings, Zap, Github,
-  Mail, FolderOpen, Plus, ChevronRight, Wifi, WifiOff
+  Mail, FolderOpen, Plus
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAppStore } from "@/lib/store/useAppStore";
 
 interface NavItem {
   id: string;
@@ -31,7 +30,6 @@ const connectorItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
-  const { setCommandBarOpen } = useAppStore();
 
   return (
     <motion.aside

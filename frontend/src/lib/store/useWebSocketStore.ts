@@ -2,7 +2,7 @@ import { create } from "zustand";
 
 export interface SyncEvent {
   type: string;
-  payload?: any;
+  payload?: unknown;
   timestamp?: string;
 }
 

@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Search, FileText, Mail, GitPullRequest, Calendar, Zap,
-  ArrowRight, Clock, X
+  ArrowRight, X
 } from "lucide-react";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { searchAPI } from "@/lib/api/search";
@@ -103,7 +103,7 @@ export function CommandBar() {
     }
   };
 
-  const handleResultClick = (result: SearchResult) => {
+  const handleResultClick = (_result: SearchResult) => {
     // TODO: open result URL or route to item
     setCommandBarOpen(false);
   };

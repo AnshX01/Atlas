@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, Zap, TrendingUp, AlertTriangle } from "lucide-react";
@@ -154,7 +154,7 @@ function BriefingError({ onRetry }: { onRetry: () => void }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BriefingPage() {
   useKeyboardShortcuts();
-  const { setBriefing, setLoading, setError, items, focusScore, focusScoreLabel, loading, error } =
+  const { setBriefing, setLoading, setError, items, focusScore, focusScoreLabel } =
     useBriefingStore();
 
   const { data, isLoading, isError, refetch } = useQuery({

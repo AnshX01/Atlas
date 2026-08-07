@@ -35,7 +35,7 @@ dependencies = [
     # ── Security ──────────────────────────────────────────────────
     "python-jose[cryptography]>=3.3.0",
     "cryptography>=42.0.0",
-    "passlib[bcrypt]>=1.7.4",
+    "bcrypt>=4.0.0",
     "python-multipart>=0.0.9",
 
     # ── Background Tasks ──────────────────────────────────────────
@@ -100,8 +100,6 @@ select = [
     "ANN", # annotations
 ]
 ignore = [
-    "ANN101", # self type annotation
-    "ANN102", # cls type annotation
     "ANN401", # dynamically typed expressions
     "ANN001", # missing type annotation
     "E501",   # line too long

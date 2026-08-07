@@ -53,7 +53,7 @@ def _compute_focus_score(items: list[BriefingItem]) -> tuple[int, str]:
     Uses weighted average biased toward the top-3 highest-priority items.
     """
     if not items:
-        return 0, "Clear Day"
+        return 0, "✨ Clear Day"
 
     scores = [item.priority_score for item in items]
     top_3 = sorted(scores, reverse=True)[:3]

@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 import { Providers } from "./providers";
-import { Sidebar } from "@/components/layout/Sidebar";
-import { TopBar } from "@/components/layout/TopBar";
-import { CommandBar } from "@/components/composite/CommandBar";
+import { AppShell } from "@/components/layout/AppShell";
 import "@/styles/globals.css";
 import "@/styles/animations.css";
 
@@ -44,17 +42,10 @@ export default function RootLayout({
         </a>
 
         <Providers>
-          <div className="app-layout">
-            <TopBar />
-            <Sidebar />
-            <main id="main-content" className="app-main" role="main">
-              {children}
-            </main>
-          </div>
+          <AppShell>
+            {children}
+          </AppShell>
         </Providers>
-
-        {/* Global Command Bar overlay */}
-        <CommandBar />
       </body>
     </html>
   );

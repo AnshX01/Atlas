@@ -1,5 +1,4 @@
 import { apiClient } from "./client";
-import { withIdempotencyKey } from "./client";
 
 export interface TokenResponse {
   access_token: string;
