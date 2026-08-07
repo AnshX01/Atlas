@@ -169,6 +169,54 @@ async def create_connector(
     return ConnectorResponse.model_validate(connector)
 
 
+@connectors_router.delete(
+    "/{provider}",
+    status_code=status.HTTP_200_OK,
+    summary="Disconnect a connector",
+)
+async def disconnect_connector(
+    provider: ConnectorProvider = Path(...),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """
+    Disconnect a connector: set status to INACTIVE and delete OAuth tokens.
+    The connector record is kept for potential reconnection.
+    """
+    from app.domain.models.connector import Connector, ConnectorStatus
+    from app.domain.models.connector import OAuthToken
+    from app.infrastructure.database import get_session_factory
+    from sqlalchemy import select, delete as sql_delete
+
+    factory = get_session_factory()
+    async with factory() as session:
+        stmt = select(Connector).where(
+            Connector.user_id == current_user.id,
+            Connector.provider == provider,
+        )
+        result = await session.execute(stmt)
+        connector = result.scalar_one_or_none()
+
+        if not connector:
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No {provider.value} connector found",
+            )
+
+        # Delete OAuth tokens
+        await session.execute(
+            sql_delete(OAuthToken).where(OAuthToken.connector_id == connector.id)
+        )
+
+        # Set connector to inactive
+        connector.status = ConnectorStatus.INACTIVE
+        session.add(connector)
+        await session.commit()
+
+    return {"message": f"{provider.value} disconnected successfully"}
+
+
 @connectors_router.post(
     "/{provider}/sync",
     response_model=SyncTriggerResponse,

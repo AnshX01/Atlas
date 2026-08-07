@@ -57,4 +57,8 @@ export const connectorsAPI = {
     );
     return data;
   },
+
+  async disconnect(provider: ConnectorProvider): Promise<void> {
+    await apiClient.delete(`/connectors/${provider}`);
+  },
 };

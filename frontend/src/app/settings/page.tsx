@@ -354,9 +354,22 @@ export default function SettingsPage() {
                         Reconfigure
                       </Button>
                     ) : integration.status === "active" ? (
-                      <Button size="sm" variant="secondary" id={`disconnect-${integration.id}`}>
-                        Connected ✓
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-green-400 font-medium">Connected</span>
+                        <Button 
+                          size="sm" 
+                          variant="danger" 
+                          id={`disconnect-${integration.id}`}
+                          onClick={async () => {
+                            if (confirm(`Disconnect ${integration.name}? You can reconnect later.`)) {
+                              await connectorsAPI.disconnect(integration.id as any);
+                              queryClient.invalidateQueries({ queryKey: ["connectors"] });
+                            }
+                          }}
+                        >
+                          Disconnect
+                        </Button>
+                      </div>
                     ) : (
                       <Button 
                         size="sm" 

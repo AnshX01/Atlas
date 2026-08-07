@@ -155,7 +155,14 @@ class BriefingService:
         return actions.get(item_type, "View")
 
     async def _fetch_raw_items(self) -> list[dict[str, Any]]:
-        """Fetch recent items from Qdrant for all active connectors."""
+        """Fetch today's actionable items from Qdrant across all connectors.
+
+        The briefing only shows items that require action TODAY:
+        - Calendar: only events happening today
+        - Email: unread actionable emails from recent days
+        - PR/Issue: open items assigned or relevant
+        - Task: incomplete tasks (especially those due today)
+        """
         factory = get_session_factory()
         async with factory() as session:
             stmt = select(Connector).where(
@@ -172,19 +179,19 @@ class BriefingService:
         all_results: dict[str, dict[str, Any]] = {}
 
         # Query 1: Today's meetings and schedule
-        today_str = datetime.now(UTC).strftime('%Y-%m-%d')
+        today_str = datetime.now(UTC).strftime("%Y-%m-%d")
         calendar_vector = embedder.encode(
             f"meetings today {today_str} calendar events schedule calls"
         ).tolist()
         calendar_results = await semantic_search(
             user_id=self.user_id,
             query_vector=calendar_vector,
-            limit=10,
+            limit=20,
             score_threshold=0.0,
             source_filter="calendar",
         )
         for r in calendar_results:
-            all_results[r['id']] = r
+            all_results[r["id"]] = r
 
         # Query 2: Actionable items (emails, PRs, issues, tasks)
         action_vector = embedder.encode(
@@ -197,39 +204,62 @@ class BriefingService:
             score_threshold=0.0,
         )
         for r in action_results:
-            if r['id'] not in all_results:
-                all_results[r['id']] = r
+            if r["id"] not in all_results:
+                all_results[r["id"]] = r
+
+        # Post-retrieval filtering: only keep TODAY's items
+        today_date = datetime.now(UTC).date()
+        tomorrow_date = today_date + timedelta(days=1)
 
         items = []
         for r in all_results.values():
-            payload = r.get('payload', {})
-            item_type = payload.get('type', 'document')
+            payload = r.get("payload", {})
+            item_type = payload.get("type", "document")
             item_type = (
                 item_type
-                if item_type in ('email', 'pr', 'issue', 'calendar', 'document', 'task')
-                else 'document'
+                if item_type in ("email", "pr", "issue", "calendar", "document", "task")
+                else "document"
             )
-            text_chunk = payload.get('text_chunk', '')
-            title = text_chunk[:80] if text_chunk else 'Untitled'
+
+            timestamp_str = payload.get("timestamp", "")
+
+            # Calendar events: ONLY show today's events
+            if item_type == "calendar" and timestamp_str:
+                try:
+                    event_date = datetime.fromisoformat(
+                        timestamp_str.replace("Z", "+00:00")
+                    ).date()
+                    if event_date != today_date and event_date != tomorrow_date:
+                        continue  # Skip events not happening today/tomorrow
+                except (ValueError, TypeError):
+                    continue  # Skip if we can't parse the date
+
+            # Skip birthday/anniversary items that slipped through
+            text_chunk = payload.get("text_chunk", "")
+            title = text_chunk[:80] if text_chunk else "Untitled"
+            title_lower = title.lower()
+            if any(kw in title_lower for kw in ("birthday", "anniversary", "happy birthday")):
+                continue
+
             items.append(
                 {
-                    'id': r['id'],
-                    'type': item_type,
-                    'title': title,
-                    'sender': payload.get('sender_email', payload.get('author', '')),
-                    'preview': text_chunk[:200],
-                    'source': _source_label(payload.get('type', 'document')),
-                    'timestamp': payload.get('timestamp', datetime.now(UTC).isoformat()),
-                    'metadata': {
-                        'sender': payload.get('sender_email', payload.get('author', '')),
-                        'sender_name': payload.get('sender_name', ''),
-                        'source_id': payload.get('source_id', r['id']),
-                        'url': payload.get('url', ''),
-                        'repo': payload.get('repo', ''),
-                        'pr_number': payload.get('pr_number'),
-                        'issue_number': payload.get('issue_number'),
-                        'attendees': payload.get('attendees', []),
-                        'subject': payload.get('subject', ''),
+                    "id": r["id"],
+                    "type": item_type,
+                    "title": title,
+                    "sender": payload.get("sender_email", payload.get("author", "")),
+                    "preview": text_chunk[:200],
+                    "source": _source_label(payload.get("type", "document")),
+                    "timestamp": timestamp_str or datetime.now(UTC).isoformat(),
+                    "metadata": {
+                        "sender": payload.get("sender_email", payload.get("author", "")),
+                        "sender_name": payload.get("sender_name", ""),
+                        "source_id": payload.get("source_id", r["id"]),
+                        "url": payload.get("url", ""),
+                        "repo": payload.get("repo", ""),
+                        "pr_number": payload.get("pr_number"),
+                        "issue_number": payload.get("issue_number"),
+                        "attendees": payload.get("attendees", []),
+                        "subject": payload.get("subject", ""),
                     },
                 }
             )

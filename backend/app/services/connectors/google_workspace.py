@@ -308,18 +308,23 @@ class GoogleWorkspaceConnector(BaseConnector):
     def _sync_calendar(
         self, service: Any, since: datetime
     ) -> tuple[dict[str, int], list[dict[str, Any]], list[dict[str, Any]]]:
-        """Sync Google Calendar events since the given datetime.
+        """Sync Google Calendar events — only today and tomorrow.
 
         Returns:
             A 3-tuple of (result_dict, chunks_list, neo4j_data_list).
             neo4j_data_list contains dicts with keys needed to call upsert_meeting_node.
         """
+        # Only fetch events for today and tomorrow (actionable timeframe)
+        today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        tomorrow_end = today_start + timedelta(days=2)
+
         events_result = (
             service.events()
             .list(
                 calendarId="primary",
-                timeMin=since.isoformat(),
-                maxResults=50,
+                timeMin=today_start.isoformat(),
+                timeMax=tomorrow_end.isoformat(),
+                maxResults=30,
                 singleEvents=True,
                 orderBy="startTime",
             )
@@ -330,7 +335,23 @@ class GoogleWorkspaceConnector(BaseConnector):
         chunks: list[dict[str, Any]] = []
         neo4j_data: list[dict[str, Any]] = []
 
+        # Skip birthday/anniversary events and all-day recurring noise
+        _skip_keywords = ["birthday", "anniversary", "happy birthday"]
+
         for event in events:
+            summary = event.get("summary", "")
+
+            # Skip birthday/anniversary events
+            if any(kw in summary.lower() for kw in _skip_keywords):
+                continue
+
+            # Skip events from the "Birthdays" or "Contacts" calendar source
+            organizer = event.get("organizer", {})
+            if "birthday" in organizer.get("displayName", "").lower():
+                continue
+            if event.get("eventType") == "birthday":
+                continue
+
             start_time = event.get("start", {}).get(
                 "dateTime", event.get("start", {}).get("date", "")
             )
