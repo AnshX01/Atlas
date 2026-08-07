@@ -373,6 +373,11 @@ async def google_oauth_callback(
         connector = GoogleWorkspaceConnector(connector=connector_row, user_id=user_id)
         await connector.authenticate(code)
 
+        # Trigger initial sync in background
+        from app.workers.sync_tasks import sync_connector_job
+
+        sync_connector_job.apply_async(args=[str(user_id), str(connector_row.id)], countdown=2)
+
         return RedirectResponse(
             "http://localhost:3000/settings?connected=google",
             status_code=302,
@@ -411,6 +416,11 @@ async def github_oauth_callback(
 
         connector = GitHubConnector(connector=connector_row, user_id=user_id)
         await connector.authenticate(code)
+
+        # Trigger initial sync in background
+        from app.workers.sync_tasks import sync_connector_job
+
+        sync_connector_job.apply_async(args=[str(user_id), str(connector_row.id)], countdown=2)
 
         return RedirectResponse(
             "http://localhost:3000/settings?connected=github",

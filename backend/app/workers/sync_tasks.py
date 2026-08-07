@@ -17,8 +17,9 @@ from datetime import UTC, datetime
 
 from app.domain.models.connector import ConnectorProvider, ConnectorStatus
 from app.domain.models.sync_log import SyncLog, SyncStatus
-from app.infrastructure.database import get_session_factory
-from app.infrastructure.redis_client import publish_sync_event
+from app.infrastructure.database import get_session_factory, reset_engine_for_worker
+from app.infrastructure.qdrant_client import reset_qdrant_client
+from app.infrastructure.redis_client import publish_sync_event, reset_redis_pool
 from app.workers.celery_app import celery_app
 from celery.utils.log import get_task_logger
 
@@ -64,6 +65,10 @@ def sync_connector_job(self, user_id: str, connector_id: str) -> dict:
 
 async def _async_sync_connector(task, user_id: uuid.UUID, connector_id: uuid.UUID) -> dict:
     """Async implementation of the sync job."""
+    # Reset all singleton async clients to ensure they bind to the current event loop
+    reset_engine_for_worker()
+    reset_qdrant_client()
+    reset_redis_pool()
     factory = get_session_factory()
 
     async with factory() as session:
@@ -78,7 +83,7 @@ async def _async_sync_connector(task, user_id: uuid.UUID, connector_id: uuid.UUI
         connector_row = result.scalar_one_or_none()
 
         if not connector_row:
-            logger.error("Connector not found or access denied", connector_id=str(connector_id))
+            logger.error("Connector not found or access denied: %s", str(connector_id))
             return {"status": "error", "message": "Connector not found"}
 
         # Create SyncLog entry
@@ -131,11 +136,11 @@ async def _async_sync_connector(task, user_id: uuid.UUID, connector_id: uuid.UUI
             },
         )
 
-        logger.info("Sync completed", connector_id=str(connector_id), **result)
+        logger.info("Sync completed: connector=%s result=%s", str(connector_id), result)
         return {"status": "success", **result}
 
     except Exception as exc:
-        logger.error("Sync failed", connector_id=str(connector_id), error=str(exc))
+        logger.error("Sync failed: connector=%s error=%s", str(connector_id), str(exc))
 
         async with factory() as session:
             sync_log_obj = await session.get(SyncLog, sync_log.id)
@@ -168,6 +173,9 @@ async def _async_sync_all() -> dict:
     from app.domain.models.connector import Connector
     from sqlalchemy import select
 
+    reset_engine_for_worker()
+    reset_qdrant_client()
+    reset_redis_pool()
     factory = get_session_factory()
     async with factory() as session:
         stmt = select(Connector).where(Connector.status == ConnectorStatus.ACTIVE)
@@ -182,5 +190,5 @@ async def _async_sync_all() -> dict:
         )
         enqueued += 1
 
-    logger.info("Enqueued sync jobs", count=enqueued)
+    logger.info("Enqueued sync jobs: count=%d", enqueued)
     return {"enqueued": enqueued}

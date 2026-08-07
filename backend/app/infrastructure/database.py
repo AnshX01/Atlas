@@ -50,6 +50,47 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
     return _session_factory
 
 
+def create_worker_session_factory() -> async_sessionmaker[AsyncSession]:
+    """
+    Create a fresh session factory for Celery worker tasks.
+
+    Each asyncio.run() call in a Celery task creates a new event loop.
+    A shared engine's connection pool gets bound to the first event loop
+    that used it, causing 'attached to a different loop' errors on
+    subsequent calls. This function creates a disposable engine per task.
+    """
+    settings = get_settings()
+    engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=False,
+        pool_size=5,
+        max_overflow=5,
+        pool_pre_ping=True,
+        pool_recycle=300,
+    )
+    return async_sessionmaker(
+        bind=engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+        autoflush=False,
+        autocommit=False,
+    )
+
+
+def reset_engine_for_worker() -> None:
+    """
+    Reset the global engine and session factory.
+
+    Call this at the start of each Celery task's async function to
+    ensure a fresh engine is created on the current event loop.
+    This allows connectors that import get_session_factory() to
+    work correctly inside worker tasks.
+    """
+    global _engine, _session_factory
+    _engine = None
+    _session_factory = None
+
+
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     """
     FastAPI dependency that yields a transactional AsyncSession.

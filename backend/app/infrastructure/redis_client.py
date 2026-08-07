@@ -43,6 +43,12 @@ async def close_redis_pool() -> None:
         logger.info("Redis pool closed")
 
 
+def reset_redis_pool() -> None:
+    """Reset the global Redis pool for Celery workers with fresh event loops."""
+    global _redis_pool
+    _redis_pool = None
+
+
 # ── Pub/Sub Helpers ───────────────────────────────────────────────────────────
 SYNC_EVENTS_CHANNEL = "atlas:sync_events:{user_id}"
 

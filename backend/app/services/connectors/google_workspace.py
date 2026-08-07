@@ -57,7 +57,11 @@ class GoogleWorkspaceConnector(BaseConnector):
         factory = get_session_factory()
 
         async with factory() as session:
-            token_row = await session.get(OAuthToken, self.connector.id)
+            from sqlalchemy import select
+
+            stmt = select(OAuthToken).where(OAuthToken.connector_id == self.connector.id)
+            result = await session.execute(stmt)
+            token_row = result.scalar_one_or_none()
             if not token_row:
                 raise ValueError(f"No OAuth token for connector {self.connector.id}")
 
@@ -80,7 +84,11 @@ class GoogleWorkspaceConnector(BaseConnector):
                 creds.refresh(Request())
                 # Persist refreshed token
                 async with factory() as session:
-                    token_row = await session.get(OAuthToken, self.connector.id)
+                    from sqlalchemy import select as sel
+
+                    stmt = sel(OAuthToken).where(OAuthToken.connector_id == self.connector.id)
+                    result = await session.execute(stmt)
+                    token_row = result.scalar_one_or_none()
                     if token_row:
                         token_row.access_token = encrypt_token(creds.token)
                         session.add(token_row)
@@ -132,7 +140,13 @@ class GoogleWorkspaceConnector(BaseConnector):
 
         factory = get_session_factory()
         async with factory() as session:
-            existing = await session.get(OAuthToken, self.connector.id)
+            from sqlalchemy import select
+
+            # Look up existing token by connector_id (not primary key)
+            stmt = select(OAuthToken).where(OAuthToken.connector_id == self.connector.id)
+            result = await session.execute(stmt)
+            existing = result.scalar_one_or_none()
+
             if existing:
                 existing.access_token = encrypt_token(access_token)
                 if refresh_token:
@@ -149,8 +163,12 @@ class GoogleWorkspaceConnector(BaseConnector):
                 )
                 session.add(token)
 
-            self.connector.status = ConnectorStatus.ACTIVE
-            session.add(self.connector)
+            # Reload connector in this session to avoid detached instance issues
+            connector_in_session = await session.get(Connector, self.connector.id)
+            if connector_in_session:
+                connector_in_session.status = ConnectorStatus.ACTIVE
+                session.add(connector_in_session)
+
             await session.commit()
 
         logger.info("Google Workspace authenticated", connector_id=str(self.connector.id))

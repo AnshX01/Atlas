@@ -41,6 +41,12 @@ def get_qdrant_client() -> AsyncQdrantClient:
     return _client
 
 
+def reset_qdrant_client() -> None:
+    """Reset the global Qdrant client for use in Celery workers with fresh event loops."""
+    global _client
+    _client = None
+
+
 def _collection_name(user_id: uuid.UUID) -> str:
     """Return the per-user Qdrant collection name. Enforces RBAC isolation."""
     return f"user_workspace_{user_id}"
@@ -105,21 +111,36 @@ async def semantic_search(
         limit: Max results to return.
         score_threshold: Minimum cosine similarity score.
         source_filter: Optional filter by payload "type" field.
+
+    Returns empty list if the user's collection doesn't exist yet
+    (first sync hasn't run).
     """
+    from qdrant_client.http.exceptions import UnexpectedResponse
+
     client = get_qdrant_client()
     query_filter = None
 
     if source_filter:
         query_filter = Filter(must=[{"key": "type", "match": MatchValue(value=source_filter)}])
 
-    response = await client.query_points(
-        collection_name=_collection_name(user_id),
-        query=query_vector,
-        limit=limit,
-        score_threshold=score_threshold,
-        query_filter=query_filter,
-        with_payload=True,
-    )
+    try:
+        response = await client.query_points(
+            collection_name=_collection_name(user_id),
+            query=query_vector,
+            limit=limit,
+            score_threshold=score_threshold,
+            query_filter=query_filter,
+            with_payload=True,
+        )
+    except UnexpectedResponse as e:
+        if e.status_code == 404:
+            # Collection doesn't exist yet — no data has been synced
+            logger.info(
+                "Qdrant collection not found (no data synced yet)",
+                user_id=str(user_id),
+            )
+            return []
+        raise
 
     return [
         {

@@ -50,7 +50,11 @@ class GitHubConnector(BaseConnector):
 
         factory = get_session_factory()
         async with factory() as session:
-            token_row = await session.get(OAuthToken, self.connector.id)
+            from sqlalchemy import select
+
+            stmt = select(OAuthToken).where(OAuthToken.connector_id == self.connector.id)
+            result = await session.execute(stmt)
+            token_row = result.scalar_one_or_none()
             if not token_row:
                 raise ValueError(f"No OAuth token for connector {self.connector.id}")
             access_token = decrypt_token(token_row.access_token)
@@ -82,10 +86,17 @@ class GitHubConnector(BaseConnector):
 
         factory = get_session_factory()
         async with factory() as session:
-            existing = await session.get(OAuthToken, self.connector.id)
+            from sqlalchemy import select
+
+            # Look up existing token by connector_id (not primary key)
+            stmt = select(OAuthToken).where(OAuthToken.connector_id == self.connector.id)
+            result = await session.execute(stmt)
+            existing = result.scalar_one_or_none()
+
             encrypted = encrypt_token(access_token)
             if existing:
                 existing.access_token = encrypted
+                existing.scope = data.get("scope", "")
                 session.add(existing)
             else:
                 token = OAuthToken(
@@ -96,8 +107,14 @@ class GitHubConnector(BaseConnector):
                 )
                 session.add(token)
 
-            self.connector.status = ConnectorStatus.ACTIVE
-            session.add(self.connector)
+            # Reload connector in this session to avoid detached instance issues
+            from app.domain.models.connector import Connector as ConnectorModel
+
+            connector_in_session = await session.get(ConnectorModel, self.connector.id)
+            if connector_in_session:
+                connector_in_session.status = ConnectorStatus.ACTIVE
+                session.add(connector_in_session)
+
             await session.commit()
 
         logger.info("GitHub authenticated", connector_id=str(self.connector.id))

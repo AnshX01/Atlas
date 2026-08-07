@@ -11,7 +11,7 @@ import asyncio
 import uuid
 from typing import Any
 
-from app.infrastructure.qdrant_client import upsert_vectors
+from app.infrastructure.qdrant_client import reset_qdrant_client, upsert_vectors
 from app.workers.celery_app import celery_app
 from celery.utils.log import get_task_logger
 from sentence_transformers import SentenceTransformer
@@ -57,6 +57,7 @@ def batch_embed_chunks(user_id: str, chunks: list[dict[str, Any]]) -> dict:
 
 async def _async_embed(user_id: uuid.UUID, chunks: list[dict[str, Any]]) -> dict:
     """Async implementation of batch embedding."""
+    reset_qdrant_client()
     embedder = get_embedder()
     embedded = 0
     failed = 0
@@ -84,11 +85,11 @@ async def _async_embed(user_id: uuid.UUID, chunks: list[dict[str, Any]]) -> dict
             )
             embedded += 1
         except Exception as e:
-            logger.warning("Failed to embed chunk", chunk_id=chunk.get("id"), error=str(e))
+            logger.warning("Failed to embed chunk: chunk_id=%s error=%s", chunk.get("id"), str(e))
             failed += 1
 
     if points:
         await upsert_vectors(user_id, points)
 
-    logger.info("Batch embedding complete", embedded=embedded, failed=failed, user_id=str(user_id))
+    logger.info("Batch embedding complete: embedded=%d failed=%d user_id=%s", embedded, failed, str(user_id))
     return {"embedded": embedded, "failed": failed}
