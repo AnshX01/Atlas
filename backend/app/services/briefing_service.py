@@ -8,7 +8,7 @@ Generates Focus Score and sorted list of prioritized BriefingItems.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from statistics import mean
 from typing import Any
 
