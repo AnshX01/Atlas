@@ -148,18 +148,10 @@ export function Sidebar() {
 
       {/* Connectors */}
       <div className="px-2 flex flex-col gap-0.5 flex-1">
-        <div className="flex items-center justify-between px-2 mb-1.5">
+        <div className="px-2 mb-1.5">
           <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-widest">
             Connectors
           </p>
-          <button
-            onClick={navigateToIntegrations}
-            className="text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors rounded-lg p-0.5"
-            aria-label="Add new connector"
-            title="Add connector"
-          >
-            <Plus size={12} />
-          </button>
         </div>
 
         {connectorItems.map((c) => (

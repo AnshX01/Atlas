@@ -443,6 +443,11 @@ async def slack_oauth_initiate(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     settings = get_settings()
+    if not settings.SLACK_CLIENT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Slack integration not configured. Add SLACK_CLIENT_ID and SLACK_CLIENT_SECRET to .env",
+        )
     state_token = create_access_token(
         str(current_user.id),
         expires_delta=timedelta(minutes=10),
@@ -534,6 +539,11 @@ async def notion_oauth_initiate(
     current_user: User = Depends(get_current_user),
 ) -> dict:
     settings = get_settings()
+    if not settings.NOTION_CLIENT_ID:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Notion integration not configured. Add NOTION_CLIENT_ID and NOTION_CLIENT_SECRET to .env",
+        )
     state_token = create_access_token(
         str(current_user.id),
         expires_delta=timedelta(minutes=10),
