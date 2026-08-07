@@ -222,6 +222,18 @@ class GoogleWorkspaceConnector(BaseConnector):
                     sender_email = from_header.strip()
                     sender_name = ""
 
+                # Skip automated service emails that are better handled by their
+                # native connectors (GitHub notifications, JIRA, Linear, etc.)
+                _skip_senders = {
+                    "noreply@github.com",
+                    "notifications@github.com",
+                    "noreply@linear.app",
+                    "noreply@atlassian.net",
+                    "jira@",
+                }
+                if any(skip in sender_email.lower() for skip in _skip_senders):
+                    continue
+
                 snippet = msg.get("snippet", "")
                 internal_date = msg.get("internalDate", "0")
                 timestamp_str = datetime.fromtimestamp(int(internal_date) / 1000, UTC).isoformat()

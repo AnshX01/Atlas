@@ -193,6 +193,18 @@ class BriefingService:
                     "preview": text_chunk[:200],
                     "source": _source_label(payload.get("type", "document")),
                     "timestamp": payload.get("timestamp", datetime.now(UTC).isoformat()),
+                    # Pass through all metadata for action URLs on the frontend
+                    "metadata": {
+                        "sender": payload.get("sender_email", payload.get("author", "")),
+                        "sender_name": payload.get("sender_name", ""),
+                        "source_id": payload.get("source_id", r["id"]),
+                        "url": payload.get("url", ""),
+                        "repo": payload.get("repo", ""),
+                        "pr_number": payload.get("pr_number"),
+                        "issue_number": payload.get("issue_number"),
+                        "attendees": payload.get("attendees", []),
+                        "subject": payload.get("subject", ""),
+                    },
                 }
             )
         return items
@@ -234,7 +246,7 @@ class BriefingService:
                 source=raw["source"],
                 priority_score=priority,
                 action_label=action,
-                metadata={"sender": raw.get("sender", "")},
+                metadata=raw.get("metadata", {"sender": raw.get("sender", "")}),
                 timestamp=datetime.fromisoformat(raw["timestamp"]),
             )
             briefing_items.append(item)
