@@ -188,10 +188,9 @@ class GoogleWorkspaceConnector(BaseConnector):
             neo4j_data_list contains dicts with keys needed to call upsert_message_node.
         """
         since_ts = int(since.timestamp())
-        # Fetch important emails (read + unread) from Primary category
-        # is:important uses Gmail's ML-based priority detection
+        # Fetch recent emails from Primary category (human conversations)
         # category:primary filters out promotions, social, updates
-        query = f"after:{since_ts} is:important category:primary"
+        query = f"after:{since_ts} category:primary"
 
         results = service.users().messages().list(userId="me", q=query, maxResults=50).execute()
         messages = results.get("messages", [])
@@ -393,7 +392,7 @@ class GoogleWorkspaceConnector(BaseConnector):
     def _sync_tasks(
         self, service: Any
     ) -> tuple[dict[str, int], list[dict[str, Any]]]:
-        """Sync Google Tasks — fetch incomplete tasks from all task lists.
+        """Sync Google Tasks — fetch all tasks from all task lists.
 
         Returns:
             A 2-tuple of (result_dict, chunks_list).
@@ -410,23 +409,20 @@ class GoogleWorkspaceConnector(BaseConnector):
                 tasklist_id = tasklist["id"]
                 tasklist_title = tasklist.get("title", "My Tasks")
 
-                # Get incomplete tasks from this list
+                # Get ALL tasks from this list (completed and incomplete)
                 tasks_result = (
                     service.tasks()
                     .list(
                         tasklist=tasklist_id,
-                        showCompleted=False,
-                        showHidden=False,
-                        maxResults=50,
+                        showCompleted=True,
+                        showHidden=True,
+                        maxResults=100,
                     )
                     .execute()
                 )
                 tasks = tasks_result.get("items", [])
 
                 for task in tasks:
-                    if task.get("status") == "completed":
-                        continue
-
                     title = task.get("title", "")
                     if not title.strip():
                         continue
@@ -434,25 +430,37 @@ class GoogleWorkspaceConnector(BaseConnector):
                     notes = task.get("notes", "")
                     due = task.get("due", "")
                     updated = task.get("updated", datetime.now(UTC).isoformat())
+                    status = task.get("status", "needsAction")
+
+                    text = f"Task: {title}"
+                    if notes:
+                        text += f"\n{notes}"
+                    if status == "completed":
+                        text += "\n[COMPLETED]"
 
                     chunks.append(
                         {
                             "id": str(uuid.uuid4()),
                             "source_id": task["id"],
                             "type": "task",
-                            "text": f"Task: {title}\n{notes}".strip(),
+                            "text": text.strip(),
                             "timestamp": due if due else updated,
                             "metadata": {
                                 "tasklist": tasklist_title,
                                 "due": due,
                                 "url": task.get("selfLink", ""),
-                                "status": task.get("status", "needsAction"),
+                                "status": status,
                             },
                         }
                     )
                     synced += 1
                     logger.debug("Task synced", task_id=task.get("id"))
 
+        except HttpError as e:
+            if e.resp.status in (403, 401):
+                logger.warning("Google Tasks access denied - scope may need re-granting: %s", str(e))
+            else:
+                logger.warning("Google Tasks sync error: %s", str(e))
         except Exception as e:
             logger.warning("Google Tasks sync error: %s", str(e))
 
