@@ -1,8 +1,9 @@
 /**
  * Atlas Local Store — SQLite-based persistence for workflow state.
  *
- * Uses better-sqlite3 (synchronous, fast, Electron-friendly).
+ * Uses sql.js (pure JavaScript SQLite, no native compilation required).
  * Database stored at: app.getPath('userData')/atlas-workflows.db
+ * Persists to disk on every write operation.
  *
  * Tables:
  * - conversations: conversation threads
@@ -13,7 +14,7 @@
 
 import { app } from "electron";
 import * as path from "path";
-import Database from "better-sqlite3";
+import * as fs from "fs";
 import { randomUUID } from "crypto";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -38,25 +39,33 @@ export interface ToolExecution {
   conversation_id: string;
   server: string;
   tool: string;
-  params: string; // JSON string
-  result: string; // JSON string
+  params: string;
+  result: string;
   timestamp: string;
 }
 
 // ── Database Singleton ─────────────────────────────────────────────────────────
 
-let db: ReturnType<typeof Database> | null = null;
+let db: any = null;
+let dbPath: string = "";
+let SQL: any = null;
 
-/**
- * Get the database path. Uses app.getPath('userData') for persistent storage.
- * Falls back to a temp path if app is not ready (shouldn't happen in practice).
- */
 function getDbPath(): string {
   try {
     return path.join(app.getPath("userData"), "atlas-workflows.db");
   } catch {
-    // Fallback for unit testing outside of Electron
     return path.join(process.cwd(), "atlas-workflows.db");
+  }
+}
+
+function persistToDisk(): void {
+  if (!db) return;
+  try {
+    const data = db.export();
+    const buffer = Buffer.from(data);
+    fs.writeFileSync(dbPath, buffer);
+  } catch (err) {
+    console.error("[Atlas Store] Failed to persist database:", err);
   }
 }
 
@@ -64,34 +73,43 @@ function getDbPath(): string {
  * Initialize the database, creating tables if they don't exist.
  * Must be called once at app startup (after app.whenReady()).
  */
-export function initDB(): void {
+export async function initDB(): Promise<void> {
   if (db) return;
 
-  const dbPath = getDbPath();
+  // Dynamic import of sql.js
+  const initSqlJs = require("sql.js");
+  SQL = await initSqlJs();
+
+  dbPath = getDbPath();
   console.log(`[Atlas Store] Opening database at: ${dbPath}`);
 
-  db = new Database(dbPath);
-
-  // Enable WAL mode for better concurrent read performance
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
+  // Load existing database from file, or create new one
+  try {
+    if (fs.existsSync(dbPath)) {
+      const fileBuffer = fs.readFileSync(dbPath);
+      db = new SQL.Database(fileBuffer);
+    } else {
+      db = new SQL.Database();
+    }
+  } catch {
+    db = new SQL.Database();
+  }
 
   // Create tables
-  db.exec(`
+  db.run(`
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL DEFAULT 'local',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL,
       title TEXT NOT NULL DEFAULT 'New Conversation'
     );
 
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
-      role TEXT NOT NULL CHECK(role IN ('user', 'assistant', 'system', 'tool')),
+      role TEXT NOT NULL,
       content TEXT NOT NULL,
-      timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      timestamp TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS tool_executions (
@@ -101,25 +119,16 @@ export function initDB(): void {
       tool TEXT NOT NULL,
       params TEXT NOT NULL DEFAULT '{}',
       result TEXT NOT NULL DEFAULT '{}',
-      timestamp TEXT NOT NULL DEFAULT (datetime('now')),
-      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+      timestamp TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS config (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
-
-    CREATE INDEX IF NOT EXISTS idx_messages_conversation
-      ON messages(conversation_id, timestamp);
-
-    CREATE INDEX IF NOT EXISTS idx_tool_executions_conversation
-      ON tool_executions(conversation_id, timestamp);
-
-    CREATE INDEX IF NOT EXISTS idx_conversations_created
-      ON conversations(created_at DESC);
   `);
 
+  persistToDisk();
   console.log("[Atlas Store] Database initialized successfully");
 }
 
@@ -128,108 +137,99 @@ export function initDB(): void {
  */
 export function closeDB(): void {
   if (db) {
+    persistToDisk();
     db.close();
     db = null;
     console.log("[Atlas Store] Database closed");
   }
 }
 
-/**
- * Get the database instance. Throws if not initialized.
- */
-function getDB(): ReturnType<typeof Database> {
-  if (!db) {
-    throw new Error("[Atlas Store] Database not initialized. Call initDB() first.");
-  }
-  return db;
-}
-
 // ── Conversation Operations ────────────────────────────────────────────────────
 
-/**
- * Create a new conversation and return its ID.
- */
 export function createConversation(title: string, userId: string = "local"): Conversation {
-  const d = getDB();
+  if (!db) throw new Error("Database not initialized");
   const id = randomUUID();
   const createdAt = new Date().toISOString();
 
-  d.prepare(
-    "INSERT INTO conversations (id, user_id, created_at, title) VALUES (?, ?, ?, ?)"
-  ).run(id, userId, createdAt, title);
+  db.run(
+    "INSERT INTO conversations (id, user_id, created_at, title) VALUES (?, ?, ?, ?)",
+    [id, userId, createdAt, title]
+  );
+  persistToDisk();
 
   return { id, user_id: userId, created_at: createdAt, title };
 }
 
-/**
- * List conversations, most recent first.
- */
 export function listConversations(limit: number = 50): Conversation[] {
-  const d = getDB();
-  return d
-    .prepare("SELECT * FROM conversations ORDER BY created_at DESC LIMIT ?")
-    .all(limit) as Conversation[];
+  if (!db) return [];
+  const stmt = db.prepare("SELECT * FROM conversations ORDER BY created_at DESC LIMIT ?");
+  stmt.bind([limit]);
+  const results: Conversation[] = [];
+  while (stmt.step()) {
+    results.push(stmt.getAsObject() as unknown as Conversation);
+  }
+  stmt.free();
+  return results;
 }
 
-/**
- * Get a single conversation by ID.
- */
 export function getConversation(id: string): Conversation | undefined {
-  const d = getDB();
-  return d.prepare("SELECT * FROM conversations WHERE id = ?").get(id) as
-    | Conversation
-    | undefined;
+  if (!db) return undefined;
+  const stmt = db.prepare("SELECT * FROM conversations WHERE id = ?");
+  stmt.bind([id]);
+  if (stmt.step()) {
+    const row = stmt.getAsObject() as unknown as Conversation;
+    stmt.free();
+    return row;
+  }
+  stmt.free();
+  return undefined;
 }
 
-/**
- * Update conversation title.
- */
 export function updateConversationTitle(id: string, title: string): void {
-  const d = getDB();
-  d.prepare("UPDATE conversations SET title = ? WHERE id = ?").run(title, id);
+  if (!db) return;
+  db.run("UPDATE conversations SET title = ? WHERE id = ?", [title, id]);
+  persistToDisk();
 }
 
 // ── Message Operations ─────────────────────────────────────────────────────────
 
-/**
- * Save a message to a conversation.
- */
 export function saveMessage(
   conversationId: string,
   role: "user" | "assistant" | "system" | "tool",
   content: string
 ): Message {
-  const d = getDB();
+  if (!db) throw new Error("Database not initialized");
   const id = randomUUID();
   const timestamp = new Date().toISOString();
 
-  d.prepare(
-    "INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)"
-  ).run(id, conversationId, role, content, timestamp);
+  db.run(
+    "INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+    [id, conversationId, role, content, timestamp]
+  );
+  persistToDisk();
 
   return { id, conversation_id: conversationId, role, content, timestamp };
 }
 
-/**
- * Get conversation history (messages) ordered by timestamp.
- */
 export function getConversationHistory(
   conversationId: string,
   limit: number = 100
 ): Message[] {
-  const d = getDB();
-  return d
-    .prepare(
-      "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC LIMIT ?"
-    )
-    .all(conversationId, limit) as Message[];
+  if (!db) return [];
+  const stmt = db.prepare(
+    "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC LIMIT ?"
+  );
+  stmt.bind([conversationId, limit]);
+  const results: Message[] = [];
+  while (stmt.step()) {
+    results.push(stmt.getAsObject() as unknown as Message);
+  }
+  stmt.free();
+  return results;
 }
 
 // ── Tool Execution Operations ──────────────────────────────────────────────────
 
-/**
- * Log a tool execution (MCP tool call + result).
- */
 export function saveToolExecution(
   conversationId: string,
   server: string,
@@ -237,15 +237,17 @@ export function saveToolExecution(
   params: Record<string, unknown>,
   result: unknown
 ): ToolExecution {
-  const d = getDB();
+  if (!db) throw new Error("Database not initialized");
   const id = randomUUID();
   const timestamp = new Date().toISOString();
   const paramsJson = JSON.stringify(params);
   const resultJson = JSON.stringify(result);
 
-  d.prepare(
-    "INSERT INTO tool_executions (id, conversation_id, server, tool, params, result, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)"
-  ).run(id, conversationId, server, tool, paramsJson, resultJson, timestamp);
+  db.run(
+    "INSERT INTO tool_executions (id, conversation_id, server, tool, params, result, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    [id, conversationId, server, tool, paramsJson, resultJson, timestamp]
+  );
+  persistToDisk();
 
   return {
     id,
@@ -258,48 +260,49 @@ export function saveToolExecution(
   };
 }
 
-/**
- * Get tool executions for a conversation.
- */
 export function getToolExecutions(
   conversationId: string,
   limit: number = 50
 ): ToolExecution[] {
-  const d = getDB();
-  return d
-    .prepare(
-      "SELECT * FROM tool_executions WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT ?"
-    )
-    .all(conversationId, limit) as ToolExecution[];
+  if (!db) return [];
+  const stmt = db.prepare(
+    "SELECT * FROM tool_executions WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT ?"
+  );
+  stmt.bind([conversationId, limit]);
+  const results: ToolExecution[] = [];
+  while (stmt.step()) {
+    results.push(stmt.getAsObject() as unknown as ToolExecution);
+  }
+  stmt.free();
+  return results;
 }
 
 // ── Config Operations ──────────────────────────────────────────────────────────
 
-/**
- * Get a config value by key. Returns undefined if not set.
- */
 export function getConfig(key: string): string | undefined {
-  const d = getDB();
-  const row = d.prepare("SELECT value FROM config WHERE key = ?").get(key) as
-    | { value: string }
-    | undefined;
-  return row?.value;
+  if (!db) return undefined;
+  const stmt = db.prepare("SELECT value FROM config WHERE key = ?");
+  stmt.bind([key]);
+  if (stmt.step()) {
+    const row = stmt.getAsObject() as unknown as { value: string };
+    stmt.free();
+    return row.value;
+  }
+  stmt.free();
+  return undefined;
 }
 
-/**
- * Set a config key-value pair (upserts).
- */
 export function setConfig(key: string, value: string): void {
-  const d = getDB();
-  d.prepare(
-    "INSERT INTO config (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
-  ).run(key, value);
+  if (!db) return;
+  db.run(
+    "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
+    [key, value]
+  );
+  persistToDisk();
 }
 
-/**
- * Delete a config key.
- */
 export function deleteConfig(key: string): void {
-  const d = getDB();
-  d.prepare("DELETE FROM config WHERE key = ?").run(key);
+  if (!db) return;
+  db.run("DELETE FROM config WHERE key = ?", [key]);
+  persistToDisk();
 }

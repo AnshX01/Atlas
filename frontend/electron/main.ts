@@ -105,11 +105,11 @@ app.whenReady().then(async () => {
   console.log("[Atlas] MCP Server Manager initialized (servers will start on user request)");
 
   // ── Initialize Local Store (SQLite) ─────────────────────────────────
-  initDB();
+  await initDB();
   console.log("[Atlas] Local store (SQLite) initialized");
 
   // ── Initialize Auth Tables ──────────────────────────────────────────
-  initAuthTables();
+  await initAuthTables();
   console.log("[Atlas] Local auth tables initialized");
 
   // ── Initialize Orchestrator ─────────────────────────────────────────
