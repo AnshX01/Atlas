@@ -192,24 +192,72 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
             className="mb-3 overflow-hidden"
           >
             <div className="p-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] space-y-3">
-              {/* Full metadata */}
-              <div className="flex flex-wrap gap-3 text-[11px] text-[var(--text-muted)]">
-                {item.metadata?.sender && (
-                  <span>From: <span className="text-[var(--text-secondary)]">{String(item.metadata.sender)}</span></span>
-                )}
-                {item.metadata?.repo && (
-                  <span>Repo: <span className="text-[var(--text-secondary)]">{String(item.metadata.repo)}</span></span>
-                )}
-                {item.metadata?.pr_number && (
-                  <span>PR #{String(item.metadata.pr_number)}</span>
-                )}
-                {item.metadata?.issue_number && (
-                  <span>Issue #{String(item.metadata.issue_number)}</span>
-                )}
-                {item.metadata?.attendees && Array.isArray(item.metadata.attendees) && (
-                  <span>Attendees: {(item.metadata.attendees as string[]).slice(0, 3).join(", ")}</span>
-                )}
-              </div>
+              {/* Email-specific: subject + sender + body preview */}
+              {item.type === "email" && (
+                <div className="space-y-2">
+                  {item.metadata?.subject && (
+                    <div className="text-xs">
+                      <span className="text-[var(--text-muted)]">Subject: </span>
+                      <span className="text-[var(--text-primary)] font-medium">{String(item.metadata.subject)}</span>
+                    </div>
+                  )}
+                  {item.metadata?.sender && (
+                    <div className="text-xs">
+                      <span className="text-[var(--text-muted)]">From: </span>
+                      <span className="text-[var(--text-secondary)]">
+                        {item.metadata.sender_name ? `${String(item.metadata.sender_name)} <${String(item.metadata.sender)}>` : String(item.metadata.sender)}
+                      </span>
+                    </div>
+                  )}
+                  {/* Show first ~6 lines of the email body */}
+                  <div className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-line border-t border-[var(--border-default)] pt-2 mt-2">
+                    {item.summary.split("\n").slice(0, 6).join("\n") || item.title}
+                  </div>
+                </div>
+              )}
+
+              {/* PR/Issue: repo + number + full description */}
+              {(item.type === "pr" || item.type === "issue") && (
+                <div className="space-y-2">
+                  {item.metadata?.repo && (
+                    <div className="text-xs">
+                      <span className="text-[var(--text-muted)]">Repository: </span>
+                      <span className="text-[var(--text-secondary)] font-medium">{String(item.metadata.repo)}</span>
+                    </div>
+                  )}
+                  {item.metadata?.pr_number && (
+                    <div className="text-xs text-[var(--text-muted)]">Pull Request #{String(item.metadata.pr_number)}</div>
+                  )}
+                  {item.metadata?.issue_number && (
+                    <div className="text-xs text-[var(--text-muted)]">Issue #{String(item.metadata.issue_number)}</div>
+                  )}
+                  <div className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-line border-t border-[var(--border-default)] pt-2 mt-2">
+                    {item.summary}
+                  </div>
+                </div>
+              )}
+
+              {/* Calendar: attendees + time */}
+              {item.type === "calendar" && (
+                <div className="space-y-2">
+                  {item.metadata?.attendees && Array.isArray(item.metadata.attendees) && (item.metadata.attendees as string[]).length > 0 && (
+                    <div className="text-xs">
+                      <span className="text-[var(--text-muted)]">Attendees: </span>
+                      <span className="text-[var(--text-secondary)]">{(item.metadata.attendees as string[]).slice(0, 5).join(", ")}</span>
+                    </div>
+                  )}
+                  <div className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                    {item.summary}
+                  </div>
+                </div>
+              )}
+
+              {/* Generic fallback for other types */}
+              {!["email", "pr", "issue", "calendar"].includes(item.type) && (
+                <div className="text-xs text-[var(--text-secondary)] leading-relaxed">
+                  {item.summary}
+                </div>
+              )}
 
               {/* Direct action link */}
               {actionUrl && (
@@ -217,9 +265,9 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
                   href={actionUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium
-                             bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/20
-                             hover:bg-[var(--accent)]/20 transition-colors"
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium
+                             text-[var(--accent)] bg-[var(--bg-secondary)]
+                             hover:bg-[var(--accent)]/10 transition-colors"
                 >
                   <ExternalLink size={12} />
                   {getActionLabel(item)}

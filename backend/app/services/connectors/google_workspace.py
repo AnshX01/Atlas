@@ -227,9 +227,11 @@ class GoogleWorkspaceConnector(BaseConnector):
                 _skip_senders = {
                     "noreply@github.com",
                     "notifications@github.com",
+                    "github.com",
                     "noreply@linear.app",
                     "noreply@atlassian.net",
                     "jira@",
+                    "noreply@notion.so",
                 }
                 if any(skip in sender_email.lower() for skip in _skip_senders):
                     continue

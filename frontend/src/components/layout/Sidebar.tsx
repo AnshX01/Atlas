@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  LayoutDashboard, Search, Settings, Zap, Github,
+  LayoutDashboard, Settings, Zap, Github,
   Mail, FolderOpen, Plus, Home
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -22,11 +22,10 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: "dashboard", label: "Dashboard",      href: "/dashboard", icon: <Home size={16} />,            shortcut: "⌘D" },
   { id: "briefing",  label: "Daily Briefing", href: "/briefing",  icon: <LayoutDashboard size={16} />, shortcut: "⌘1" },
-  { id: "search",    label: "Search",         href: "/search",    icon: <Search size={16} />,          shortcut: "⌘K" },
 ];
 
 const providerMeta: Record<ConnectorProvider, { label: string; icon: React.ReactNode }> = {
-  google_workspace: { label: "Gmail & Calendar", icon: <Mail size={14} /> },
+  google_workspace: { label: "Google Workspace", icon: <Mail size={14} /> },
   github:           { label: "GitHub",           icon: <Github size={14} /> },
   local_fs:         { label: "Local Files",      icon: <FolderOpen size={14} /> },
   slack:            { label: "Slack",            icon: <Mail size={14} /> },
@@ -72,13 +71,14 @@ export function Sidebar() {
 
   const connectorItems = connectors.map((c) => ({
     id: c.id,
-    label: c.display_name || providerMeta[c.provider]?.label || c.provider,
+    provider: c.provider,
+    label: providerMeta[c.provider]?.label || c.provider,
     icon: providerMeta[c.provider]?.icon || <FolderOpen size={14} />,
     status: c.status,
   }));
 
   const navigateToIntegrations = () => {
-    router.push("/settings?section=integrations");
+    router.push("/settings");
   };
 
   return (
@@ -165,10 +165,15 @@ export function Sidebar() {
         {connectorItems.map((c) => (
           <div
             key={c.id}
+            onClick={() => router.push(`/settings?connector=${c.id}`)}
             className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl text-xs text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors group"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") router.push(`/settings?connector=${c.id}`); }}
+            title={`Manage ${c.label}`}
           >
             <span>{c.icon}</span>
-            <span className="flex-1">{c.label}</span>
+            <span className="flex-1 truncate">{c.label}</span>
             <span
               className={cn(
                 "w-1.5 h-1.5 rounded-full flex-shrink-0",

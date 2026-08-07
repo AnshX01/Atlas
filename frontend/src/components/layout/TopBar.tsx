@@ -3,10 +3,12 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, Bell, Moon, Sun, RefreshCw, User } from "lucide-react";
 import { useAppStore } from "@/lib/store/useAppStore";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 export function TopBar() {
-  const { setCommandBarOpen, theme, toggleTheme, syncProgress } = useAppStore();
+  const { theme, toggleTheme, syncProgress } = useAppStore();
+  const router = useRouter();
   const isSyncing = syncProgress !== null;
 
   return (
@@ -14,13 +16,13 @@ export function TopBar() {
       className="app-topbar flex items-center justify-between px-4 gap-3"
       role="banner"
     >
-      {/* Left: breadcrumb / page title (injected by child pages) */}
+      {/* Left: breadcrumb / page title */}
       <div id="topbar-title" className="text-sm font-medium text-[var(--text-secondary)]" />
 
-      {/* Center: Search trigger */}
+      {/* Center: AI Search link */}
       <button
         id="global-search-trigger"
-        onClick={() => setCommandBarOpen(true)}
+        onClick={() => router.push('/search')}
         className={cn(
           "hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl",
           "border border-[var(--border-default)] bg-[var(--bg-tertiary)]",
@@ -29,13 +31,13 @@ export function TopBar() {
           "transition-all duration-150 cursor-pointer select-none",
           "w-64"
         )}
-        aria-label="Open command bar (⌘Space)"
+        aria-label="Open AI Search"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <Search size={13} />
-        <span className="flex-1 text-left text-xs">Search everything...</span>
+        <span className="flex-1 text-left text-xs">AI Search...</span>
         <kbd className="text-[10px] font-mono bg-[var(--bg-primary)] border border-[var(--border-default)] px-1.5 py-0.5 rounded-md text-[var(--text-muted)]">
-          ⌘ Space
+          ⌘K
         </kbd>
       </button>
 
@@ -65,11 +67,11 @@ export function TopBar() {
         {/* Notifications */}
         <button
           id="notifications-btn"
+          onClick={() => router.push('/briefing')}
           className="w-8 h-8 flex items-center justify-center rounded-xl text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors relative"
           aria-label="View notifications"
         >
           <Bell size={15} />
-          {/* Unread dot */}
           <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[var(--accent)]" aria-hidden />
         </button>
 
@@ -86,8 +88,9 @@ export function TopBar() {
         {/* User avatar */}
         <button
           id="user-avatar-btn"
+          onClick={() => router.push('/profile')}
           className="w-7 h-7 rounded-full bg-gradient-to-br from-[var(--accent)] to-purple-500 flex items-center justify-center text-white ml-1"
-          aria-label="User menu"
+          aria-label="Open profile"
         >
           <User size={13} />
         </button>

@@ -330,6 +330,29 @@ export default function SettingsPage() {
                       <span className="text-xs px-2 py-1 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
                         Coming Soon
                       </span>
+                    ) : integration.id === "local_fs" && integration.status === "active" ? (
+                      <Button 
+                        size="sm" 
+                        variant="secondary" 
+                        id={`reconfigure-${integration.id}`}
+                        onClick={() => {
+                          // Pre-fill with existing paths from connector config
+                          const connector = connectors.find(c => c.provider === "local_fs");
+                          if (connector?.display_name) {
+                            try {
+                              const config = JSON.parse(connector.display_name);
+                              if (config.watch_paths && Array.isArray(config.watch_paths)) {
+                                setLocalFsPaths(config.watch_paths.join("\n"));
+                              }
+                            } catch {
+                              // display_name wasn't JSON, ignore
+                            }
+                          }
+                          setShowLocalFsForm(true);
+                        }}
+                      >
+                        Reconfigure
+                      </Button>
                     ) : integration.status === "active" ? (
                       <Button size="sm" variant="secondary" id={`disconnect-${integration.id}`}>
                         Connected ✓
@@ -370,7 +393,9 @@ export default function SettingsPage() {
                         Directory paths to watch
                       </label>
                       <p className="text-xs text-[var(--text-muted)] mb-2">
-                        Enter one directory path per line. Atlas will index and monitor these folders.
+                        {integration.status === "active"
+                          ? "Edit paths or add new directories. Atlas will re-index and monitor these folders."
+                          : "Enter one directory path per line. Atlas will index and monitor these folders."}
                       </p>
                       <textarea
                         id="local-fs-paths"
@@ -399,7 +424,11 @@ export default function SettingsPage() {
                             }
                           }}
                         >
-                          {configureLocalFs.isPending ? "Connecting…" : "Connect"}
+                          {configureLocalFs.isPending
+                            ? "Saving…"
+                            : integration.status === "active"
+                            ? "Save Changes"
+                            : "Connect"}
                         </Button>
                         <Button
                           size="sm"
