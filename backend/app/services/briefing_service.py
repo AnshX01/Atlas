@@ -107,6 +107,15 @@ class BriefingService:
             except (ValueError, TypeError):
                 pass
 
+        # Extra boost for today's calendar events
+        if item_type == 'calendar' and timestamp:
+            try:
+                item_time = datetime.fromisoformat(timestamp)
+                if item_time.date() == datetime.now(UTC).date():
+                    score += 20  # Today's meetings are high priority
+            except (ValueError, TypeError):
+                pass
+
         # Boost emails from people (not automated/noreply)
         sender = raw_item.get("sender", "")
         if sender and "noreply" not in sender.lower() and "no-reply" not in sender.lower():
@@ -159,51 +168,68 @@ class BriefingService:
         if not active_connectors:
             return []
 
-        # Embed a broad query to retrieve recent items
         embedder = _get_briefing_embedder()
-        query_vector = embedder.encode(
-            "recent important items emails pull requests issues tasks"
-        ).tolist()
+        all_results: dict[str, dict[str, Any]] = {}
 
-        results = await semantic_search(
+        # Query 1: Today's meetings and schedule
+        today_str = datetime.now(UTC).strftime('%Y-%m-%d')
+        calendar_vector = embedder.encode(
+            f"meetings today {today_str} calendar events schedule calls"
+        ).tolist()
+        calendar_results = await semantic_search(
             user_id=self.user_id,
-            query_vector=query_vector,
-            limit=20,
+            query_vector=calendar_vector,
+            limit=10,
+            score_threshold=0.0,
+            source_filter="calendar",
+        )
+        for r in calendar_results:
+            all_results[r['id']] = r
+
+        # Query 2: Actionable items (emails, PRs, issues, tasks)
+        action_vector = embedder.encode(
+            "urgent emails requiring reply pull requests to review issues assigned tasks deadline"
+        ).tolist()
+        action_results = await semantic_search(
+            user_id=self.user_id,
+            query_vector=action_vector,
+            limit=15,
             score_threshold=0.0,
         )
+        for r in action_results:
+            if r['id'] not in all_results:
+                all_results[r['id']] = r
 
         items = []
-        for r in results:
-            payload = r.get("payload", {})
-            item_type = payload.get("type", "document")
-            # Normalise type to match BriefingItem schema
+        for r in all_results.values():
+            payload = r.get('payload', {})
+            item_type = payload.get('type', 'document')
             item_type = (
                 item_type
-                if item_type in ("email", "pr", "issue", "calendar", "document", "task")
-                else "document"
+                if item_type in ('email', 'pr', 'issue', 'calendar', 'document', 'task')
+                else 'document'
             )
-            text_chunk = payload.get("text_chunk", "")
-            title = text_chunk[:80] if text_chunk else "Untitled"
+            text_chunk = payload.get('text_chunk', '')
+            title = text_chunk[:80] if text_chunk else 'Untitled'
             items.append(
                 {
-                    "id": r["id"],
-                    "type": item_type,
-                    "title": title,
-                    "sender": payload.get("sender_email", payload.get("author", "")),
-                    "preview": text_chunk[:200],
-                    "source": _source_label(payload.get("type", "document")),
-                    "timestamp": payload.get("timestamp", datetime.now(UTC).isoformat()),
-                    # Pass through all metadata for action URLs on the frontend
-                    "metadata": {
-                        "sender": payload.get("sender_email", payload.get("author", "")),
-                        "sender_name": payload.get("sender_name", ""),
-                        "source_id": payload.get("source_id", r["id"]),
-                        "url": payload.get("url", ""),
-                        "repo": payload.get("repo", ""),
-                        "pr_number": payload.get("pr_number"),
-                        "issue_number": payload.get("issue_number"),
-                        "attendees": payload.get("attendees", []),
-                        "subject": payload.get("subject", ""),
+                    'id': r['id'],
+                    'type': item_type,
+                    'title': title,
+                    'sender': payload.get('sender_email', payload.get('author', '')),
+                    'preview': text_chunk[:200],
+                    'source': _source_label(payload.get('type', 'document')),
+                    'timestamp': payload.get('timestamp', datetime.now(UTC).isoformat()),
+                    'metadata': {
+                        'sender': payload.get('sender_email', payload.get('author', '')),
+                        'sender_name': payload.get('sender_name', ''),
+                        'source_id': payload.get('source_id', r['id']),
+                        'url': payload.get('url', ''),
+                        'repo': payload.get('repo', ''),
+                        'pr_number': payload.get('pr_number'),
+                        'issue_number': payload.get('issue_number'),
+                        'attendees': payload.get('attendees', []),
+                        'subject': payload.get('subject', ''),
                     },
                 }
             )

@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
 export function TopBar() {
-  const { theme, toggleTheme, syncProgress } = useAppStore();
+  const { theme, toggleTheme, syncProgress, setCommandBarOpen } = useAppStore();
   const router = useRouter();
   const isSyncing = syncProgress !== null;
 
@@ -19,10 +19,10 @@ export function TopBar() {
       {/* Left: breadcrumb / page title */}
       <div id="topbar-title" className="text-sm font-medium text-[var(--text-secondary)]" />
 
-      {/* Center: AI Search link */}
+      {/* Center: AI Search trigger (opens CommandBar) */}
       <button
         id="global-search-trigger"
-        onClick={() => router.push('/search')}
+        onClick={() => setCommandBarOpen(true)}
         className={cn(
           "hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl",
           "border border-[var(--border-default)] bg-[var(--bg-tertiary)]",
@@ -31,13 +31,13 @@ export function TopBar() {
           "transition-all duration-150 cursor-pointer select-none",
           "w-64"
         )}
-        aria-label="Open AI Search"
+        aria-label="Open AI Search (⌘Space)"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <Search size={13} />
         <span className="flex-1 text-left text-xs">AI Search...</span>
         <kbd className="text-[10px] font-mono bg-[var(--bg-primary)] border border-[var(--border-default)] px-1.5 py-0.5 rounded-md text-[var(--text-muted)]">
-          ⌘K
+          ⌘Space
         </kbd>
       </button>
 

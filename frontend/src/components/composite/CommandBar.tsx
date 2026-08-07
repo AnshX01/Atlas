@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Search, FileText, Mail, GitPullRequest, Calendar, Zap,
-  ArrowRight, X
+  ArrowRight, X, Clock, Sparkles
 } from "lucide-react";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { searchAPI } from "@/lib/api/search";
@@ -18,16 +18,27 @@ interface SearchResult {
   source: string;
   score: number;
   timestamp: string;
+  metadata?: Record<string, unknown>;
+  action_url?: string;
 }
 
 const sourceIcon: Record<string, React.ReactNode> = {
   email:    <Mail size={14} />,
   pr:       <GitPullRequest size={14} />,
+  issue:    <GitPullRequest size={14} />,
   doc:      <FileText size={14} />,
+  document: <FileText size={14} />,
   calendar: <Calendar size={14} />,
   file:     <FileText size={14} />,
   default:  <Zap size={14} />,
 };
+
+const suggestedQueries = [
+  { label: "What meetings do I have today?", icon: <Calendar size={13} /> },
+  { label: "Show my open pull requests", icon: <GitPullRequest size={13} /> },
+  { label: "Unread important emails", icon: <Mail size={13} /> },
+  { label: "What should I focus on today?", icon: <Zap size={13} /> },
+];
 
 const placeholders = [
   "Where is the design spec from Sarah?",
@@ -36,6 +47,41 @@ const placeholders = [
   "Show me Q3 planning docs...",
 ];
 
+/** Generate the action URL for a search result (mirrors BriefingCard logic) */
+function getResultUrl(result: SearchResult): string | null {
+  const meta = result.metadata || {};
+
+  if (result.action_url) return result.action_url;
+
+  switch (result.type) {
+    case "email": {
+      const msgId = meta.source_id ?? meta.msg_id;
+      if (msgId) return `https://mail.google.com/mail/u/0/#inbox/${String(msgId)}`;
+      return "https://mail.google.com";
+    }
+    case "pr":
+    case "issue": {
+      const url = meta.url;
+      if (url) return String(url);
+      return null;
+    }
+    case "calendar": {
+      const eventId = meta.event_id ?? meta.source_id;
+      if (eventId) return `https://calendar.google.com/calendar/event?eid=${String(eventId)}`;
+      return "https://calendar.google.com";
+    }
+    case "task":
+    case "document":
+    case "file": {
+      const url = meta.url;
+      if (url) return String(url);
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+
 export function CommandBar() {
   const { commandBarOpen, setCommandBarOpen } = useAppStore();
   const [query, setQuery] = useState("");
@@ -43,8 +89,23 @@ export function CommandBar() {
   const [loading, setLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [placeholder, setPlaceholder] = useState(placeholders[0]);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const [hasSearched, setHasSearched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Load recent searches from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('atlas-search-history');
+    if (saved) setRecentSearches(JSON.parse(saved).slice(0, 5));
+  }, []);
+
+  const saveToHistory = (q: string) => {
+    const saved = JSON.parse(localStorage.getItem('atlas-search-history') || '[]');
+    const updated = [q, ...saved.filter((s: string) => s !== q)].slice(0, 10);
+    localStorage.setItem('atlas-search-history', JSON.stringify(updated));
+    setRecentSearches(updated.slice(0, 5));
+  };
 
   // Rotate placeholder
   useEffect(() => {
@@ -64,17 +125,24 @@ export function CommandBar() {
       setQuery("");
       setResults([]);
       setSelectedIndex(0);
+      setHasSearched(false);
+      // Reload recent searches when opened
+      const saved = localStorage.getItem('atlas-search-history');
+      if (saved) setRecentSearches(JSON.parse(saved).slice(0, 5));
     }
   }, [commandBarOpen]);
 
   // Search with debounce
   const handleSearch = useCallback(async (q: string) => {
-    if (!q.trim()) { setResults([]); return; }
+    if (!q.trim()) { setResults([]); setHasSearched(false); return; }
     setLoading(true);
+    setHasSearched(true);
     try {
       const data = await searchAPI.omniSearch({ query: q, limit: 8 });
       setResults(data.results || []);
       setSelectedIndex(0);
+      // Save to history on successful search
+      saveToHistory(q);
     } catch {
       setResults([]);
     } finally {
@@ -88,6 +156,12 @@ export function CommandBar() {
     debounceRef.current = setTimeout(() => handleSearch(e.target.value), 200);
   };
 
+  const fillAndSearch = (text: string) => {
+    setQuery(text);
+    handleSearch(text);
+    inputRef.current?.focus();
+  };
+
   // Keyboard navigation
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "ArrowDown") {
@@ -96,15 +170,22 @@ export function CommandBar() {
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setSelectedIndex(i => Math.max(i - 1, 0));
-    } else if (e.key === "Enter" && results[selectedIndex]) {
-      handleResultClick(results[selectedIndex]);
+    } else if (e.key === "Enter") {
+      if (results[selectedIndex]) {
+        handleResultClick(results[selectedIndex]);
+      } else if (query.trim()) {
+        handleSearch(query);
+      }
     } else if (e.key === "Escape") {
       setCommandBarOpen(false);
     }
   };
 
-  const handleResultClick = (_result: SearchResult) => {
-    // TODO: open result URL or route to item
+  const handleResultClick = (result: SearchResult) => {
+    const url = getResultUrl(result);
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
     setCommandBarOpen(false);
   };
 
@@ -167,7 +248,7 @@ export function CommandBar() {
                 )}
                 {query && !loading && (
                   <button
-                    onClick={() => { setQuery(""); setResults([]); inputRef.current?.focus(); }}
+                    onClick={() => { setQuery(""); setResults([]); setHasSearched(false); inputRef.current?.focus(); }}
                     className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                     aria-label="Clear search"
                   >
@@ -176,19 +257,76 @@ export function CommandBar() {
                 )}
               </div>
 
-              {/* Results */}
+              {/* Results / Empty State */}
               <div
                 id="command-results"
                 className="command-results"
                 role="listbox"
                 aria-label="Search results"
               >
-                {!query && (
-                  <div className="px-4 py-3 text-xs text-[var(--text-muted)] font-medium uppercase tracking-wider">
-                    Start typing to search across all your connected sources
+                {/* Empty state: show recent + suggestions */}
+                {!query && !hasSearched && (
+                  <div className="py-2">
+                    {/* Recent Searches */}
+                    {recentSearches.length > 0 && (
+                      <div className="mb-2">
+                        <div className="px-4 py-1.5 text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wider flex items-center gap-1.5">
+                          <Clock size={10} />
+                          Recent Searches
+                        </div>
+                        {recentSearches.map((search, i) => (
+                          <button
+                            key={`recent-${i}`}
+                            className={cn(
+                              "w-full flex items-center gap-3 px-4 py-2 text-left",
+                              "hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+                            )}
+                            onClick={() => fillAndSearch(search)}
+                          >
+                            <Clock size={13} className="text-[var(--text-muted)] flex-shrink-0" />
+                            <span className="text-sm text-[var(--text-secondary)] truncate">{search}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Suggested Queries */}
+                    <div>
+                      <div className="px-4 py-1.5 text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wider flex items-center gap-1.5">
+                        <Sparkles size={10} />
+                        Suggestions
+                      </div>
+                      {suggestedQueries.map((suggestion, i) => (
+                        <button
+                          key={`suggestion-${i}`}
+                          className={cn(
+                            "w-full flex items-center gap-3 px-4 py-2 text-left",
+                            "hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+                          )}
+                          onClick={() => fillAndSearch(suggestion.label)}
+                        >
+                          <span className="text-[var(--accent)] flex-shrink-0">{suggestion.icon}</span>
+                          <span className="text-sm text-[var(--text-secondary)]">{suggestion.label}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 
+                {/* AI-powered badge + result count */}
+                {hasSearched && !loading && results.length > 0 && (
+                  <div className="px-4 py-1.5 flex items-center justify-between">
+                    <span className="text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wider">
+                      {results.length} result{results.length !== 1 ? 's' : ''}
+                    </span>
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--accent)]/10 text-[var(--accent)] text-[10px] font-medium">
+                      <Sparkles size={9} />
+                      AI-powered
+                    </span>
+                  </div>
+                )}
+
+                {/* Search Results */}
                 {results.map((result, i) => (
                   <motion.div
                     key={result.id}
@@ -234,21 +372,18 @@ export function CommandBar() {
                   </motion.div>
                 ))}
 
-                {query && !loading && results.length === 0 && (
+                {/* No results state */}
+                {query && !loading && hasSearched && results.length === 0 && (
                   <div className="px-4 py-6 text-center text-sm text-[var(--text-muted)]">
-                    <p>No results for <span className="text-[var(--text-primary)]">"{query}"</span></p>
+                    <p>No results for <span className="text-[var(--text-primary)]">&ldquo;{query}&rdquo;</span></p>
                     <p className="text-xs mt-1 text-[var(--text-muted)]">
-                      Atlas encountered an anomaly.{" "}
+                      Try rephrasing your question.{" "}
                       <button
                         className="text-[var(--accent)] hover:underline"
                         onClick={() => handleSearch(query)}
                       >
                         Retry
                       </button>
-                      {" or "}
-                      <a href="#" className="text-[var(--accent)] hover:underline">
-                        Perform Manual Search
-                      </a>
                     </p>
                   </div>
                 )}
@@ -263,7 +398,7 @@ export function CommandBar() {
                 </div>
                 <div className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]">
                   <Zap size={10} className="text-[var(--accent)]" />
-                  <span>Atlas Search</span>
+                  <span>Atlas AI Search</span>
                 </div>
               </div>
             </motion.div>

@@ -71,7 +71,8 @@ class Settings(BaseSettings):
     GOOGLE_SCOPES: str = (
         "openid email profile "
         "https://www.googleapis.com/auth/gmail.readonly "
-        "https://www.googleapis.com/auth/calendar.readonly"
+        "https://www.googleapis.com/auth/calendar.readonly "
+        "https://www.googleapis.com/auth/tasks.readonly"
     )
 
     # ── GitHub OAuth ──────────────────────────────────────────────────────────

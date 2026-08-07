@@ -188,8 +188,9 @@ class GoogleWorkspaceConnector(BaseConnector):
             neo4j_data_list contains dicts with keys needed to call upsert_message_node.
         """
         since_ts = int(since.timestamp())
-        # Only fetch unread, important emails (skip promotions, social, spam)
-        query = f"after:{since_ts} is:unread is:important category:primary"
+        # Fetch unread emails from Primary category (human conversations)
+        # Gmail's category:primary already filters out promotions, social, updates
+        query = f"after:{since_ts} is:unread category:primary"
 
         results = service.users().messages().list(userId="me", q=query, maxResults=50).execute()
         messages = results.get("messages", [])
@@ -206,6 +207,10 @@ class GoogleWorkspaceConnector(BaseConnector):
             "noreply@atlassian.net",
             "jira@",
             "noreply@notion.so",
+            "mailer-daemon",
+            "postmaster@",
+            "do-not-reply",
+            "donotreply",
         }
         _skip_subject_keywords = [
             "otp", "one-time password", "verification code",
@@ -363,19 +368,91 @@ class GoogleWorkspaceConnector(BaseConnector):
 
         return {"synced": synced, "failed": 0, "skipped": 0}, chunks, neo4j_data
 
+    def _sync_tasks(
+        self, service: Any
+    ) -> tuple[dict[str, int], list[dict[str, Any]]]:
+        """Sync Google Tasks — fetch incomplete tasks from all task lists.
+
+        Returns:
+            A 2-tuple of (result_dict, chunks_list).
+        """
+        synced = 0
+        chunks: list[dict[str, Any]] = []
+
+        try:
+            # Get all task lists
+            tasklists_result = service.tasklists().list(maxResults=10).execute()
+            tasklists = tasklists_result.get("items", [])
+
+            for tasklist in tasklists:
+                tasklist_id = tasklist["id"]
+                tasklist_title = tasklist.get("title", "My Tasks")
+
+                # Get incomplete tasks from this list
+                tasks_result = (
+                    service.tasks()
+                    .list(
+                        tasklist=tasklist_id,
+                        showCompleted=False,
+                        showHidden=False,
+                        maxResults=50,
+                    )
+                    .execute()
+                )
+                tasks = tasks_result.get("items", [])
+
+                for task in tasks:
+                    if task.get("status") == "completed":
+                        continue
+
+                    title = task.get("title", "")
+                    if not title.strip():
+                        continue
+
+                    notes = task.get("notes", "")
+                    due = task.get("due", "")
+                    updated = task.get("updated", datetime.now(UTC).isoformat())
+
+                    chunks.append(
+                        {
+                            "id": str(uuid.uuid4()),
+                            "source_id": task["id"],
+                            "type": "task",
+                            "text": f"Task: {title}\n{notes}".strip(),
+                            "timestamp": due if due else updated,
+                            "metadata": {
+                                "tasklist": tasklist_title,
+                                "due": due,
+                                "url": task.get("selfLink", ""),
+                                "status": task.get("status", "needsAction"),
+                            },
+                        }
+                    )
+                    synced += 1
+                    logger.debug("Task synced", task_id=task.get("id"))
+
+        except Exception as e:
+            logger.warning("Google Tasks sync error: %s", str(e))
+
+        return {"synced": synced, "failed": 0, "skipped": 0}, chunks
+
     async def sync(self) -> dict[str, int]:
-        """Sync Gmail + Calendar from the past 7 days."""
+        """Sync Gmail + Calendar + Tasks from the past 7 days."""
         creds = await self._load_credentials()
         since = datetime.now(UTC) - timedelta(days=7)
 
         gmail_service = build("gmail", "v1", credentials=creds)
         calendar_service = build("calendar", "v3", credentials=creds)
+        tasks_service = build("tasks", "v1", credentials=creds)
 
         gmail_result, gmail_chunks, gmail_neo4j = await asyncio.to_thread(
             self._sync_gmail, gmail_service, since
         )
         cal_result, cal_chunks, cal_neo4j = await asyncio.to_thread(
             self._sync_calendar, calendar_service, since
+        )
+        tasks_result, tasks_chunks = await asyncio.to_thread(
+            self._sync_tasks, tasks_service
         )
 
         # Write Neo4j nodes asynchronously (failures are silently logged inside helpers)
@@ -405,13 +482,13 @@ class GoogleWorkspaceConnector(BaseConnector):
         )
 
         # Dispatch all chunks to Qdrant via Celery embedding task
-        all_chunks = gmail_chunks + cal_chunks
+        all_chunks = gmail_chunks + cal_chunks + tasks_chunks
         if all_chunks:
             batch_embed_chunks.delay(str(self.user_id), all_chunks)
 
         total = {
-            "synced": gmail_result["synced"] + cal_result["synced"],
-            "failed": gmail_result["failed"] + cal_result["failed"],
+            "synced": gmail_result["synced"] + cal_result["synced"] + tasks_result["synced"],
+            "failed": gmail_result["failed"] + cal_result["failed"] + tasks_result["failed"],
             "skipped": 0,
         }
         logger.info("Google Workspace sync complete", **total, user_id=str(self.user_id))
