@@ -266,7 +266,7 @@ class GoogleWorkspaceConnector(BaseConnector):
 
                 chunks.append(
                     {
-                        "id": str(uuid.uuid4()),
+                        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"gmail:{msg['id']}")),
                         "source_id": msg["id"],
                         "type": "email",
                         "text": f"{subject}\n{snippet}",
@@ -361,7 +361,7 @@ class GoogleWorkspaceConnector(BaseConnector):
 
             chunks.append(
                 {
-                    "id": str(uuid.uuid4()),
+                    "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"gcal:{event['id']}")),
                     "source_id": event["id"],
                     "type": "calendar",
                     "text": f"{event.get('summary', '')}\n{event.get('description', '')}",
@@ -440,7 +440,7 @@ class GoogleWorkspaceConnector(BaseConnector):
 
                     chunks.append(
                         {
-                            "id": str(uuid.uuid4()),
+                            "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"gtask:{task['id']}")),
                             "source_id": task["id"],
                             "type": "task",
                             "text": text.strip(),

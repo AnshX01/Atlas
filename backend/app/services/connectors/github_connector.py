@@ -143,7 +143,7 @@ class GitHubConnector(BaseConnector):
                         break
                     chunks.append(
                         {
-                            "id": str(uuid.uuid4()),
+                            "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"ghpr:{pr.id}")),
                             "source_id": str(pr.id),
                             "type": "pr",
                             "text": f"PR #{pr.number}: {pr.title}\n\n{pr.body or ''}",
@@ -192,7 +192,7 @@ class GitHubConnector(BaseConnector):
             for issue in issues:
                 chunks.append(
                     {
-                        "id": str(uuid.uuid4()),
+                        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"ghissue:{issue.id}")),
                         "source_id": str(issue.id),
                         "type": "issue",
                         "text": f"Issue #{issue.number}: {issue.title}\n\n{issue.body or ''}",
