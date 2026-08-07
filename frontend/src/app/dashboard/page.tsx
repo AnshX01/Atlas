@@ -87,7 +87,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const { user } = useAuthStore();
 
-  const { data: connectors } = useQuery({
+  const { data: connectors, isLoading: connectorsLoading } = useQuery({
     queryKey: ["connectors"],
     queryFn: connectorsAPI.listConnectors,
     staleTime: 1000 * 60 * 5,
@@ -141,12 +141,21 @@ export default function DashboardPage() {
             <Plug size={18} className="text-[var(--accent)]" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-[var(--text-primary)]">
-              {connectedCount} Integration{connectedCount !== 1 ? 's' : ''} Connected
-            </p>
-            <p className="text-xs text-[var(--text-muted)]">
-              {connectedCount === 0 ? 'Connect your first service' : 'All systems operational'}
-            </p>
+            {connectorsLoading ? (
+              <>
+                <div className="h-4 w-40 rounded bg-[var(--bg-tertiary)] animate-pulse mb-1" />
+                <div className="h-3 w-28 rounded bg-[var(--bg-tertiary)] animate-pulse" />
+              </>
+            ) : (
+              <>
+                <p className="text-sm font-semibold text-[var(--text-primary)]">
+                  {connectedCount} Integration{connectedCount !== 1 ? 's' : ''} Connected
+                </p>
+                <p className="text-xs text-[var(--text-muted)]">
+                  {connectedCount === 0 ? 'Connect your first service' : 'All systems operational'}
+                </p>
+              </>
+            )}
           </div>
         </div>
       </motion.div>

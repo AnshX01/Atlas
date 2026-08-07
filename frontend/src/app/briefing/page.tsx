@@ -17,10 +17,13 @@ import { useAuthStore } from "@/lib/store/useAuthStore";
 // ── Empty State ────────────────────────────────────────────────────────────────
 function EmptyBriefing() {
   const router = useRouter();
-  const { data: connectors } = useQuery({
+  const { data: connectors, isLoading: connectorsLoading } = useQuery({
     queryKey: ["connectors"],
     queryFn: connectorsAPI.listConnectors,
   });
+
+  if (connectorsLoading) return null; // Don't show empty state while loading
+
   const activeConnectors = connectors?.filter((c) => c.status === "active") ?? [];
   const hasConnectors = activeConnectors.length > 0;
 

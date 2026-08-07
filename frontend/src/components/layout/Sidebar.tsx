@@ -5,11 +5,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Settings, Zap, Github,
-  Chrome, Mail, FolderOpen, Plus, Home
+  Chrome, Mail, FolderOpen, Plus, Home, LogOut
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { connectorsAPI, type ConnectorProvider } from "@/lib/api/connectors";
+import { useAuthStore } from "@/lib/store/useAuthStore";
 
 interface NavItem {
   id: string;
@@ -63,7 +64,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
 
-  const { data: connectors = [] } = useQuery({
+  const { data: connectors = [], isLoading: connectorsLoading } = useQuery({
     queryKey: ["connectors"],
     queryFn: connectorsAPI.listConnectors,
     staleTime: 60000,
@@ -154,27 +155,31 @@ export function Sidebar() {
           </p>
         </div>
 
-        {connectorItems.map((c) => (
-          <div
-            key={c.id}
-            onClick={() => router.push(`/settings?connector=${c.id}`)}
-            className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl text-xs text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors group"
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") router.push(`/settings?connector=${c.id}`); }}
-            title={`Manage ${c.label}`}
-          >
-            <span>{c.icon}</span>
-            <span className="flex-1 truncate">{c.label}</span>
-            <span
-              className={cn(
-                "w-1.5 h-1.5 rounded-full flex-shrink-0",
-                getStatusColor(c.status)
-              )}
-              aria-label={getStatusLabel(c.status)}
-            />
-          </div>
-        ))}
+        {connectorsLoading ? (
+          <div className="px-3 py-2 text-xs text-[var(--text-muted)]">Loading...</div>
+        ) : (
+          connectorItems.map((c) => (
+            <div
+              key={c.id}
+              onClick={() => router.push(`/settings?connector=${c.id}`)}
+              className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl text-xs text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors group"
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") router.push(`/settings?connector=${c.id}`); }}
+              title={`Manage ${c.label}`}
+            >
+              <span>{c.icon}</span>
+              <span className="flex-1 truncate">{c.label}</span>
+              <span
+                className={cn(
+                  "w-1.5 h-1.5 rounded-full flex-shrink-0",
+                  getStatusColor(c.status)
+                )}
+                aria-label={getStatusLabel(c.status)}
+              />
+            </div>
+          ))
+        )}
 
         {/* Add connector prompt if empty */}
         <button
@@ -196,6 +201,17 @@ export function Sidebar() {
             <kbd className="ml-auto text-[10px] font-mono text-[var(--text-muted)] opacity-60">⌘,</kbd>
           </div>
         </Link>
+        <button
+          id="logout-btn"
+          onClick={() => {
+            useAuthStore.getState().logout();
+            router.push('/login');
+          }}
+          className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-[var(--text-secondary)] hover:bg-red-500/10 hover:text-red-400 transition-colors cursor-pointer w-full"
+        >
+          <LogOut size={16} />
+          <span>Logout</span>
+        </button>
       </div>
     </motion.aside>
   );
