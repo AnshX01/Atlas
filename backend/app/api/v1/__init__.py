@@ -253,3 +253,8 @@ async def execute_action(
         message=result.get("message", "Action processed"),
         executed_at=datetime.now(UTC),
     )
+
+# ── Re-export Routers ────────────────────────────────────────────────────────
+from app.api.v1.users import users_router  # noqa: E402
+
+__all__ = ["briefing_router", "search_router", "connectors_router", "actions_router", "users_router"]

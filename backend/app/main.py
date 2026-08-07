@@ -26,6 +26,7 @@ from app.api.v1 import (
     briefing_router,
     connectors_router,
     search_router,
+    users_router,
 )
 from app.api.v1.auth import router as auth_router
 from app.core.config import get_settings
@@ -100,6 +101,7 @@ def create_app() -> FastAPI:
     app.include_router(search_router, prefix=api_prefix)
     app.include_router(connectors_router, prefix=api_prefix)
     app.include_router(actions_router, prefix=api_prefix)
+    app.include_router(users_router, prefix=api_prefix)
 
     # ── Health & Metrics ──────────────────────────────────────────────────────
     @app.get("/health", tags=["System"], summary="Health check")

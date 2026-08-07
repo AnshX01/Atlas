@@ -6,9 +6,12 @@ import { useSearchParams } from "next/navigation";
 import { Settings, Zap, Shield, Bell, Plug, ChevronRight, Moon, Sun } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/ui/Toast";
-import { connectorsAPI } from "@/lib/api/connectors";
+import { connectorsAPI, ConnectorResponse } from "@/lib/api/connectors";
 import { useAppStore } from "@/lib/store/useAppStore";
+import { useAuthStore } from "@/lib/store/useAuthStore";
+import { apiClient } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 type SettingsSection = "general" | "integrations" | "ai" | "privacy" | "notifications";
 
@@ -94,9 +97,46 @@ function SettingsToasts() {
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
   const { theme, toggleTheme } = useAppStore();
-  const [strictLocal, setStrictLocal] = useState(false);
-  const [notifications, setNotifications] = useState(true);
-  const [draftedByAtlas, setDraftedByAtlas] = useState(false);
+  const { user, setUser } = useAuthStore();
+  
+  const queryClient = useQueryClient();
+  
+  // Settings state initialized from user object
+  const [strictLocal, setStrictLocal] = useState(user?.settings_json?.strict_local ?? false);
+  const [draftedByAtlas, setDraftedByAtlas] = useState(user?.settings_json?.drafted_by_atlas ?? false);
+  const [notifications, setNotifications] = useState(user?.settings_json?.notifications ?? true);
+
+  // Fetch Connectors
+  const { data: connectors = [] } = useQuery({
+    queryKey: ["connectors"],
+    queryFn: connectorsAPI.listConnectors,
+  });
+
+  // Update settings mutation
+  const updateSettings = useMutation({
+    mutationFn: async (newSettings: any) => {
+      const { data } = await apiClient.patch("/users/me/settings", { settings: newSettings });
+      return data;
+    },
+    onSuccess: (data) => {
+      setUser(data);
+    }
+  });
+
+  const handleStrictLocalChange = (val: boolean) => {
+    setStrictLocal(val);
+    updateSettings.mutate({ strict_local: val });
+  };
+  
+  const handleDraftedChange = (val: boolean) => {
+    setDraftedByAtlas(val);
+    updateSettings.mutate({ drafted_by_atlas: val });
+  };
+
+  const getConnectorStatus = (providerId: string) => {
+    const c = connectors.find(c => c.provider === providerId);
+    return c ? (c.status === "active" ? "active" : "inactive") : "unconnected";
+  };
 
   return (
     <div className="max-w-3xl mx-auto">
@@ -189,7 +229,7 @@ export default function SettingsPage() {
                 <Toggle
                   id="settings-strict-local"
                   checked={strictLocal}
-                  onChange={setStrictLocal}
+                  onChange={handleStrictLocalChange}
                   label="Toggle strict local mode"
                 />
               </SettingRow>
@@ -205,7 +245,7 @@ export default function SettingsPage() {
                 <Toggle
                   id="settings-drafted-by-atlas"
                   checked={draftedByAtlas}
-                  onChange={setDraftedByAtlas}
+                  onChange={handleDraftedChange}
                   label="Toggle drafted by Atlas signature"
                 />
               </SettingRow>
@@ -253,9 +293,9 @@ export default function SettingsPage() {
                 Connect your tools to build your personal knowledge graph.
               </p>
               {[
-                { name: "Google Workspace", desc: "Gmail & Calendar", status: "active", id: "google" },
-                { name: "GitHub",           desc: "Issues & Pull Requests", status: "active", id: "github" },
-                { name: "Local Files",      desc: "Documents & Code", status: "inactive", id: "localfs" },
+                { name: "Google Workspace", desc: "Gmail & Calendar", status: getConnectorStatus("google_workspace"), id: "google_workspace" },
+                { name: "GitHub",           desc: "Issues & Pull Requests", status: getConnectorStatus("github"), id: "github" },
+                { name: "Local Files",      desc: "Documents & Code", status: getConnectorStatus("local_fs"), id: "local_fs" },
                 { name: "Slack",            desc: "Messages & Threads", status: "coming_soon", id: "slack" },
                 { name: "Notion",           desc: "Pages & Databases", status: "coming_soon", id: "notion" },
               ].map((integration) => (
@@ -281,8 +321,12 @@ export default function SettingsPage() {
                       variant="primary" 
                       id={`connect-${integration.id}`}
                       onClick={() => {
-                        if (integration.id === "google" || integration.id === "github") {
-                          connectorsAPI.initiateOAuth(integration.id);
+                        if (integration.id === "google_workspace") {
+                          connectorsAPI.initiateOAuth("google");
+                        } else if (integration.id === "github") {
+                          connectorsAPI.initiateOAuth("github");
+                        } else if (integration.id === "local_fs") {
+                           // Implement localfs connect later
                         }
                       }}
                     >

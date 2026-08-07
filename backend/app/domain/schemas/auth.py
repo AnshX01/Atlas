@@ -50,15 +50,16 @@ class TokenResponse(BaseModel):
 
 
 class UserResponse(BaseModel):
-    """Public user profile (never exposes hashed_password)."""
+    """Public user profile data."""
 
     id: uuid.UUID
-    email: EmailStr
-    full_name: str | None
-    avatar_url: str | None
+    email: str
+    full_name: str | None = None
+    avatar_url: str | None = None
     is_active: bool
     is_verified: bool
     created_at: datetime
+    settings_json: dict = Field(default_factory=dict)
 
     model_config = {"from_attributes": True}
 

@@ -12,6 +12,12 @@ export interface UserResponse {
   email: string;
   full_name: string | null;
   avatar_url: string | null;
+  settings_json?: {
+    strict_local?: boolean;
+    drafted_by_atlas?: boolean;
+    notifications?: boolean;
+    [key: string]: any;
+  };
   is_active: boolean;
   is_verified: boolean;
   created_at: string;

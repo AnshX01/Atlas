@@ -178,6 +178,34 @@ async def get_me(current_user: User = Depends(get_current_user)) -> UserResponse
 # ── OAuth Initiate Endpoints ──────────────────────────────────────────────────
 
 
+@router.get("/oauth/google/login/initiate", summary="Initiate Google OAuth flow for Login")
+async def google_login_initiate() -> dict:
+    """Return a Google OAuth authorization URL for user login."""
+    from google_auth_oauthlib.flow import Flow
+
+    settings = get_settings()
+
+    flow = Flow.from_client_config(
+        {
+            "web": {
+                "client_id": settings.GOOGLE_CLIENT_ID,
+                "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [settings.GOOGLE_REDIRECT_URI],
+            }
+        },
+        scopes=["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
+        redirect_uri=settings.GOOGLE_REDIRECT_URI,
+    )
+    auth_url, _ = flow.authorization_url(
+        state="login_flow",
+        access_type="offline",
+        include_granted_scopes="true",
+    )
+    return {"auth_url": auth_url}
+
+
 @router.get("/oauth/google/initiate", summary="Initiate Google OAuth flow")
 async def google_oauth_initiate(
     current_user: User = Depends(get_current_user),
@@ -237,6 +265,81 @@ async def github_oauth_initiate(
 
 
 # ── OAuth Callback Endpoints ──────────────────────────────────────────────────
+
+
+@router.get("/oauth/google/login/callback", summary="Google OAuth login callback")
+async def google_login_callback(
+    code: str,
+    state: str | None = None,
+    session: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    """Handle Google OAuth redirect for login. Exchange code for user info, create/login user, redirect with token."""
+    import httpx
+    
+    if state != "login_flow":
+        return RedirectResponse("http://localhost:3000/login?error=google_auth_failed", status_code=302)
+
+    settings = get_settings()
+    
+    # Exchange code for token
+    async with httpx.AsyncClient() as client:
+        token_res = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "client_id": settings.GOOGLE_CLIENT_ID,
+                "client_secret": settings.GOOGLE_CLIENT_SECRET,
+                "code": code,
+                "grant_type": "authorization_code",
+                "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+            },
+        )
+        if token_res.status_code != 200:
+            return RedirectResponse("http://localhost:3000/login?error=google_auth_failed", status_code=302)
+            
+        access_token = token_res.json().get("access_token")
+        
+        # Get user info
+        user_res = await client.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+        if user_res.status_code != 200:
+            return RedirectResponse("http://localhost:3000/login?error=google_auth_failed", status_code=302)
+            
+        user_info = user_res.json()
+        email = user_info.get("email")
+        full_name = user_info.get("name")
+        
+    if not email:
+        return RedirectResponse("http://localhost:3000/login?error=google_auth_failed", status_code=302)
+        
+    # Check if user exists
+    result = await session.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        # Create user
+        user = User(
+            id=uuid.uuid4(),
+            email=email,
+            hashed_password=hash_password(str(uuid.uuid4())), # Random password for OAuth users
+            full_name=full_name,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        
+    if not user.is_active:
+        return RedirectResponse("http://localhost:3000/login?error=account_disabled", status_code=302)
+        
+    # Generate tokens
+    jwt_access = create_access_token(str(user.id))
+    jwt_refresh = create_refresh_token(str(user.id))
+    
+    return RedirectResponse(
+        f"http://localhost:3000/login?access_token={jwt_access}&refresh_token={jwt_refresh}",
+        status_code=302,
+    )
 
 
 @router.get("/oauth/google/callback", summary="Google OAuth callback")
