@@ -127,7 +127,7 @@ function EmptyBriefing() {
         <Zap size={28} className="text-[var(--accent)]" />
       </div>
       <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
-        {hasConnectors ? "You're all caught up ✨" : "Get Started with Atlas"}
+        {hasConnectors ? "You're all caught up" : "Get Started with Atlas"}
       </h2>
       <p className="text-sm text-[var(--text-secondary)] max-w-xs leading-relaxed mb-6">
         {hasConnectors
@@ -137,11 +137,6 @@ function EmptyBriefing() {
       {!hasConnectors && (
         <Button variant="primary" id="connect-first-integration" onClick={() => router.push("/settings")}>
           Connect an Integration
-        </Button>
-      )}
-      {hasConnectors && (
-        <Button variant="ghost" id="search-data-btn" onClick={() => router.push("/search")}>
-          Search your data
         </Button>
       )}
     </motion.div>
@@ -192,6 +187,13 @@ export default function BriefingPage() {
     if (data)      { setBriefing(data); }
   }, [data, isLoading, isError, setBriefing, setLoading, setError]);
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  };
+
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric",
   });
@@ -222,7 +224,7 @@ export default function BriefingPage() {
           </Button>
         </div>
         <h1 className="text-2xl font-bold text-[var(--text-primary)]">
-          Good morning, {user?.full_name?.split(' ')[0] || "User"}
+          {getGreeting()}, {user?.full_name?.split(' ')[0] || "User"}
         </h1>
         <p className="text-sm text-[var(--text-secondary)] mt-1">
           Here's what needs your attention today.

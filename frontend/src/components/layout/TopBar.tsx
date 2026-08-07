@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Bell, Moon, Sun, RefreshCw, User } from "lucide-react";
+import { Search, Moon, Sun, RefreshCw, User } from "lucide-react";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -63,17 +63,6 @@ export function TopBar() {
             </motion.div>
           )}
         </AnimatePresence>
-
-        {/* Notifications */}
-        <button
-          id="notifications-btn"
-          onClick={() => router.push('/briefing')}
-          className="w-8 h-8 flex items-center justify-center rounded-xl text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors relative"
-          aria-label="View notifications"
-        >
-          <Bell size={15} />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[var(--accent)]" aria-hidden />
-        </button>
 
         {/* Theme toggle */}
         <button

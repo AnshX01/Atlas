@@ -53,7 +53,7 @@ def _compute_focus_score(items: list[BriefingItem]) -> tuple[int, str]:
     Uses weighted average biased toward the top-3 highest-priority items.
     """
     if not items:
-        return 0, "✨ Clear Day"
+        return 0, "Clear Day"
 
     scores = [item.priority_score for item in items]
     top_3 = sorted(scores, reverse=True)[:3]
@@ -64,13 +64,13 @@ def _compute_focus_score(items: list[BriefingItem]) -> tuple[int, str]:
     weighted = int(top_avg * 0.7 + rest_avg * 0.3)
 
     if weighted >= 80:
-        label = "🔴 High Focus Day"
+        label = "High Focus Day"
     elif weighted >= 55:
-        label = "🟡 Moderate Focus Day"
+        label = "Moderate Focus Day"
     elif weighted >= 30:
-        label = "🟢 Light Day"
+        label = "Light Day"
     else:
-        label = "✨ Clear Day"
+        label = "Clear Day"
 
     return weighted, label
 

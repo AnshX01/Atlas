@@ -9,56 +9,6 @@ import { connectorsAPI } from "@/lib/api/connectors";
 import { briefingAPI } from "@/lib/api/briefing";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 
-// ── Mini Focus Score Ring ─────────────────────────────────────────────────────
-function MiniFocusRing({ score }: { score: number }) {
-  const radius = 28;
-  const circumference = 2 * Math.PI * radius;
-  const strokeDash = (score / 100) * circumference;
-
-  const strokeColor =
-    score >= 80 ? "#ef4444" :
-    score >= 55 ? "#f97316" :
-    score >= 30 ? "#eab308" : "#22c55e";
-
-  return (
-    <div className="relative" role="img" aria-label={`Focus score: ${score}`}>
-      <svg width={72} height={72} viewBox="0 0 72 72">
-        <circle
-          cx={36} cy={36} r={radius}
-          fill="none"
-          stroke="var(--border-default)"
-          strokeWidth={5}
-        />
-        <motion.circle
-          cx={36} cy={36} r={radius}
-          fill="none"
-          stroke={strokeColor}
-          strokeWidth={5}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          initial={{ strokeDashoffset: circumference }}
-          animate={{ strokeDashoffset: circumference - strokeDash }}
-          transition={{ duration: 1, ease: [0.16, 1, 0.3, 1], delay: 0.3 }}
-          style={{ transform: "rotate(-90deg)", transformOrigin: "center" }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <motion.span
-          className="text-lg font-bold text-[var(--text-primary)] leading-none"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.5 }}
-        >
-          {score}
-        </motion.span>
-        <span className="text-[8px] text-[var(--text-muted)] font-medium mt-0.5">
-          FOCUS
-        </span>
-      </div>
-    </div>
-  );
-}
-
 // ── Quick Action Card ─────────────────────────────────────────────────────────
 function QuickActionCard({
   icon,
@@ -123,6 +73,14 @@ const providerIcons: Record<string, React.ReactNode> = {
   local_fs: <FileText size={15} className="text-slate-400" />,
 };
 
+// ── Time-aware Greeting ───────────────────────────────────────────────────────
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+};
+
 // ── Main Dashboard Page ───────────────────────────────────────────────────────
 export default function DashboardPage() {
   useKeyboardShortcuts();
@@ -135,7 +93,7 @@ export default function DashboardPage() {
     staleTime: 1000 * 60 * 5,
   });
 
-  const { data: briefing, isLoading: briefingLoading } = useQuery({
+  const { data: briefing } = useQuery({
     queryKey: ["briefing", "daily"],
     queryFn: briefingAPI.getDaily,
     staleTime: 1000 * 60 * 5,
@@ -149,7 +107,6 @@ export default function DashboardPage() {
 
   const firstName = user?.full_name?.split(" ")[0] || "User";
   const connectedCount = connectors?.filter((c) => c.status === "active").length ?? 0;
-  const focusScore = briefing?.focus_score ?? 0;
   const recentItems = briefing?.items?.slice(0, 4) ?? [];
 
   return (
@@ -165,17 +122,16 @@ export default function DashboardPage() {
           {today}
         </p>
         <h1 className="text-2xl font-bold text-[var(--text-primary)]">
-          Welcome back, {firstName}
+          {getGreeting()}, {firstName}
         </h1>
         <p className="text-sm text-[var(--text-secondary)] mt-1">
           Your command center at a glance.
         </p>
       </motion.div>
 
-      {/* Status Row: Integrations + Focus Score */}
+      {/* Status Row: Integrations */}
       <motion.div
-        className="p-5 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] mb-6
-                   flex items-center justify-between"
+        className="p-5 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] mb-6"
         initial={{ opacity: 0, scale: 0.98 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: 0.1, type: "spring", stiffness: 400, damping: 30 }}
@@ -186,15 +142,13 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="text-sm font-semibold text-[var(--text-primary)]">
-              {connectedCount} Integration{connectedCount !== 1 ? "s" : ""} Connected
+              {connectedCount} Integration{connectedCount !== 1 ? 's' : ''} Connected
             </p>
             <p className="text-xs text-[var(--text-muted)]">
-              {connectedCount === 0 ? "Connect your first service" : "All systems operational"}
+              {connectedCount === 0 ? 'Connect your first service' : 'All systems operational'}
             </p>
           </div>
         </div>
-
-        {!briefingLoading && <MiniFocusRing score={focusScore} />}
       </motion.div>
 
       {/* Sync Status */}

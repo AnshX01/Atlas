@@ -60,21 +60,35 @@ async def omni_search(
     payload: OmniSearchRequest,
     current_user: User = Depends(get_current_user),
 ) -> OmniSearchResponse:
-    """
-    Run hybrid semantic search (vector + graph) across all user's connected sources.
-
-    Target: < 200ms for cached results, < 2.5s for full RAG pipeline.
-    """
     start = time.perf_counter()
 
-    state = await run_atlas_pipeline(
-        user_input=payload.query,
-        user_id=current_user.id,
-        extra_state={"intent": "search"},
-    )
+    # Try the full AI pipeline first, fall back to direct vector search
+    try:
+        state = await run_atlas_pipeline(
+            user_input=payload.query,
+            user_id=current_user.id,
+            extra_state={"intent": "search"},
+        )
+        context_items = state.get("context", [])
+    except Exception:
+        # Fallback: direct vector search without AI rewriting
+        context_items = []
+
+    # If AI pipeline returned nothing, do direct semantic search
+    if not context_items:
+        from sentence_transformers import SentenceTransformer
+        from app.infrastructure.qdrant_client import semantic_search
+
+        _embedder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+        query_vector = _embedder.encode(payload.query).tolist()
+        context_items = await semantic_search(
+            user_id=current_user.id,
+            query_vector=query_vector,
+            limit=payload.limit,
+            score_threshold=0.3,
+        )
 
     took_ms = (time.perf_counter() - start) * 1000
-    context_items = state.get("context", [])
 
     from app.domain.schemas import SearchResult
 
@@ -87,14 +101,14 @@ async def omni_search(
             source=item.get("payload", {}).get("source", "Atlas"),
             score=item.get("score", 0.0),
             timestamp=datetime.now(UTC),
-            source_ids=state.get("citations", []),
+            source_ids=[],
         )
         for item in context_items[: payload.limit]
     ]
 
     return OmniSearchResponse(
         original_query=payload.query,
-        rewritten_query=state.get("input", payload.query),
+        rewritten_query=payload.query,
         results=results,
         took_ms=round(took_ms, 2),
     )

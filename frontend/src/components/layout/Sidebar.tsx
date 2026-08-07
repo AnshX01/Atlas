@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Settings, Zap, Github,
-  Mail, FolderOpen, Plus, Home
+  Chrome, Mail, FolderOpen, Plus, Home
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
@@ -25,7 +25,7 @@ const navItems: NavItem[] = [
 ];
 
 const providerMeta: Record<ConnectorProvider, { label: string; icon: React.ReactNode }> = {
-  google_workspace: { label: "Google Workspace", icon: <Mail size={14} /> },
+  google_workspace: { label: "Google Workspace", icon: <Chrome size={14} /> },
   github:           { label: "GitHub",           icon: <Github size={14} /> },
   local_fs:         { label: "Local Files",      icon: <FolderOpen size={14} /> },
   slack:            { label: "Slack",            icon: <Mail size={14} /> },
@@ -187,7 +187,7 @@ export function Sidebar() {
         {/* Add connector prompt if empty */}
         <button
           onClick={navigateToIntegrations}
-          className="flex items-center gap-2 px-3 py-2 mt-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors border border-dashed border-[var(--accent)]/30"
+          className="flex items-center gap-2 px-3 py-2 mt-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors border border-[var(--border-default)] hover:border-[var(--accent)]/30"
           aria-label="Connect a new integration"
         >
           <Plus size={12} />
