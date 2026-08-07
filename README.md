@@ -1,4 +1,4 @@
-# ⚡ Atlas — AI Desktop Command Center
+# Atlas — AI Desktop Command Center
 
 > **Your personal AI Chief of Staff — a privacy-first Electron desktop app.**  
 > Atlas connects your entire digital ecosystem (Gmail, GitHub, Slack, Notion, local files) into a unified AI-powered chatbot that can search, summarize, and take actions on your behalf.
