@@ -1,5 +1,5 @@
 import axios, { type AxiosInstance, type AxiosError } from "axios";
-import { useAppStore } from "@/lib/store/useAppStore";
+import { useAuthStore } from "@/lib/store/useAuthStore";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
@@ -19,7 +19,7 @@ export const apiClient: AxiosInstance = axios.create({
 
 // ── Request Interceptor: inject auth token ──────────────────────────────────
 apiClient.interceptors.request.use((config) => {
-  const token = useAppStore.getState().accessToken;
+  const token = useAuthStore.getState().accessToken;
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -32,10 +32,7 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     if (error.response?.status === 401) {
       // Token expired — clear auth state
-      useAppStore.getState().clearUser();
-      if (typeof window !== "undefined") {
-        window.location.href = "/login";
-      }
+      useAuthStore.getState().logout();
     }
     return Promise.reject(error);
   }
