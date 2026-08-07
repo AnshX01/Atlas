@@ -1,6 +1,3 @@
-import { redirect } from "next/navigation";
-
-/** Root route redirects to the daily briefing. */
 export default function RootPage() {
-  redirect("/briefing");
+  return null; // The AppShell client-side component handles all routing based on auth state
 }

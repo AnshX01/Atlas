@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { useBriefingStore } from "@/lib/store/useBriefingStore";
 import { useKeyboardShortcuts } from "@/lib/shortcuts/useKeyboardShortcuts";
 import { briefingAPI } from "@/lib/api/briefing";
+import { useAuthStore } from "@/lib/store/useAuthStore";
 import { cn } from "@/lib/utils";
 import type { BriefingItemData } from "@/components/composite/BriefingCard";
 
@@ -154,6 +155,7 @@ function BriefingError({ onRetry }: { onRetry: () => void }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BriefingPage() {
   useKeyboardShortcuts();
+  const { user } = useAuthStore();
   const { setBriefing, setLoading, setError, items, focusScore, focusScoreLabel } =
     useBriefingStore();
 
@@ -199,7 +201,7 @@ export default function BriefingPage() {
           </Button>
         </div>
         <h1 className="text-2xl font-bold text-[var(--text-primary)]">
-          Good morning, Alex
+          Good morning, {user?.full_name?.split(' ')[0] || "User"}
         </h1>
         <p className="text-sm text-[var(--text-secondary)] mt-1">
           Here's what needs your attention today.

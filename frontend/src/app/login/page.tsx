@@ -173,7 +173,7 @@ export default function LoginPage() {
                       type="text"
                       value={fullName.value}
                       onChange={(e) => setFullName({ value: e.target.value, error: "" })}
-                      placeholder="Alex Chen"
+                      placeholder="Full Name"
                       className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/20 transition-all duration-200 outline-none"
                       style={{
                         background: "rgba(255,255,255,0.04)",
