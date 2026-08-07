@@ -37,7 +37,7 @@ class SyncLog(Base):
         index=True,
     )
     status: Mapped[SyncStatus] = mapped_column(
-        Enum(SyncStatus), default=SyncStatus.PENDING, nullable=False
+        Enum(SyncStatus, values_callable=lambda obj: [e.value for e in obj]), default=SyncStatus.PENDING, nullable=False
     )
     items_synced: Mapped[int] = mapped_column(Integer, default=0)
     items_failed: Mapped[int] = mapped_column(Integer, default=0)

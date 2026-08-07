@@ -57,7 +57,7 @@ def sync_connector_job(self, user_id: str, connector_id: str) -> dict:
         user_id: UUID string of the owning user.
         connector_id: UUID string of the connector to sync.
     """
-    return asyncio.get_event_loop().run_until_complete(
+    return asyncio.run(
         _async_sync_connector(self, uuid.UUID(user_id), uuid.UUID(connector_id))
     )
 
@@ -161,7 +161,7 @@ async def _async_sync_connector(task, user_id: uuid.UUID, connector_id: uuid.UUI
 @celery_app.task(name="app.workers.sync_tasks.sync_all_active_connectors", queue="sync")
 def sync_all_active_connectors() -> dict:
     """Beat task: enqueue sync jobs for all active connectors across all users."""
-    return asyncio.get_event_loop().run_until_complete(_async_sync_all())
+    return asyncio.run(_async_sync_all())
 
 
 async def _async_sync_all() -> dict:

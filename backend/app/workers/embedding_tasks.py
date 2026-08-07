@@ -52,7 +52,7 @@ def batch_embed_chunks(user_id: str, chunks: list[dict[str, Any]]) -> dict:
     Returns:
         {"embedded": int, "failed": int}
     """
-    return asyncio.get_event_loop().run_until_complete(_async_embed(uuid.UUID(user_id), chunks))
+    return asyncio.run(_async_embed(uuid.UUID(user_id), chunks))
 
 
 async def _async_embed(user_id: uuid.UUID, chunks: list[dict[str, Any]]) -> dict:

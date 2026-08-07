@@ -238,6 +238,9 @@ async def google_oauth_initiate(
         state=state_token,
         access_type="offline",
         include_granted_scopes="true",
+        prompt="consent",
+        code_challenge=None,
+        code_challenge_method=None,
     )
     return {"auth_url": auth_url}
 
@@ -374,9 +377,11 @@ async def google_oauth_callback(
             "http://localhost:3000/settings?connected=google",
             status_code=302,
         )
-    except Exception:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return RedirectResponse(
-            "http://localhost:3000/settings?error=google_auth_failed",
+            f"http://localhost:3000/settings?error=google_auth_failed:{type(e).__name__}",
             status_code=302,
         )
 
@@ -411,8 +416,10 @@ async def github_oauth_callback(
             "http://localhost:3000/settings?connected=github",
             status_code=302,
         )
-    except Exception:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return RedirectResponse(
-            "http://localhost:3000/settings?error=github_auth_failed",
+            f"http://localhost:3000/settings?error=github_auth_failed:{type(e).__name__}",
             status_code=302,
         )

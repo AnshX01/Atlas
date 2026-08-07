@@ -8,6 +8,7 @@ import { BriefingCard } from "@/components/composite/BriefingCard";
 import { BriefingCardSkeleton } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
 import { useBriefingStore } from "@/lib/store/useBriefingStore";
+import { useRouter } from "next/navigation";
 import { useKeyboardShortcuts } from "@/lib/shortcuts/useKeyboardShortcuts";
 import { briefingAPI } from "@/lib/api/briefing";
 import { useAuthStore } from "@/lib/store/useAuthStore";
@@ -106,6 +107,7 @@ function StatsStrip({ items }: { items: BriefingItemData[] }) {
 
 // ── Empty State ────────────────────────────────────────────────────────────────
 function EmptyBriefing() {
+  const router = useRouter();
   return (
     <motion.div
       className="flex flex-col items-center justify-center py-20 text-center"
@@ -122,7 +124,7 @@ function EmptyBriefing() {
       <p className="text-sm text-[var(--text-secondary)] max-w-xs leading-relaxed mb-6">
         No high-priority items right now. Connect your first integration to get started.
       </p>
-      <Button variant="primary" id="connect-first-integration">
+      <Button variant="primary" id="connect-first-integration" onClick={() => router.push("/settings")}>
         Connect an Integration
       </Button>
     </motion.div>
@@ -131,6 +133,7 @@ function EmptyBriefing() {
 
 // ── Error State ────────────────────────────────────────────────────────────────
 function BriefingError({ onRetry }: { onRetry: () => void }) {
+  const router = useRouter();
   return (
     <motion.div
       className="flex flex-col items-center justify-center py-20 text-center"
@@ -144,7 +147,7 @@ function BriefingError({ onRetry }: { onRetry: () => void }) {
         <Button variant="primary" id="briefing-retry-btn" onClick={onRetry}>
           Retry
         </Button>
-        <Button variant="ghost" id="briefing-manual-search-btn">
+        <Button variant="ghost" id="briefing-manual-search-btn" onClick={() => router.push("/search")}>
           Perform Manual Search
         </Button>
       </div>

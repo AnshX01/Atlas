@@ -57,7 +57,23 @@ async def supervisor_node(state: AtlasState) -> AtlasState:
     """
     Classify intent and route to the appropriate sub-agent.
     Uses temperature=0 for deterministic routing.
+
+    If a valid intent is already set in the state (e.g., pre-classified by
+    the omni_search endpoint or briefing service), the LLM call is skipped
+    to save latency and avoid misrouting.
     """
+    valid_intents = {"triage", "search", "action"}
+
+    # Skip LLM classification if intent is already pre-classified
+    existing_intent = state.get("intent")
+    if existing_intent in valid_intents:
+        logger.info(
+            "Supervisor skipping classification — intent pre-set",
+            intent=existing_intent,
+            user_id=state.get("user_id"),
+        )
+        return state
+
     settings = get_settings()
 
     llm = ChatOpenAI(
@@ -82,7 +98,6 @@ Respond with ONLY the intent label. No explanation."""
     )
 
     intent_raw = response.content.strip().lower()
-    valid_intents = {"triage", "search", "action"}
     intent = intent_raw if intent_raw in valid_intents else "unknown"
 
     logger.info("Supervisor routed request", intent=intent, user_id=state.get("user_id"))

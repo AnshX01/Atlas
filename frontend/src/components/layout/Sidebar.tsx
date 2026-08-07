@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard, Search, Settings, Zap, Github,
-  Mail, FolderOpen, Plus
+  Mail, FolderOpen, Plus, Home
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +18,7 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
+  { id: "dashboard", label: "Dashboard",      href: "/dashboard", icon: <Home size={16} />,            shortcut: "⌘D" },
   { id: "briefing",  label: "Daily Briefing", href: "/briefing",  icon: <LayoutDashboard size={16} />, shortcut: "⌘1" },
   { id: "search",    label: "Search",         href: "/search",    icon: <Search size={16} />,          shortcut: "⌘K" },
 ];

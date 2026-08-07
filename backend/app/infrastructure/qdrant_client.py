@@ -112,9 +112,9 @@ async def semantic_search(
     if source_filter:
         query_filter = Filter(must=[{"key": "type", "match": MatchValue(value=source_filter)}])
 
-    results = await client.search(
+    response = await client.query_points(
         collection_name=_collection_name(user_id),
-        query_vector=query_vector,
+        query=query_vector,
         limit=limit,
         score_threshold=score_threshold,
         query_filter=query_filter,
@@ -127,7 +127,7 @@ async def semantic_search(
             "score": r.score,
             "payload": r.payload,
         }
-        for r in results
+        for r in response.points
     ]
 
 

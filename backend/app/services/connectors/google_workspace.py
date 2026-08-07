@@ -92,41 +92,60 @@ class GoogleWorkspaceConnector(BaseConnector):
         return creds
 
     async def authenticate(self, auth_code: str) -> None:
-        """Exchange authorization code for tokens and persist them."""
+        """Exchange authorization code for tokens and persist them.
+
+        Uses direct HTTP token exchange to avoid google-auth-oauthlib PKCE
+        warnings/errors that occur when Flow doesn't have the original code_verifier.
+        """
+        import httpx
+
         from app.core.config import get_settings
-        from google_auth_oauthlib.flow import Flow
 
         settings = get_settings()
-        flow = Flow.from_client_config(
-            {
-                "web": {
+
+        # Direct token exchange — bypasses google-auth-oauthlib Flow entirely
+        async with httpx.AsyncClient() as http:
+            token_res = await http.post(
+                "https://oauth2.googleapis.com/token",
+                data={
                     "client_id": settings.GOOGLE_CLIENT_ID,
                     "client_secret": settings.GOOGLE_CLIENT_SECRET,
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": [settings.GOOGLE_REDIRECT_URI],
-                }
-            },
-            scopes=settings.google_scopes_list,
-            redirect_uri=settings.GOOGLE_REDIRECT_URI,
-        )
-        flow.fetch_token(code=auth_code)
-        creds = flow.credentials
+                    "code": auth_code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+                },
+            )
+
+        if token_res.status_code != 200:
+            error_body = token_res.text
+            raise ValueError(
+                f"Google token exchange failed (HTTP {token_res.status_code}): {error_body}"
+            )
+
+        token_data = token_res.json()
+        access_token = token_data.get("access_token")
+        refresh_token = token_data.get("refresh_token", "")
+        scope = token_data.get("scope", "")
+
+        if not access_token:
+            raise ValueError(f"No access_token in Google response: {token_data}")
 
         factory = get_session_factory()
         async with factory() as session:
             existing = await session.get(OAuthToken, self.connector.id)
             if existing:
-                existing.access_token = encrypt_token(creds.token)
-                existing.refresh_token = encrypt_token(creds.refresh_token or "")
+                existing.access_token = encrypt_token(access_token)
+                if refresh_token:
+                    existing.refresh_token = encrypt_token(refresh_token)
+                existing.scope = scope
                 session.add(existing)
             else:
                 token = OAuthToken(
                     id=uuid.uuid4(),
                     connector_id=self.connector.id,
-                    access_token=encrypt_token(creds.token),
-                    refresh_token=encrypt_token(creds.refresh_token or ""),
-                    scope=" ".join(creds.scopes or []),
+                    access_token=encrypt_token(access_token),
+                    refresh_token=encrypt_token(refresh_token) if refresh_token else None,
+                    scope=scope,
                 )
                 session.add(token)
 
@@ -353,3 +372,7 @@ class GoogleWorkspaceConnector(BaseConnector):
         while True:
             await asyncio.sleep(300)  # 5-minute polling interval
             yield {"type": "poll_tick", "payload": {}}
+
+    async def teardown(self) -> None:
+        """Cleanup resources (no-op for Phase 1)."""
+        pass

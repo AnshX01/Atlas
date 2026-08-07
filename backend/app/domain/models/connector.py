@@ -48,9 +48,9 @@ class Connector(Base):
         nullable=False,
         index=True,
     )
-    provider: Mapped[ConnectorProvider] = mapped_column(Enum(ConnectorProvider), nullable=False)
+    provider: Mapped[ConnectorProvider] = mapped_column(Enum(ConnectorProvider, values_callable=lambda obj: [e.value for e in obj]), nullable=False)
     status: Mapped[ConnectorStatus] = mapped_column(
-        Enum(ConnectorStatus), default=ConnectorStatus.INACTIVE, nullable=False
+        Enum(ConnectorStatus, values_callable=lambda obj: [e.value for e in obj]), default=ConnectorStatus.INACTIVE, nullable=False
     )
     display_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
     external_account_id: Mapped[str | None] = mapped_column(String(256), nullable=True)

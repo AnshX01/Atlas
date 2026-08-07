@@ -27,7 +27,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     
     // Redirect authenticated users away from login
     if (user && pathname === "/login") {
-      router.push("/briefing");
+      router.push("/dashboard");
     }
   }, [user, pathname, router, isMounted]);
 

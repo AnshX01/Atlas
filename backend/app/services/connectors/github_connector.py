@@ -231,3 +231,7 @@ class GitHubConnector(BaseConnector):
         while True:
             await asyncio.sleep(120)  # 2-minute polling
             yield {"type": "poll_tick", "payload": {}}
+
+    async def teardown(self) -> None:
+        """Cleanup resources (no-op for Phase 1)."""
+        pass

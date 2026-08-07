@@ -1,0 +1,258 @@
+"use client";
+
+import { motion } from "framer-motion";
+import { useQuery } from "@tanstack/react-query";
+import { Plug, Search, Zap, Calendar, Activity, ArrowRight } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useKeyboardShortcuts } from "@/lib/shortcuts/useKeyboardShortcuts";
+import { connectorsAPI } from "@/lib/api/connectors";
+import { briefingAPI } from "@/lib/api/briefing";
+import { useAuthStore } from "@/lib/store/useAuthStore";
+
+// ── Mini Focus Score Ring ─────────────────────────────────────────────────────
+function MiniFocusRing({ score }: { score: number }) {
+  const radius = 28;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDash = (score / 100) * circumference;
+
+  const strokeColor =
+    score >= 80 ? "#ef4444" :
+    score >= 55 ? "#f97316" :
+    score >= 30 ? "#eab308" : "#22c55e";
+
+  return (
+    <div className="relative" role="img" aria-label={`Focus score: ${score}`}>
+      <svg width={72} height={72} viewBox="0 0 72 72">
+        <circle
+          cx={36} cy={36} r={radius}
+          fill="none"
+          stroke="var(--border-default)"
+          strokeWidth={5}
+        />
+        <motion.circle
+          cx={36} cy={36} r={radius}
+          fill="none"
+          stroke={strokeColor}
+          strokeWidth={5}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          initial={{ strokeDashoffset: circumference }}
+          animate={{ strokeDashoffset: circumference - strokeDash }}
+          transition={{ duration: 1, ease: [0.16, 1, 0.3, 1], delay: 0.3 }}
+          style={{ transform: "rotate(-90deg)", transformOrigin: "center" }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <motion.span
+          className="text-lg font-bold text-[var(--text-primary)] leading-none"
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.5 }}
+        >
+          {score}
+        </motion.span>
+        <span className="text-[8px] text-[var(--text-muted)] font-medium mt-0.5">
+          FOCUS
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Quick Action Card ─────────────────────────────────────────────────────────
+function QuickActionCard({
+  icon,
+  label,
+  description,
+  onClick,
+  delay,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  onClick: () => void;
+  delay: number;
+}) {
+  return (
+    <motion.button
+      onClick={onClick}
+      className="p-4 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] text-left
+                 hover:border-[var(--accent)] hover:bg-[var(--bg-tertiary)] transition-colors group flex flex-col gap-2"
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, type: "spring", stiffness: 400, damping: 30 }}
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+    >
+      <div className="flex items-center justify-between">
+        <div className="w-8 h-8 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center">
+          {icon}
+        </div>
+        <ArrowRight size={14} className="text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors" />
+      </div>
+      <div>
+        <p className="text-sm font-semibold text-[var(--text-primary)]">{label}</p>
+        <p className="text-xs text-[var(--text-muted)] mt-0.5">{description}</p>
+      </div>
+    </motion.button>
+  );
+}
+
+// ── Main Dashboard Page ───────────────────────────────────────────────────────
+export default function DashboardPage() {
+  useKeyboardShortcuts();
+  const router = useRouter();
+  const { user } = useAuthStore();
+
+  const { data: connectors } = useQuery({
+    queryKey: ["connectors"],
+    queryFn: connectorsAPI.listConnectors,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const { data: briefing, isLoading: briefingLoading } = useQuery({
+    queryKey: ["briefing", "daily"],
+    queryFn: briefingAPI.getDaily,
+    staleTime: 1000 * 60 * 5,
+  });
+
+  const today = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+
+  const firstName = user?.full_name?.split(" ")[0] || "User";
+  const connectedCount = connectors?.filter((c) => c.status === "active").length ?? 0;
+  const focusScore = briefing?.focus_score ?? 0;
+  const recentItems = briefing?.items?.slice(0, 4) ?? [];
+
+  return (
+    <div className="max-w-2xl mx-auto">
+      {/* Header */}
+      <motion.div
+        className="mb-8"
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 400, damping: 30 }}
+      >
+        <p className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-1">
+          {today}
+        </p>
+        <h1 className="text-2xl font-bold text-[var(--text-primary)]">
+          Welcome back, {firstName}
+        </h1>
+        <p className="text-sm text-[var(--text-secondary)] mt-1">
+          Your command center at a glance.
+        </p>
+      </motion.div>
+
+      {/* Status Row: Integrations + Focus Score */}
+      <motion.div
+        className="p-5 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] mb-6
+                   flex items-center justify-between"
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ delay: 0.1, type: "spring", stiffness: 400, damping: 30 }}
+      >
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 rounded-xl bg-[var(--accent)]/10 flex items-center justify-center">
+            <Plug size={18} className="text-[var(--accent)]" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-[var(--text-primary)]">
+              {connectedCount} Integration{connectedCount !== 1 ? "s" : ""} Connected
+            </p>
+            <p className="text-xs text-[var(--text-muted)]">
+              {connectedCount === 0 ? "Connect your first service" : "All systems operational"}
+            </p>
+          </div>
+        </div>
+
+        {!briefingLoading && <MiniFocusRing score={focusScore} />}
+      </motion.div>
+
+      {/* Quick Actions */}
+      <motion.div
+        className="mb-6"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ delay: 0.2 }}
+      >
+        <h2 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-3">
+          Quick Actions
+        </h2>
+        <div className="grid grid-cols-3 gap-3">
+          <QuickActionCard
+            icon={<Calendar size={16} className="text-[var(--accent)]" />}
+            label="View Briefing"
+            description="Today's priorities"
+            onClick={() => router.push("/briefing")}
+            delay={0.25}
+          />
+          <QuickActionCard
+            icon={<Search size={16} className="text-[var(--accent)]" />}
+            label="Search"
+            description="Find anything"
+            onClick={() => router.push("/search")}
+            delay={0.3}
+          />
+          <QuickActionCard
+            icon={<Zap size={16} className="text-[var(--accent)]" />}
+            label="Settings"
+            description="Integrations & prefs"
+            onClick={() => router.push("/settings")}
+            delay={0.35}
+          />
+        </div>
+      </motion.div>
+
+      {/* Recent Activity */}
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4, type: "spring", stiffness: 400, damping: 30 }}
+      >
+        <h2 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-3">
+          Recent Activity
+        </h2>
+
+        {recentItems.length === 0 ? (
+          <div className="p-6 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] text-center">
+            <Activity size={20} className="text-[var(--text-muted)] mx-auto mb-2" />
+            <p className="text-sm text-[var(--text-secondary)]">
+              No recent activity yet. Connect an integration to get started.
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {recentItems.map((item, index) => (
+              <motion.div
+                key={item.id}
+                className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-default)]
+                           flex items-center gap-3 hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+                initial={{ opacity: 0, x: -8 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.45 + index * 0.06 }}
+                onClick={() => router.push("/briefing")}
+              >
+                <div className="w-7 h-7 rounded-lg bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
+                  <Activity size={13} className="text-[var(--text-muted)]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-[var(--text-primary)] truncate">
+                    {item.title}
+                  </p>
+                  <p className="text-xs text-[var(--text-muted)] truncate">
+                    {item.source} · Priority {item.priority_score}
+                  </p>
+                </div>
+                <ArrowRight size={12} className="text-[var(--text-muted)] shrink-0" />
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
+}
