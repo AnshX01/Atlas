@@ -11,6 +11,7 @@ import { useBriefingStore } from "@/lib/store/useBriefingStore";
 import { useRouter } from "next/navigation";
 import { useKeyboardShortcuts } from "@/lib/shortcuts/useKeyboardShortcuts";
 import { briefingAPI } from "@/lib/api/briefing";
+import { connectorsAPI } from "@/lib/api/connectors";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 import { cn } from "@/lib/utils";
 import type { BriefingItemData } from "@/components/composite/BriefingCard";
@@ -108,6 +109,13 @@ function StatsStrip({ items }: { items: BriefingItemData[] }) {
 // ── Empty State ────────────────────────────────────────────────────────────────
 function EmptyBriefing() {
   const router = useRouter();
+  const { data: connectors } = useQuery({
+    queryKey: ["connectors"],
+    queryFn: connectorsAPI.listConnectors,
+  });
+  const activeConnectors = connectors?.filter((c) => c.status === "active") ?? [];
+  const hasConnectors = activeConnectors.length > 0;
+
   return (
     <motion.div
       className="flex flex-col items-center justify-center py-20 text-center"
@@ -119,14 +127,23 @@ function EmptyBriefing() {
         <Zap size={28} className="text-[var(--accent)]" />
       </div>
       <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
-        You're all caught up ✨
+        {hasConnectors ? "You're all caught up ✨" : "Get Started with Atlas"}
       </h2>
       <p className="text-sm text-[var(--text-secondary)] max-w-xs leading-relaxed mb-6">
-        No high-priority items right now. Connect your first integration to get started.
+        {hasConnectors
+          ? "No high-priority items right now. Your inbox is clear!"
+          : "Connect your first integration to get started."}
       </p>
-      <Button variant="primary" id="connect-first-integration" onClick={() => router.push("/settings")}>
-        Connect an Integration
-      </Button>
+      {!hasConnectors && (
+        <Button variant="primary" id="connect-first-integration" onClick={() => router.push("/settings")}>
+          Connect an Integration
+        </Button>
+      )}
+      {hasConnectors && (
+        <Button variant="ghost" id="search-data-btn" onClick={() => router.push("/search")}>
+          Search your data
+        </Button>
+      )}
     </motion.div>
   );
 }
@@ -166,6 +183,7 @@ export default function BriefingPage() {
     queryKey: ["briefing", "daily"],
     queryFn: briefingAPI.getDaily,
     staleTime: 1000 * 60 * 5,
+    retry: 2,
   });
 
   useEffect(() => {

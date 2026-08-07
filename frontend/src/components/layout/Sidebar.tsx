@@ -2,12 +2,14 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Search, Settings, Zap, Github,
   Mail, FolderOpen, Plus, Home
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
+import { connectorsAPI, type ConnectorProvider } from "@/lib/api/connectors";
 
 interface NavItem {
   id: string;
@@ -23,14 +25,61 @@ const navItems: NavItem[] = [
   { id: "search",    label: "Search",         href: "/search",    icon: <Search size={16} />,          shortcut: "⌘K" },
 ];
 
-const connectorItems = [
-  { id: "gmail",    label: "Gmail",        icon: <Mail size={14} />,      status: "active"   },
-  { id: "github",   label: "GitHub",       icon: <Github size={14} />,    status: "active"   },
-  { id: "localfs",  label: "Local Files",  icon: <FolderOpen size={14} />,status: "inactive" },
-];
+const providerMeta: Record<ConnectorProvider, { label: string; icon: React.ReactNode }> = {
+  google_workspace: { label: "Gmail & Calendar", icon: <Mail size={14} /> },
+  github:           { label: "GitHub",           icon: <Github size={14} /> },
+  local_fs:         { label: "Local Files",      icon: <FolderOpen size={14} /> },
+  slack:            { label: "Slack",            icon: <Mail size={14} /> },
+  notion:           { label: "Notion",           icon: <FolderOpen size={14} /> },
+  jira:             { label: "Jira",             icon: <FolderOpen size={14} /> },
+  linear:           { label: "Linear",           icon: <FolderOpen size={14} /> },
+};
+
+function getStatusColor(status: string): string {
+  switch (status) {
+    case "active":
+      return "bg-green-400";
+    case "error":
+    case "requires_reauth":
+      return "bg-red-400";
+    default:
+      return "bg-[var(--text-muted)]/40";
+  }
+}
+
+function getStatusLabel(status: string): string {
+  switch (status) {
+    case "active":
+      return "Connected";
+    case "error":
+      return "Error";
+    case "requires_reauth":
+      return "Requires re-authentication";
+    default:
+      return "Disconnected";
+  }
+}
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const { data: connectors = [] } = useQuery({
+    queryKey: ["connectors"],
+    queryFn: connectorsAPI.listConnectors,
+    staleTime: 60000,
+  });
+
+  const connectorItems = connectors.map((c) => ({
+    id: c.id,
+    label: c.display_name || providerMeta[c.provider]?.label || c.provider,
+    icon: providerMeta[c.provider]?.icon || <FolderOpen size={14} />,
+    status: c.status,
+  }));
+
+  const navigateToIntegrations = () => {
+    router.push("/settings?section=integrations");
+  };
 
   return (
     <motion.aside
@@ -104,6 +153,7 @@ export function Sidebar() {
             Connectors
           </p>
           <button
+            onClick={navigateToIntegrations}
             className="text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors rounded-lg p-0.5"
             aria-label="Add new connector"
             title="Add connector"
@@ -122,15 +172,16 @@ export function Sidebar() {
             <span
               className={cn(
                 "w-1.5 h-1.5 rounded-full flex-shrink-0",
-                c.status === "active" ? "bg-green-400" : "bg-[var(--text-muted)]/40"
+                getStatusColor(c.status)
               )}
-              aria-label={c.status === "active" ? "Connected" : "Disconnected"}
+              aria-label={getStatusLabel(c.status)}
             />
           </div>
         ))}
 
         {/* Add connector prompt if empty */}
         <button
+          onClick={navigateToIntegrations}
           className="flex items-center gap-2 px-3 py-2 mt-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors border border-dashed border-[var(--accent)]/30"
           aria-label="Connect a new integration"
         >

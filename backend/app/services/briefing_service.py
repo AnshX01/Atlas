@@ -81,6 +81,70 @@ class BriefingService:
     def __init__(self, user_id: uuid.UUID) -> None:
         self.user_id = user_id
 
+    def _fallback_priority_score(self, raw_item: dict) -> int:
+        """Assign a heuristic priority score when the AI agent is unavailable."""
+        item_type = raw_item.get("type", "document")
+        base_scores = {
+            "email": 60,      # Communications need attention
+            "calendar": 75,   # Meetings are time-sensitive
+            "pr": 70,         # PRs often block teammates
+            "issue": 55,      # Issues need review
+            "task": 65,       # Tasks have deadlines
+            "document": 30,   # Documents are reference material
+        }
+        score = base_scores.get(item_type, 40)
+
+        # Boost for recent items (within last 4 hours)
+        timestamp = raw_item.get("timestamp", "")
+        if timestamp:
+            try:
+                item_time = datetime.fromisoformat(timestamp)
+                hours_ago = (datetime.now(UTC) - item_time).total_seconds() / 3600
+                if hours_ago < 4:
+                    score += 15
+                elif hours_ago < 12:
+                    score += 8
+            except (ValueError, TypeError):
+                pass
+
+        # Boost emails from people (not automated/noreply)
+        sender = raw_item.get("sender", "")
+        if sender and "noreply" not in sender.lower() and "no-reply" not in sender.lower():
+            score += 5
+
+        return min(score, 100)
+
+    def _generate_fallback_rationale(self, raw_item: dict) -> str:
+        """Generate a human-readable rationale when AI triage is unavailable."""
+        item_type = raw_item.get("type", "document")
+        sender = raw_item.get("sender", "")
+        title = raw_item.get("title", "")
+
+        if item_type == "email" and sender:
+            return f"Email from {sender}: {title[:60]}"
+        elif item_type == "pr":
+            return f"Pull request needs review: {title[:60]}"
+        elif item_type == "issue":
+            return f"Issue assigned or updated: {title[:60]}"
+        elif item_type == "calendar":
+            return f"Upcoming meeting: {title[:60]}"
+        elif item_type == "task":
+            return f"Task requires attention: {title[:60]}"
+        return raw_item.get("preview", "")[:100]
+
+    def _suggest_action(self, raw_item: dict) -> str:
+        """Suggest a default action based on item type."""
+        item_type = raw_item.get("type", "document")
+        actions = {
+            "email": "Reply",
+            "pr": "Review",
+            "issue": "Triage",
+            "calendar": "Prepare",
+            "task": "Complete",
+            "document": "Read",
+        }
+        return actions.get(item_type, "View")
+
     async def _fetch_raw_items(self) -> list[dict[str, Any]]:
         """Fetch recent items from Qdrant for all active connectors."""
         factory = get_session_factory()
@@ -147,18 +211,29 @@ class BriefingService:
         triage_scores: list[dict[str, Any]] = triage_state.get("triage_scores", [])
         score_map = {s["item_id"]: s for s in triage_scores}
 
-        # Build BriefingItems
+        # Build BriefingItems with fallback scoring when AI agent fails
+        use_fallback = not triage_scores or len(triage_scores) == 0
+
         briefing_items = []
         for raw in raw_items:
             score_data = score_map.get(raw["id"], {})
+            if use_fallback or not score_data:
+                priority = self._fallback_priority_score(raw)
+                rationale = self._generate_fallback_rationale(raw)
+                action = self._suggest_action(raw)
+            else:
+                priority = score_data.get("priority_score", 50)
+                rationale = score_data.get("rationale", raw["preview"][:100])
+                action = score_data.get("recommended_action")
+
             item = BriefingItem(
                 id=raw["id"],
                 type=raw["type"],
                 title=raw["title"],
-                summary=score_data.get("rationale", raw["preview"][:100]),
+                summary=rationale,
                 source=raw["source"],
-                priority_score=score_data.get("priority_score", 50),
-                action_label=score_data.get("recommended_action"),
+                priority_score=priority,
+                action_label=action,
                 metadata={"sender": raw.get("sender", "")},
                 timestamp=datetime.fromisoformat(raw["timestamp"]),
             )

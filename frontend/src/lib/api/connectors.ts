@@ -49,4 +49,12 @@ export const connectorsAPI = {
       window.location.href = data.auth_url;
     }
   },
+
+  async configureLocalFs(watchPaths: string[]): Promise<ConnectorResponse> {
+    const { data } = await apiClient.post<ConnectorResponse>(
+      '/connectors/local_fs/configure',
+      { watch_paths: watchPaths },
+    );
+    return data;
+  },
 };

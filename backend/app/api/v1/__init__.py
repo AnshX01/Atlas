@@ -216,6 +216,77 @@ async def trigger_sync(
     )
 
 
+
+@connectors_router.post(
+    "/local_fs/configure",
+    response_model=ConnectorResponse,
+    summary="Configure local file system connector",
+)
+async def configure_local_fs(
+    payload: dict,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+) -> ConnectorResponse:
+    """
+    Configure and activate the local file system connector.
+
+    Accepts watch_paths (list of directory paths) and an optional display_name.
+    Creates or updates the local_fs connector, stores the watch paths as JSON
+    in the connector's config, sets status to ACTIVE, and triggers a sync job.
+    """
+    import json as _json
+    import uuid as _uuid
+
+    from app.domain.models.connector import Connector, ConnectorStatus
+    from app.infrastructure.database import get_session_factory
+    from app.workers.sync_tasks import sync_connector_job
+    from sqlalchemy import select
+
+    watch_paths: list[str] = payload.get("watch_paths", [])
+    display_name: str = payload.get("display_name", "Local Files")
+
+    if not watch_paths:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="watch_paths must contain at least one directory path",
+        )
+
+    factory = get_session_factory()
+    async with factory() as session:
+        stmt = select(Connector).where(
+            Connector.user_id == current_user.id,
+            Connector.provider == ConnectorProvider.LOCAL_FS,
+        )
+        result = await session.execute(stmt)
+        connector = result.scalar_one_or_none()
+
+        if connector:
+            # Update existing connector
+            connector.display_name = _json.dumps({"watch_paths": watch_paths, "name": display_name})
+            connector.status = ConnectorStatus.ACTIVE
+        else:
+            # Create new connector
+            connector = Connector(
+                id=_uuid.uuid4(),
+                user_id=current_user.id,
+                provider=ConnectorProvider.LOCAL_FS,
+                status=ConnectorStatus.ACTIVE,
+                display_name=_json.dumps({"watch_paths": watch_paths, "name": display_name}),
+            )
+            session.add(connector)
+
+        await session.commit()
+        await session.refresh(connector)
+
+    # Trigger background sync job
+    sync_connector_job.apply_async(args=[str(current_user.id), str(connector.id)])
+
+    return ConnectorResponse.model_validate(connector)
+
+
+
 # ── Actions Router ─────────────────────────────────────────────────────────────
 actions_router = APIRouter(prefix="/actions", tags=["Actions"])
 

@@ -106,10 +106,29 @@ export default function SettingsPage() {
   const [draftedByAtlas, setDraftedByAtlas] = useState(user?.settings_json?.drafted_by_atlas ?? false);
   const [notifications, setNotifications] = useState(user?.settings_json?.notifications ?? true);
 
+  // Local FS config state
+  const [showLocalFsForm, setShowLocalFsForm] = useState(false);
+  const [localFsPaths, setLocalFsPaths] = useState("");
+  const [localFsError, setLocalFsError] = useState<string | null>(null);
+
   // Fetch Connectors
   const { data: connectors = [] } = useQuery({
     queryKey: ["connectors"],
     queryFn: connectorsAPI.listConnectors,
+  });
+
+  // Configure Local FS mutation
+  const configureLocalFs = useMutation({
+    mutationFn: (watchPaths: string[]) => connectorsAPI.configureLocalFs(watchPaths),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      setShowLocalFsForm(false);
+      setLocalFsPaths("");
+      setLocalFsError(null);
+    },
+    onError: (err: any) => {
+      setLocalFsError(err?.response?.data?.detail || "Failed to configure Local Files connector");
+    },
   });
 
   // Update settings mutation
@@ -299,39 +318,103 @@ export default function SettingsPage() {
                 { name: "Slack",            desc: "Messages & Threads", status: "coming_soon", id: "slack" },
                 { name: "Notion",           desc: "Pages & Databases", status: "coming_soon", id: "notion" },
               ].map((integration) => (
-                <div
-                  key={integration.id}
-                  className="flex items-center justify-between py-3 border-b border-[var(--border-subtle)] last:border-0"
-                >
-                  <div>
-                    <p className="text-sm font-medium text-[var(--text-primary)]">{integration.name}</p>
-                    <p className="text-xs text-[var(--text-muted)]">{integration.desc}</p>
+                <div key={integration.id}>
+                  <div
+                    className="flex items-center justify-between py-3 border-b border-[var(--border-subtle)] last:border-0"
+                  >
+                    <div>
+                      <p className="text-sm font-medium text-[var(--text-primary)]">{integration.name}</p>
+                      <p className="text-xs text-[var(--text-muted)]">{integration.desc}</p>
+                    </div>
+                    {integration.status === "coming_soon" ? (
+                      <span className="text-xs px-2 py-1 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
+                        Coming Soon
+                      </span>
+                    ) : integration.status === "active" ? (
+                      <Button size="sm" variant="secondary" id={`disconnect-${integration.id}`}>
+                        Connected ✓
+                      </Button>
+                    ) : (
+                      <Button 
+                        size="sm" 
+                        variant="primary" 
+                        id={`connect-${integration.id}`}
+                        onClick={() => {
+                          if (integration.id === "google_workspace") {
+                            connectorsAPI.initiateOAuth("google");
+                          } else if (integration.id === "github") {
+                            connectorsAPI.initiateOAuth("github");
+                          } else if (integration.id === "local_fs") {
+                            setShowLocalFsForm(true);
+                          }
+                        }}
+                      >
+                        Connect
+                      </Button>
+                    )}
                   </div>
-                  {integration.status === "coming_soon" ? (
-                    <span className="text-xs px-2 py-1 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
-                      Coming Soon
-                    </span>
-                  ) : integration.status === "active" ? (
-                    <Button size="sm" variant="secondary" id={`disconnect-${integration.id}`}>
-                      Connected ✓
-                    </Button>
-                  ) : (
-                    <Button 
-                      size="sm" 
-                      variant="primary" 
-                      id={`connect-${integration.id}`}
-                      onClick={() => {
-                        if (integration.id === "google_workspace") {
-                          connectorsAPI.initiateOAuth("google");
-                        } else if (integration.id === "github") {
-                          connectorsAPI.initiateOAuth("github");
-                        } else if (integration.id === "local_fs") {
-                           // Implement localfs connect later
-                        }
-                      }}
+
+                  {/* Local Files inline configuration form */}
+                  {integration.id === "local_fs" && showLocalFsForm && (
+                    <motion.div
+                      className="py-3 px-4 my-2 rounded-2xl bg-[var(--bg-tertiary)] border border-[var(--border-default)]"
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
                     >
-                      Connect
-                    </Button>
+                      <label
+                        htmlFor="local-fs-paths"
+                        className="block text-sm font-medium text-[var(--text-primary)] mb-1.5"
+                      >
+                        Directory paths to watch
+                      </label>
+                      <p className="text-xs text-[var(--text-muted)] mb-2">
+                        Enter one directory path per line. Atlas will index and monitor these folders.
+                      </p>
+                      <textarea
+                        id="local-fs-paths"
+                        value={localFsPaths}
+                        onChange={(e) => setLocalFsPaths(e.target.value)}
+                        placeholder={"C:\\Users\\you\\Documents\nC:\\Projects\\my-app"}
+                        rows={3}
+                        className="w-full px-3 py-2 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] resize-none font-mono"
+                      />
+                      {localFsError && (
+                        <p className="text-xs text-red-400 mt-1.5">{localFsError}</p>
+                      )}
+                      <div className="flex gap-2 mt-3">
+                        <Button
+                          size="sm"
+                          variant="primary"
+                          id="local-fs-submit"
+                          disabled={configureLocalFs.isPending || !localFsPaths.trim()}
+                          onClick={() => {
+                            const paths = localFsPaths
+                              .split("\n")
+                              .map((p) => p.trim())
+                              .filter(Boolean);
+                            if (paths.length > 0) {
+                              configureLocalFs.mutate(paths);
+                            }
+                          }}
+                        >
+                          {configureLocalFs.isPending ? "Connecting…" : "Connect"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          id="local-fs-cancel"
+                          onClick={() => {
+                            setShowLocalFsForm(false);
+                            setLocalFsPaths("");
+                            setLocalFsError(null);
+                          }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </motion.div>
                   )}
                 </div>
               ))}

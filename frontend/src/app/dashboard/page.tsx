@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { Plug, Search, Zap, Calendar, Activity, ArrowRight } from "lucide-react";
+import { Plug, Search, Zap, Calendar, Activity, ArrowRight, Mail, GitPullRequest, FileText } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useKeyboardShortcuts } from "@/lib/shortcuts/useKeyboardShortcuts";
 import { connectorsAPI } from "@/lib/api/connectors";
@@ -98,6 +98,31 @@ function QuickActionCard({
   );
 }
 
+// ── Type Icons for Activity Items ─────────────────────────────────────────────
+const typeIcons: Record<string, React.ReactNode> = {
+  email: <Mail size={13} className="text-blue-400" />,
+  pr: <GitPullRequest size={13} className="text-purple-400" />,
+  issue: <GitPullRequest size={13} className="text-orange-400" />,
+  calendar: <Calendar size={13} className="text-green-400" />,
+  document: <FileText size={13} className="text-slate-400" />,
+  file: <FileText size={13} className="text-slate-400" />,
+  task: <Zap size={13} className="text-yellow-400" />,
+};
+
+// ── Provider Display Names ────────────────────────────────────────────────────
+const providerDisplayNames: Record<string, string> = {
+  google_workspace: "Google Workspace",
+  github: "GitHub",
+  local_fs: "Local Files",
+};
+
+// ── Provider Icons ────────────────────────────────────────────────────────────
+const providerIcons: Record<string, React.ReactNode> = {
+  google_workspace: <Mail size={15} className="text-blue-400" />,
+  github: <GitPullRequest size={15} className="text-purple-400" />,
+  local_fs: <FileText size={15} className="text-slate-400" />,
+};
+
 // ── Main Dashboard Page ───────────────────────────────────────────────────────
 export default function DashboardPage() {
   useKeyboardShortcuts();
@@ -172,6 +197,39 @@ export default function DashboardPage() {
         {!briefingLoading && <MiniFocusRing score={focusScore} />}
       </motion.div>
 
+      {/* Sync Status */}
+      {connectors && connectors.filter((c) => c.status === "active").length > 0 && (
+        <motion.div
+          className="mb-6"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15, type: "spring", stiffness: 400, damping: 30 }}
+        >
+          <h2 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-3">
+            Sync Status
+          </h2>
+          <div className="flex flex-col gap-1.5">
+            {connectors
+              .filter((c) => c.status === "active")
+              .map((c) => (
+                <div
+                  key={c.id}
+                  className="flex items-center gap-3 p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-default)]"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
+                    {providerIcons[c.provider] ?? <Plug size={15} className="text-[var(--text-muted)]" />}
+                  </div>
+                  <span className="text-sm text-[var(--text-primary)] flex-1">
+                    {providerDisplayNames[c.provider] ?? c.provider}
+                  </span>
+                  <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                  <span className="text-xs text-[var(--text-muted)]">Active</span>
+                </div>
+              ))}
+          </div>
+        </motion.div>
+      )}
+
       {/* Quick Actions */}
       <motion.div
         className="mb-6"
@@ -237,7 +295,7 @@ export default function DashboardPage() {
                 onClick={() => router.push("/briefing")}
               >
                 <div className="w-7 h-7 rounded-lg bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
-                  <Activity size={13} className="text-[var(--text-muted)]" />
+                  {typeIcons[item.type] ?? <Activity size={13} className="text-[var(--text-muted)]" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-[var(--text-primary)] truncate">

@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
-import { Mail, GitPullRequest, AlertCircle, Calendar, FileText, Zap, ChevronRight } from "lucide-react";
+import { Mail, GitPullRequest, AlertCircle, Calendar, FileText, Zap, ChevronRight, Check } from "lucide-react";
 import { PriorityBadge, SourceBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
@@ -43,6 +43,8 @@ export function BriefingCard({ item, index, onAction, onExpand }: BriefingCardPr
   const config = typeConfig[item.type] ?? typeConfig.task;
   const timeAgo = formatDistanceToNow(new Date(item.timestamp), { addSuffix: true });
 
+  const isActionable = item.type === "issue" || item.type === "task" || item.type === "pr";
+
   return (
     <motion.div
       className="briefing-card group"
@@ -60,6 +62,17 @@ export function BriefingCard({ item, index, onAction, onExpand }: BriefingCardPr
       {/* Header Row */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2.5 min-w-0">
+          {/* Task completion checkmark */}
+          {isActionable && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onAction?.(item); }}
+              className="flex-shrink-0 w-5 h-5 rounded-full border-2 border-[var(--border-default)] hover:border-[var(--accent)] flex items-center justify-center transition-all group/check"
+              aria-label={`Mark ${item.title} as done`}
+            >
+              <Check size={10} className="text-transparent group-hover/check:text-[var(--accent)] transition-colors" />
+            </button>
+          )}
+
           <span className={cn(
             "flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-xl",
             "bg-[var(--bg-tertiary)]",
@@ -74,6 +87,22 @@ export function BriefingCard({ item, index, onAction, onExpand }: BriefingCardPr
                 {timeAgo}
               </span>
             </div>
+            {/* Sender/author info below source badge */}
+            {item.type === "email" && item.metadata?.sender ? (
+              <span className="text-[11px] font-medium text-[var(--text-secondary)]">
+                from {String(item.metadata.sender)}
+              </span>
+            ) : null}
+            {(item.type === "pr" || item.type === "issue") && item.metadata?.repo ? (
+              <span className="text-[11px] text-[var(--text-muted)]">
+                {String(item.metadata.repo)}
+              </span>
+            ) : null}
+            {item.type !== "email" && !(item.type === "pr" || item.type === "issue") && item.metadata?.sender ? (
+              <span className="text-[11px] text-[var(--text-muted)]">
+                from {String(item.metadata.sender)}
+              </span>
+            ) : null}
           </div>
         </div>
 
