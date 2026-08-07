@@ -312,12 +312,14 @@ export default function SettingsPage() {
                 Connect your tools to build your personal knowledge graph.
               </p>
               {[
-                { name: "Google Workspace", desc: "Gmail & Calendar", status: getConnectorStatus("google_workspace"), id: "google_workspace" },
-                { name: "GitHub",           desc: "Issues & Pull Requests", status: getConnectorStatus("github"), id: "github" },
-                { name: "Local Files",      desc: "Documents & Code", status: getConnectorStatus("local_fs"), id: "local_fs" },
-                { name: "Slack",            desc: "Messages & Threads", status: "setup_required", id: "slack" },
-                { name: "Notion",           desc: "Pages & Databases", status: "setup_required", id: "notion" },
-              ].map((integration) => (
+                { name: "Google Workspace", desc: "Gmail, Calendar & Tasks", id: "google_workspace" },
+                { name: "GitHub",           desc: "Issues & Pull Requests", id: "github" },
+                { name: "Slack",            desc: "Messages & Mentions", id: "slack" },
+                { name: "Notion",           desc: "Pages & Databases", id: "notion" },
+                { name: "Local Files",      desc: "Documents & Code", id: "local_fs" },
+              ].map((integration) => {
+                const status = getConnectorStatus(integration.id);
+                return (
                 <div key={integration.id}>
                   <div
                     className="flex items-center justify-between py-3 border-b border-[var(--border-subtle)] last:border-0"
@@ -326,15 +328,7 @@ export default function SettingsPage() {
                       <p className="text-sm font-medium text-[var(--text-primary)]">{integration.name}</p>
                       <p className="text-xs text-[var(--text-muted)]">{integration.desc}</p>
                     </div>
-                    {integration.status === "coming_soon" ? (
-                      <span className="text-xs px-2 py-1 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
-                        Coming Soon
-                      </span>
-                    ) : integration.status === "setup_required" ? (
-                      <Button size="sm" variant="secondary" disabled id={`connect-${integration.id}`}>
-                        Setup Required
-                      </Button>
-                    ) : integration.id === "local_fs" && integration.status === "active" ? (
+                    {integration.id === "local_fs" && status === "active" ? (
                       <Button 
                         size="sm" 
                         variant="secondary" 
@@ -357,7 +351,7 @@ export default function SettingsPage() {
                       >
                         Reconfigure
                       </Button>
-                    ) : integration.status === "active" ? (
+                    ) : status === "active" ? (
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-green-400 font-medium">Connected</span>
                         <Button 
@@ -384,6 +378,10 @@ export default function SettingsPage() {
                             connectorsAPI.initiateOAuth("google");
                           } else if (integration.id === "github") {
                             connectorsAPI.initiateOAuth("github");
+                          } else if (integration.id === "slack") {
+                            connectorsAPI.initiateOAuth("slack");
+                          } else if (integration.id === "notion") {
+                            connectorsAPI.initiateOAuth("notion");
                           } else if (integration.id === "local_fs") {
                             setShowLocalFsForm(true);
                           }
@@ -410,7 +408,7 @@ export default function SettingsPage() {
                         Directory paths to watch
                       </label>
                       <p className="text-xs text-[var(--text-muted)] mb-2">
-                        {integration.status === "active"
+                        {status === "active"
                           ? "Edit paths or add new directories. Atlas will re-index and monitor these folders."
                           : "Enter one directory path per line. Atlas will index and monitor these folders."}
                       </p>
@@ -443,7 +441,7 @@ export default function SettingsPage() {
                         >
                           {configureLocalFs.isPending
                             ? "Saving…"
-                            : integration.status === "active"
+                            : status === "active"
                             ? "Save Changes"
                             : "Connect"}
                         </Button>
@@ -463,7 +461,8 @@ export default function SettingsPage() {
                     </motion.div>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </>
           )}
         </motion.div>

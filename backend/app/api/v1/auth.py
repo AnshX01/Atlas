@@ -433,3 +433,188 @@ async def github_oauth_callback(
             f"http://localhost:3000/settings?error=github_auth_failed:{type(e).__name__}",
             status_code=302,
         )
+
+
+
+# ── Slack OAuth ───────────────────────────────────────────────────────────────
+
+@router.get("/oauth/slack/initiate", summary="Initiate Slack OAuth flow")
+async def slack_oauth_initiate(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    settings = get_settings()
+    state_token = create_access_token(
+        str(current_user.id),
+        expires_delta=timedelta(minutes=10),
+        extra_claims={"purpose": "oauth_state"},
+    )
+    auth_url = (
+        f"https://slack.com/oauth/v2/authorize"
+        f"?client_id={settings.SLACK_CLIENT_ID}"
+        f"&scope={settings.SLACK_SCOPES}"
+        f"&redirect_uri={settings.SLACK_REDIRECT_URI}"
+        f"&state={state_token}"
+    )
+    return {"auth_url": auth_url}
+
+
+@router.get("/oauth/slack/callback", summary="Slack OAuth callback")
+async def slack_oauth_callback(
+    code: str,
+    state: str | None = None,
+    session: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    if state is None:
+        return RedirectResponse("http://localhost:3000/settings?error=slack_auth_failed", status_code=302)
+    try:
+        state_data = decode_token(state)
+        if state_data.get("purpose") != "oauth_state":
+            raise ValueError("Invalid token purpose")
+        user_id = uuid.UUID(state_data["sub"])
+
+        connector_row = await _get_or_create_connector(session, user_id, ConnectorProvider.SLACK)
+
+        # Exchange code for token
+        import httpx
+        settings = get_settings()
+        async with httpx.AsyncClient() as http:
+            resp = await http.post(
+                "https://slack.com/api/oauth.v2.access",
+                data={
+                    "client_id": settings.SLACK_CLIENT_ID,
+                    "client_secret": settings.SLACK_CLIENT_SECRET,
+                    "code": code,
+                    "redirect_uri": settings.SLACK_REDIRECT_URI,
+                },
+            )
+            data = resp.json()
+
+        if not data.get("ok"):
+            raise ValueError(f"Slack OAuth failed: {data.get('error')}")
+
+        access_token = data.get("access_token") or data.get("authed_user", {}).get("access_token", "")
+        from app.core.security import encrypt_token
+        from app.domain.models.connector import OAuthToken
+        from sqlalchemy import select
+
+        stmt = select(OAuthToken).where(OAuthToken.connector_id == connector_row.id)
+        result = await session.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            existing.access_token = encrypt_token(access_token)
+            session.add(existing)
+        else:
+            token = OAuthToken(
+                id=uuid.uuid4(),
+                connector_id=connector_row.id,
+                access_token=encrypt_token(access_token),
+                scope=settings.SLACK_SCOPES,
+            )
+            session.add(token)
+
+        connector_row.status = ConnectorStatus.ACTIVE
+        session.add(connector_row)
+        await session.commit()
+
+        from app.workers.sync_tasks import sync_connector_job
+        sync_connector_job.apply_async(args=[str(user_id), str(connector_row.id)], countdown=2)
+
+        return RedirectResponse("http://localhost:3000/settings?connected=slack", status_code=302)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return RedirectResponse(f"http://localhost:3000/settings?error=slack_auth_failed:{type(e).__name__}", status_code=302)
+
+
+# ── Notion OAuth ──────────────────────────────────────────────────────────────
+
+@router.get("/oauth/notion/initiate", summary="Initiate Notion OAuth flow")
+async def notion_oauth_initiate(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    settings = get_settings()
+    state_token = create_access_token(
+        str(current_user.id),
+        expires_delta=timedelta(minutes=10),
+        extra_claims={"purpose": "oauth_state"},
+    )
+    auth_url = (
+        f"https://api.notion.com/v1/oauth/authorize"
+        f"?client_id={settings.NOTION_CLIENT_ID}"
+        f"&redirect_uri={settings.NOTION_REDIRECT_URI}"
+        f"&response_type=code"
+        f"&owner=user"
+        f"&state={state_token}"
+    )
+    return {"auth_url": auth_url}
+
+
+@router.get("/oauth/notion/callback", summary="Notion OAuth callback")
+async def notion_oauth_callback(
+    code: str,
+    state: str | None = None,
+    session: AsyncSession = Depends(get_db),
+) -> RedirectResponse:
+    if state is None:
+        return RedirectResponse("http://localhost:3000/settings?error=notion_auth_failed", status_code=302)
+    try:
+        state_data = decode_token(state)
+        if state_data.get("purpose") != "oauth_state":
+            raise ValueError("Invalid token purpose")
+        user_id = uuid.UUID(state_data["sub"])
+
+        connector_row = await _get_or_create_connector(session, user_id, ConnectorProvider.NOTION)
+
+        import httpx
+        import base64
+        settings = get_settings()
+        # Notion uses Basic auth for token exchange
+        credentials = base64.b64encode(f"{settings.NOTION_CLIENT_ID}:{settings.NOTION_CLIENT_SECRET}".encode()).decode()
+        async with httpx.AsyncClient() as http:
+            resp = await http.post(
+                "https://api.notion.com/v1/oauth/token",
+                json={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": settings.NOTION_REDIRECT_URI,
+                },
+                headers={"Authorization": f"Basic {credentials}"},
+            )
+            data = resp.json()
+
+        access_token = data.get("access_token")
+        if not access_token:
+            raise ValueError(f"Notion OAuth failed: {data}")
+
+        from app.core.security import encrypt_token
+        from app.domain.models.connector import OAuthToken
+        from sqlalchemy import select
+
+        stmt = select(OAuthToken).where(OAuthToken.connector_id == connector_row.id)
+        result = await session.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            existing.access_token = encrypt_token(access_token)
+            session.add(existing)
+        else:
+            token = OAuthToken(
+                id=uuid.uuid4(),
+                connector_id=connector_row.id,
+                access_token=encrypt_token(access_token),
+            )
+            session.add(token)
+
+        connector_row.status = ConnectorStatus.ACTIVE
+        session.add(connector_row)
+        await session.commit()
+
+        from app.workers.sync_tasks import sync_connector_job
+        sync_connector_job.apply_async(args=[str(user_id), str(connector_row.id)], countdown=2)
+
+        return RedirectResponse("http://localhost:3000/settings?connected=notion", status_code=302)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return RedirectResponse(f"http://localhost:3000/settings?error=notion_auth_failed:{type(e).__name__}", status_code=302)

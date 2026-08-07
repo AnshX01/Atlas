@@ -81,6 +81,17 @@ class Settings(BaseSettings):
     GITHUB_REDIRECT_URI: str = "http://localhost:8000/v1/auth/oauth/github/callback"
     GITHUB_WEBHOOK_SECRET: str = ""
 
+    # ── Slack OAuth ───────────────────────────────────────────────────────────
+    SLACK_CLIENT_ID: str = ""
+    SLACK_CLIENT_SECRET: str = ""
+    SLACK_REDIRECT_URI: str = "http://localhost:8000/v1/auth/oauth/slack/callback"
+    SLACK_SCOPES: str = "channels:history,channels:read,chat:write,groups:history,groups:read,im:history,im:read,mpim:history,mpim:read,users:read,users:read.email"
+
+    # ── Notion OAuth ──────────────────────────────────────────────────────────
+    NOTION_CLIENT_ID: str = ""
+    NOTION_CLIENT_SECRET: str = ""
+    NOTION_REDIRECT_URI: str = "http://localhost:8000/v1/auth/oauth/notion/callback"
+
     # ── Local File System ─────────────────────────────────────────────────────
     LOCAL_FS_WATCH_PATHS: str = ""
     LOCAL_FS_IGNORE_PATTERNS: str = "node_modules,.git,*.pyc"

@@ -41,7 +41,7 @@ export const connectorsAPI = {
     return data;
   },
 
-  async initiateOAuth(provider: "google" | "github"): Promise<void> {
+  async initiateOAuth(provider: "google" | "github" | "slack" | "notion"): Promise<void> {
     const { data } = await apiClient.get<{ auth_url: string }>(
       `/auth/oauth/${provider}/initiate`
     );
