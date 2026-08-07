@@ -313,9 +313,6 @@ export default function SearchPage() {
                         <p className="text-xs text-[var(--text-secondary)] leading-relaxed line-clamp-2">
                           {result.excerpt}
                         </p>
-                        <div className="mt-2">
-                          <ScoreBar score={result.score} />
-                        </div>
                       </div>
                     </div>
                   </motion.div>

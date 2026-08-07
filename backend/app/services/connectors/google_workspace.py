@@ -188,9 +188,10 @@ class GoogleWorkspaceConnector(BaseConnector):
             neo4j_data_list contains dicts with keys needed to call upsert_message_node.
         """
         since_ts = int(since.timestamp())
-        # Fetch unread emails from Primary category (human conversations)
-        # Gmail's category:primary already filters out promotions, social, updates
-        query = f"after:{since_ts} is:unread category:primary"
+        # Fetch important emails (read + unread) from Primary category
+        # is:important uses Gmail's ML-based priority detection
+        # category:primary filters out promotions, social, updates
+        query = f"after:{since_ts} is:important category:primary"
 
         results = service.users().messages().list(userId="me", q=query, maxResults=50).execute()
         messages = results.get("messages", [])

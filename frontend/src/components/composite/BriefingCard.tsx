@@ -7,7 +7,7 @@ import {
   Mail, GitPullRequest, AlertCircle, Calendar, FileText, Zap,
   ChevronDown, ChevronUp, Check, ExternalLink,
 } from "lucide-react";
-import { PriorityBadge, SourceBadge } from "@/components/ui/Badge";
+import { SourceBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 
@@ -164,8 +164,6 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
             )}
           </div>
         </div>
-
-        <PriorityBadge score={item.priority_score} />
       </div>
 
       {/* Title */}

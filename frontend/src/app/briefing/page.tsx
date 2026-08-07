@@ -229,16 +229,17 @@ export default function BriefingPage() {
         </p>
       </motion.div>
 
-      {/* Focus Score + Stats */}
-      {!isLoading && !isError && (
+      {/* Items count */}
+      {!isLoading && !isError && items.length > 0 && (
         <motion.div
-          className="p-5 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] mb-6 flex flex-col gap-5"
-          initial={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.1, type: "spring", stiffness: 400, damping: 30 }}
+          className="mb-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.1 }}
         >
-          <FocusScoreRing score={focusScore} label={focusScoreLabel || "Calculating…"} />
-          {items.length > 0 && <StatsStrip items={items} />}
+          <p className="text-xs text-[var(--text-muted)]">
+            {items.length} item{items.length !== 1 ? "s" : ""} for today
+          </p>
         </motion.div>
       )}
 
