@@ -1,4 +1,10 @@
-import { apiClient, withIdempotencyKey } from "./client";
+/**
+ * Atlas — Connectors API (local-first).
+ * In desktop mode, reads configured status from local token store.
+ * Falls back to backend API in dev mode.
+ */
+
+import { apiClient } from "./client";
 
 export type ConnectorProvider = "google_workspace" | "github" | "local_fs" | "slack" | "notion" | "jira" | "linear";
 
@@ -11,54 +17,31 @@ export interface ConnectorResponse {
   created_at: string;
 }
 
-export interface SyncTriggerResponse {
-  task_id: string;
-  connector_id: string;
-  provider: ConnectorProvider;
-  message: string;
-}
-
 export const connectorsAPI = {
   async listConnectors(): Promise<ConnectorResponse[]> {
-    const { data } = await apiClient.get<ConnectorResponse[]>("/connectors");
-    return data;
-  },
-
-  async createConnector(provider: ConnectorProvider, displayName?: string): Promise<ConnectorResponse> {
-    const { data } = await apiClient.post<ConnectorResponse>(
-      "/connectors",
-      { provider, display_name: displayName },
-    );
-    return data;
-  },
-
-  async triggerSync(provider: ConnectorProvider): Promise<SyncTriggerResponse> {
-    const { data } = await apiClient.post<SyncTriggerResponse>(
-      `/connectors/${provider}/sync`,
-      {},
-      { headers: withIdempotencyKey() },
-    );
-    return data;
-  },
-
-  async initiateOAuth(provider: "google" | "github" | "slack" | "notion"): Promise<void> {
-    const { data } = await apiClient.get<{ auth_url: string }>(
-      `/auth/oauth/${provider}/initiate`
-    );
-    if (typeof window !== "undefined") {
-      window.location.href = data.auth_url;
+    // Try local Electron token store first
+    if (typeof window !== "undefined" && window.atlasElectron?.tokenStore) {
+      try {
+        const configured = await window.atlasElectron.tokenStore.listConfigured();
+        return configured.map((provider) => ({
+          id: provider,
+          provider: provider as ConnectorProvider,
+          status: "active",
+          display_name: null,
+          external_account_id: null,
+          created_at: new Date().toISOString(),
+        }));
+      } catch {
+        // Fall through to API
+      }
     }
-  },
 
-  async configureLocalFs(watchPaths: string[]): Promise<ConnectorResponse> {
-    const { data } = await apiClient.post<ConnectorResponse>(
-      '/connectors/local_fs/configure',
-      { watch_paths: watchPaths },
-    );
-    return data;
-  },
-
-  async disconnect(provider: ConnectorProvider): Promise<void> {
-    await apiClient.delete(`/connectors/${provider}`);
+    // Fallback: try backend API (dev mode)
+    try {
+      const { data } = await apiClient.get<ConnectorResponse[]>("/connectors");
+      return data;
+    } catch {
+      return [];
+    }
   },
 };

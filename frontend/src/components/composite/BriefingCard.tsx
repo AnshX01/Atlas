@@ -43,15 +43,12 @@ const typeConfig: Record<
   task:     { icon: <Zap size={16} />,            color: "text-yellow-400", bgColor: "bg-yellow-400/10" },
 };
 
-/** Generate the direct action URL based on item type and metadata */
 function getActionUrl(item: BriefingItemData): string | null {
   const meta = item.metadata || {};
-  // If action_url is set directly, use it
   if (item.action_url) return item.action_url;
 
   switch (item.type) {
     case "email": {
-      // Link to Gmail message
       const msgId = meta.source_id ?? meta.msg_id;
       if (msgId) return `https://mail.google.com/mail/u/0/#inbox/${String(msgId)}`;
       return "https://mail.google.com";
@@ -81,7 +78,6 @@ function getActionUrl(item: BriefingItemData): string | null {
   }
 }
 
-/** Get the action button label for the expanded view */
 function getActionLabel(item: BriefingItemData): string {
   switch (item.type) {
     case "email": return "Open in Gmail";
@@ -98,7 +94,13 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [completed, setCompleted] = useState(false);
   const config = typeConfig[item.type] ?? typeConfig.task;
-  const timeAgo = formatDistanceToNow(new Date(item.timestamp), { addSuffix: true });
+  const timeAgo = (() => {
+    try {
+      return formatDistanceToNow(new Date(item.timestamp), { addSuffix: true });
+    } catch {
+      return "";
+    }
+  })();
   const actionUrl = getActionUrl(item);
 
   if (completed) {
@@ -134,7 +136,6 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
       role="article"
       aria-label={`${item.type} from ${item.source}: ${item.title}`}
     >
-      {/* Header Row */}
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="flex items-center gap-2.5 min-w-0">
           <span className={cn(
@@ -151,13 +152,12 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
                 {timeAgo}
               </span>
             </div>
-            {/* Sender/repo info */}
-            {item.type === "email" && item.metadata?.sender && (
+            {item.type === "email" && !!item.metadata?.sender && (
               <span className="text-[11px] font-medium text-[var(--text-secondary)]">
                 from {String(item.metadata.sender)}
               </span>
             )}
-            {(item.type === "pr" || item.type === "issue") && item.metadata?.repo && (
+            {(item.type === "pr" || item.type === "issue") && !!item.metadata?.repo && (
               <span className="text-[11px] text-[var(--text-muted)]">
                 {String(item.metadata.repo)}
               </span>
@@ -166,12 +166,10 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
         </div>
       </div>
 
-      {/* Title */}
       <h3 className="text-sm font-semibold text-[var(--text-primary)] leading-snug mb-1.5 line-clamp-2">
         {item.title}
       </h3>
 
-      {/* Summary (collapsed: 2 lines, expanded: full) */}
       <p className={cn(
         "text-xs text-[var(--text-secondary)] leading-relaxed mb-3",
         !expanded && "line-clamp-2"
@@ -179,7 +177,6 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
         {item.summary}
       </p>
 
-      {/* Expanded details */}
       <AnimatePresence>
         {expanded && (
           <motion.div
@@ -190,16 +187,15 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
             className="mb-3 overflow-hidden"
           >
             <div className="p-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] space-y-3">
-              {/* Email-specific: subject + sender + body preview */}
               {item.type === "email" && (
                 <div className="space-y-2">
-                  {item.metadata?.subject && (
+                  {!!item.metadata?.subject && (
                     <div className="text-xs">
                       <span className="text-[var(--text-muted)]">Subject: </span>
                       <span className="text-[var(--text-primary)] font-medium">{String(item.metadata.subject)}</span>
                     </div>
                   )}
-                  {item.metadata?.sender && (
+                  {!!item.metadata?.sender && (
                     <div className="text-xs">
                       <span className="text-[var(--text-muted)]">From: </span>
                       <span className="text-[var(--text-secondary)]">
@@ -207,26 +203,24 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
                       </span>
                     </div>
                   )}
-                  {/* Show first ~6 lines of the email body */}
                   <div className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-line border-t border-[var(--border-default)] pt-2 mt-2">
                     {item.summary.split("\n").slice(0, 6).join("\n") || item.title}
                   </div>
                 </div>
               )}
 
-              {/* PR/Issue: repo + number + full description */}
               {(item.type === "pr" || item.type === "issue") && (
                 <div className="space-y-2">
-                  {item.metadata?.repo && (
+                  {!!item.metadata?.repo && (
                     <div className="text-xs">
                       <span className="text-[var(--text-muted)]">Repository: </span>
                       <span className="text-[var(--text-secondary)] font-medium">{String(item.metadata.repo)}</span>
                     </div>
                   )}
-                  {item.metadata?.pr_number && (
+                  {!!item.metadata?.pr_number && (
                     <div className="text-xs text-[var(--text-muted)]">Pull Request #{String(item.metadata.pr_number)}</div>
                   )}
-                  {item.metadata?.issue_number && (
+                  {!!item.metadata?.issue_number && (
                     <div className="text-xs text-[var(--text-muted)]">Issue #{String(item.metadata.issue_number)}</div>
                   )}
                   <div className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-line border-t border-[var(--border-default)] pt-2 mt-2">
@@ -235,10 +229,9 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
                 </div>
               )}
 
-              {/* Calendar: attendees + time */}
               {item.type === "calendar" && (
                 <div className="space-y-2">
-                  {item.metadata?.attendees && Array.isArray(item.metadata.attendees) && (item.metadata.attendees as string[]).length > 0 && (
+                  {!!item.metadata?.attendees && Array.isArray(item.metadata.attendees) && (item.metadata.attendees as string[]).length > 0 && (
                     <div className="text-xs">
                       <span className="text-[var(--text-muted)]">Attendees: </span>
                       <span className="text-[var(--text-secondary)]">{(item.metadata.attendees as string[]).slice(0, 5).join(", ")}</span>
@@ -250,14 +243,12 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
                 </div>
               )}
 
-              {/* Generic fallback for other types */}
               {!["email", "pr", "issue", "calendar"].includes(item.type) && (
                 <div className="text-xs text-[var(--text-secondary)] leading-relaxed">
                   {item.summary}
                 </div>
               )}
 
-              {/* Direct action link */}
               {actionUrl && (
                 <a
                   href={actionUrl}
@@ -276,7 +267,6 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
         )}
       </AnimatePresence>
 
-      {/* Action Buttons: Details + Completed */}
       <div className="flex items-center gap-2">
         <Button
           size="sm"
@@ -304,15 +294,6 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
           Done
         </button>
       </div>
-
-      {/* Keyboard shortcut hint (shown for top 9 items) */}
-      {index < 9 && (
-        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-60 transition-opacity">
-          <kbd className="text-[10px] font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] px-1.5 py-0.5 rounded text-[var(--text-muted)]">
-            ⌘{index + 1}
-          </kbd>
-        </div>
-      )}
     </motion.div>
   );
 }

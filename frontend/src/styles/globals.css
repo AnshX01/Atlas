@@ -7,8 +7,6 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
-
 /* ── CSS Design Tokens ──────────────────────────────────────── */
 :root {
   /* Light Mode */
@@ -85,7 +83,7 @@ html {
 }
 
 body {
-  font-family: "Inter", system-ui, sans-serif;
+  font-family: var(--font-sans, "Inter"), system-ui, sans-serif;
   background-color: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.6;
@@ -219,7 +217,7 @@ p  { color: var(--text-secondary); line-height: 1.7; }
   width: 100%;
   padding: 1rem 1.25rem;
   font-size: 1.125rem;
-  font-family: "Inter", sans-serif;
+  font-family: var(--font-sans, "Inter"), sans-serif;
   background: transparent;
   border: none;
   outline: none;
@@ -255,6 +253,7 @@ p  { color: var(--text-secondary); line-height: 1.7; }
   padding: 1.25rem;
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);
   cursor: pointer;
+  position: relative;
 }
 
 .briefing-card:hover {
@@ -284,4 +283,25 @@ p  { color: var(--text-secondary); line-height: 1.7; }
   stroke-width: 8;
   stroke-linecap: round;
   transition: stroke-dashoffset 1s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Global Polish: hover transitions ───────────────────────── */
+a, button, [role="button"] {
+  transition: all 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ── Card hover lift ────────────────────────────────────────── */
+.card-hover {
+  transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.card-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+/* ── Button press scale ─────────────────────────────────────── */
+button:active:not(:disabled),
+[role="button"]:active:not(:disabled) {
+  transform: scale(0.98);
 }

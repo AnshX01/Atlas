@@ -1,27 +1,156 @@
 "use client";
 
-import { motion } from "framer-motion";
-import { useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { Settings, Zap, Shield, Bell, Plug, ChevronRight, Moon, Sun } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect, useCallback } from "react";
+import {
+  Settings,
+  Plug,
+  ChevronRight,
+  Moon,
+  Sun,
+  Eye,
+  EyeOff,
+  CheckCircle2,
+  Circle,
+} from "lucide-react";
+import {
+  GoogleLogo,
+  GitHubLogo,
+  SlackLogo,
+  NotionLogo,
+  LocalFilesLogo,
+} from "@/components/icons/ProviderLogos";
 import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/ui/Toast";
-import { connectorsAPI, ConnectorResponse } from "@/lib/api/connectors";
 import { useAppStore } from "@/lib/store/useAppStore";
-import { useAuthStore } from "@/lib/store/useAuthStore";
-import { apiClient } from "@/lib/api/client";
 import { cn } from "@/lib/utils";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
-type SettingsSection = "general" | "integrations" | "ai" | "privacy" | "notifications";
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type SettingsSection = "general" | "integrations";
+
+type ConnectorId = "google_workspace" | "github" | "slack" | "notion" | "local_fs";
+
+interface ConnectorField {
+  key: string;
+  label: string;
+  placeholder: string;
+  type: "password" | "textarea";
+}
+
+interface ConnectorConfig {
+  id: ConnectorId;
+  name: string;
+  description: string;
+  logo: React.ReactNode;
+  helpText: string;
+  fields: ConnectorField[];
+}
+
+interface ConnectorStatus {
+  configured: boolean;
+  testing?: boolean;
+  testResult?: "success" | "error" | null;
+  testMessage?: string;
+}
+
+// ─── Connector definitions ────────────────────────────────────────────────────
+
+const connectorConfigs: ConnectorConfig[] = [
+  {
+    id: "google_workspace",
+    name: "Google Workspace",
+    description: "Gmail, Calendar & Tasks",
+    logo: <GoogleLogo size={18} />,
+    helpText:
+      "Create a Google Cloud project, enable Gmail/Calendar APIs, create OAuth credentials.",
+    fields: [
+      {
+        key: "client_id",
+        label: "Client ID",
+        placeholder: "your-client-id.apps.googleusercontent.com",
+        type: "password",
+      },
+      {
+        key: "client_secret",
+        label: "Client Secret",
+        placeholder: "GOCSPX-...",
+        type: "password",
+      },
+    ],
+  },
+  {
+    id: "github",
+    name: "GitHub",
+    description: "Issues & Pull Requests",
+    logo: <GitHubLogo size={18} />,
+    helpText:
+      "Generate a PAT at github.com/settings/tokens with repo, user scopes.",
+    fields: [
+      {
+        key: "personal_access_token",
+        label: "Personal Access Token",
+        placeholder: "ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        type: "password",
+      },
+    ],
+  },
+  {
+    id: "slack",
+    name: "Slack",
+    description: "Messages & Mentions",
+    logo: <SlackLogo size={18} />,
+    helpText:
+      "Create a Slack App at api.slack.com/apps, install to workspace, copy Bot Token.",
+    fields: [
+      {
+        key: "bot_token",
+        label: "Bot Token",
+        placeholder: "xoxb-...",
+        type: "password",
+      },
+    ],
+  },
+  {
+    id: "notion",
+    name: "Notion",
+    description: "Pages & Databases",
+    logo: <NotionLogo size={18} />,
+    helpText:
+      "Create an integration at notion.so/my-integrations, copy the token.",
+    fields: [
+      {
+        key: "integration_token",
+        label: "Integration Token",
+        placeholder: "secret_...",
+        type: "password",
+      },
+    ],
+  },
+  {
+    id: "local_fs",
+    name: "Local Files",
+    description: "Documents & Code",
+    logo: <LocalFilesLogo size={18} />,
+    helpText:
+      "Enter one directory path per line. Atlas will index and monitor these folders.",
+    fields: [
+      {
+        key: "watch_paths",
+        label: "Directory paths to watch",
+        placeholder: "C:\\Users\\you\\Documents\nC:\\Projects\\my-app",
+        type: "textarea",
+      },
+    ],
+  },
+];
 
 const sections: { id: SettingsSection; label: string; icon: React.ReactNode }[] = [
-  { id: "general",       label: "General",       icon: <Settings size={15} /> },
-  { id: "integrations",  label: "Integrations",  icon: <Plug size={15} /> },
-  { id: "ai",            label: "AI & Models",   icon: <Zap size={15} /> },
-  { id: "privacy",       label: "Privacy",        icon: <Shield size={15} /> },
-  { id: "notifications", label: "Notifications", icon: <Bell size={15} /> },
+  { id: "general", label: "General", icon: <Settings size={15} /> },
+  { id: "integrations", label: "Integrations", icon: <Plug size={15} /> },
 ];
+
+// ─── Helper components ────────────────────────────────────────────────────────
 
 function SettingRow({
   label,
@@ -37,7 +166,9 @@ function SettingRow({
       <div className="flex-1">
         <p className="text-sm font-medium text-[var(--text-primary)]">{label}</p>
         {description && (
-          <p className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed">{description}</p>
+          <p className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed">
+            {description}
+          </p>
         )}
       </div>
       <div className="flex-shrink-0">{children}</div>
@@ -45,123 +176,354 @@ function SettingRow({
   );
 }
 
-function Toggle({
-  checked,
-  onChange,
+function PasswordField({
   id,
-  label,
+  value,
+  onChange,
+  placeholder,
 }: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
   id: string;
-  label: string;
+  value: string;
+  onChange: (val: string) => void;
+  placeholder: string;
 }) {
+  const [visible, setVisible] = useState(false);
+
   return (
-    <button
-      id={id}
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={cn(
-        "relative w-10 h-5.5 rounded-full transition-colors duration-200 flex-shrink-0",
-        checked ? "bg-[var(--accent)]" : "bg-[var(--bg-tertiary)] border border-[var(--border-default)]"
-      )}
-    >
-      <motion.span
-        className="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm"
-        animate={{ x: checked ? 18 : 0 }}
-        transition={{ type: "spring", stiffness: 500, damping: 30 }}
+    <div className="relative">
+      <input
+        id={id}
+        type={visible ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 pr-10 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] font-mono"
+        autoComplete="off"
       />
-    </button>
+      <button
+        type="button"
+        onClick={() => setVisible(!visible)}
+        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+        aria-label={visible ? "Hide value" : "Show value"}
+      >
+        {visible ? <EyeOff size={14} /> : <Eye size={14} />}
+      </button>
+    </div>
   );
 }
 
-function SettingsToasts() {
-  const searchParams = useSearchParams();
-  const connectedParam = searchParams.get("connected");
-  const errorParam = searchParams.get("error");
+function StatusDot({ configured }: { configured: boolean }) {
+  return configured ? (
+    <span className="flex items-center gap-1.5 text-xs text-green-400 font-medium">
+      <CheckCircle2 size={12} className="text-green-400" />
+      Configured
+    </span>
+  ) : (
+    <span className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+      <Circle size={12} className="text-[var(--text-muted)]" />
+      Not configured
+    </span>
+  );
+}
+
+// ─── Connector Card ───────────────────────────────────────────────────────────
+
+function ConnectorCard({
+  config,
+  status,
+  onSave,
+  onTest,
+}: {
+  config: ConnectorConfig;
+  status: ConnectorStatus;
+  onSave: (values: Record<string, string>) => void;
+  onTest: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+
+  const updateField = (key: string, value: string) => {
+    setFieldValues((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const hasValues = config.fields.some(
+    (f) => (fieldValues[f.key] ?? "").trim().length > 0
+  );
 
   return (
-    <>
-      {connectedParam && (
-        <Toast message={`Successfully connected ${connectedParam}`} type="success" />
-      )}
-      {errorParam && (
-        <Toast message={`Connection failed: ${errorParam}`} type="error" />
-      )}
-    </>
+    <div className="border-b border-[var(--border-subtle)] last:border-0">
+      {/* Header row */}
+      <div className="flex items-center justify-between py-3.5">
+        <div className="flex items-center gap-2.5">
+          <span className="flex-shrink-0">{config.logo}</span>
+          <div>
+            <p className="text-sm font-medium text-[var(--text-primary)]">
+              {config.name}
+            </p>
+            <p className="text-xs text-[var(--text-muted)]">{config.description}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <StatusDot configured={status.configured} />
+          <Button
+            size="sm"
+            variant={status.configured ? "secondary" : "primary"}
+            id={`configure-${config.id}`}
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? "Close" : status.configured ? "Reconfigure" : "Configure"}
+          </Button>
+        </div>
+      </div>
+
+      {/* Inline configuration form */}
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            className="pb-4 px-1"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ type: "spring", stiffness: 400, damping: 30 }}
+          >
+            <div className="py-3 px-4 rounded-2xl bg-[var(--bg-tertiary)] border border-[var(--border-default)]">
+              {/* Help text */}
+              <p className="text-xs text-[var(--text-secondary)] mb-3 leading-relaxed">
+                {config.helpText}
+              </p>
+
+              {/* Fields */}
+              <div className="space-y-3">
+                {config.fields.map((field) => (
+                  <div key={field.key}>
+                    <label
+                      htmlFor={`${config.id}-${field.key}`}
+                      className="block text-xs font-medium text-[var(--text-primary)] mb-1"
+                    >
+                      {field.label}
+                    </label>
+                    {field.type === "textarea" ? (
+                      <textarea
+                        id={`${config.id}-${field.key}`}
+                        value={fieldValues[field.key] ?? ""}
+                        onChange={(e) => updateField(field.key, e.target.value)}
+                        placeholder={field.placeholder}
+                        rows={3}
+                        className="w-full px-3 py-2 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] resize-none font-mono"
+                      />
+                    ) : (
+                      <PasswordField
+                        id={`${config.id}-${field.key}`}
+                        value={fieldValues[field.key] ?? ""}
+                        onChange={(val) => updateField(field.key, val)}
+                        placeholder={field.placeholder}
+                      />
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Test result */}
+              {status.testResult && (
+                <p
+                  className={cn(
+                    "text-xs mt-2",
+                    status.testResult === "success"
+                      ? "text-green-400"
+                      : "text-red-400"
+                  )}
+                >
+                  {status.testMessage}
+                </p>
+              )}
+
+              {/* Actions */}
+              <div className="flex items-center gap-2 mt-4">
+                <Button
+                  size="sm"
+                  variant="primary"
+                  id={`save-${config.id}`}
+                  disabled={!hasValues}
+                  onClick={() => onSave(fieldValues)}
+                >
+                  Save
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  id={`test-${config.id}`}
+                  disabled={!hasValues && !status.configured}
+                  isLoading={status.testing}
+                  onClick={onTest}
+                >
+                  {status.testing ? "Testing…" : "Test Connection"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  id={`cancel-${config.id}`}
+                  onClick={() => setExpanded(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
   const { theme, toggleTheme } = useAppStore();
-  const { user, setUser } = useAuthStore();
-  
-  const queryClient = useQueryClient();
-  
-  // Settings state initialized from user object
-  const [strictLocal, setStrictLocal] = useState(user?.settings_json?.strict_local ?? false);
-  const [draftedByAtlas, setDraftedByAtlas] = useState(user?.settings_json?.drafted_by_atlas ?? false);
-  const [notifications, setNotifications] = useState(user?.settings_json?.notifications ?? true);
 
-  // Local FS config state
-  const [showLocalFsForm, setShowLocalFsForm] = useState(false);
-  const [localFsPaths, setLocalFsPaths] = useState("");
-  const [localFsError, setLocalFsError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{
+    message: string;
+    type: "success" | "error" | "info";
+  } | null>(null);
 
-  // Fetch Connectors
-  const { data: connectors = [] } = useQuery({
-    queryKey: ["connectors"],
-    queryFn: connectorsAPI.listConnectors,
-  });
-
-  // Configure Local FS mutation
-  const configureLocalFs = useMutation({
-    mutationFn: (watchPaths: string[]) => connectorsAPI.configureLocalFs(watchPaths),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["connectors"] });
-      setShowLocalFsForm(false);
-      setLocalFsPaths("");
-      setLocalFsError(null);
-    },
-    onError: (err: any) => {
-      setLocalFsError(err?.response?.data?.detail || "Failed to configure Local Files connector");
-    },
-  });
-
-  // Update settings mutation
-  const updateSettings = useMutation({
-    mutationFn: async (newSettings: any) => {
-      const { data } = await apiClient.patch("/users/me/settings", { settings: newSettings });
-      return data;
-    },
-    onSuccess: (data) => {
-      setUser(data);
+  // Track configuration status per connector
+  const [statuses, setStatuses] = useState<Record<ConnectorId, ConnectorStatus>>(
+    () => {
+      const initial: Record<string, ConnectorStatus> = {};
+      connectorConfigs.forEach((c) => {
+        initial[c.id] = { configured: false };
+      });
+      return initial as Record<ConnectorId, ConnectorStatus>;
     }
-  });
+  );
 
-  const handleStrictLocalChange = (val: boolean) => {
-    setStrictLocal(val);
-    updateSettings.mutate({ strict_local: val });
-  };
-  
-  const handleDraftedChange = (val: boolean) => {
-    setDraftedByAtlas(val);
-    updateSettings.mutate({ drafted_by_atlas: val });
-  };
+  // On mount, check which providers are already configured
+  useEffect(() => {
+    async function checkConfigured() {
+      try {
+        // In Electron, query the secure token store
+        const electron = (window as any).atlasElectron;
+        if (electron?.tokenStore?.listConfigured) {
+          const configured: string[] = await electron.tokenStore.listConfigured();
+          setStatuses((prev) => {
+            const next = { ...prev };
+            for (const id of Object.keys(next) as ConnectorId[]) {
+              next[id] = {
+                ...next[id],
+                configured: configured.includes(id),
+              };
+            }
+            return next;
+          });
+        }
+      } catch {
+        // Not in Electron or API unavailable — leave all as unconfigured
+      }
+    }
+    checkConfigured();
+  }, []);
 
-  const getConnectorStatus = (providerId: string) => {
-    const c = connectors.find(c => c.provider === providerId);
-    return c ? (c.status === "active" ? "active" : "inactive") : "unconnected";
-  };
+  // Save credentials for a connector
+  const handleSave = useCallback(
+    async (connectorId: ConnectorId, values: Record<string, string>) => {
+      try {
+        const electron = (window as any).atlasElectron;
+        if (electron?.tokenStore?.save) {
+          await electron.tokenStore.save(connectorId, values);
+        } else {
+          // Fallback: store in localStorage (less secure, for dev)
+          localStorage.setItem(
+            `atlas_connector_${connectorId}`,
+            JSON.stringify(values)
+          );
+        }
+
+        setStatuses((prev) => ({
+          ...prev,
+          [connectorId]: { ...prev[connectorId], configured: true },
+        }));
+
+        setToast({ message: `${connectorId} configured successfully.`, type: "success" });
+      } catch (err: any) {
+        setToast({
+          message: `Failed to save: ${err?.message || "Unknown error"}`,
+          type: "error",
+        });
+      }
+    },
+    []
+  );
+
+  // Test connection for a connector
+  const handleTest = useCallback(
+    async (connectorId: ConnectorId) => {
+      setStatuses((prev) => ({
+        ...prev,
+        [connectorId]: {
+          ...prev[connectorId],
+          testing: true,
+          testResult: null,
+          testMessage: undefined,
+        },
+      }));
+
+      try {
+        const electron = (window as any).atlasElectron;
+        if (electron?.tokenStore?.testConnection) {
+          const result = await electron.tokenStore.testConnection(connectorId);
+          setStatuses((prev) => ({
+            ...prev,
+            [connectorId]: {
+              ...prev[connectorId],
+              testing: false,
+              testResult: result.success ? "success" : "error",
+              testMessage: result.success
+                ? "Connection successful!"
+                : result.error || "Connection failed.",
+            },
+          }));
+        } else {
+          // Simulate test when not in Electron
+          await new Promise((r) => setTimeout(r, 1000));
+          const isConfigured = statuses[connectorId].configured;
+          setStatuses((prev) => ({
+            ...prev,
+            [connectorId]: {
+              ...prev[connectorId],
+              testing: false,
+              testResult: isConfigured ? "success" : "error",
+              testMessage: isConfigured
+                ? "Connection successful!"
+                : "No credentials configured.",
+            },
+          }));
+        }
+      } catch (err: any) {
+        setStatuses((prev) => ({
+          ...prev,
+          [connectorId]: {
+            ...prev[connectorId],
+            testing: false,
+            testResult: "error",
+            testMessage: err?.message || "Test failed unexpectedly.",
+          },
+        }));
+      }
+    },
+    [statuses]
+  );
 
   return (
     <div className="max-w-3xl mx-auto">
-      <Suspense fallback={null}>
-        <SettingsToasts />
-      </Suspense>
+      {/* Toast notifications */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
+
       {/* Header */}
       <motion.div
         className="mb-8"
@@ -197,7 +559,13 @@ export default function SettingsPage() {
                   : "text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
               )}
             >
-              <span className={activeSection === s.id ? "text-[var(--accent)]" : "text-[var(--text-muted)]"}>
+              <span
+                className={
+                  activeSection === s.id
+                    ? "text-[var(--accent)]"
+                    : "text-[var(--text-muted)]"
+                }
+              >
                 {s.icon}
               </span>
               {s.label}
@@ -218,8 +586,13 @@ export default function SettingsPage() {
         >
           {activeSection === "general" && (
             <>
-              <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4">General</h2>
-              <SettingRow label="Appearance" description="Choose your preferred color theme.">
+              <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4">
+                General
+              </h2>
+              <SettingRow
+                label="Appearance"
+                description="Choose your preferred color theme."
+              >
                 <button
                   id="settings-theme-toggle"
                   onClick={toggleTheme}
@@ -230,239 +603,28 @@ export default function SettingsPage() {
                   <span className="capitalize">{theme}</span>
                 </button>
               </SettingRow>
-              <SettingRow label="Keyboard Shortcut" description="Global shortcut to open the command bar.">
-                <span className="text-sm font-mono bg-[var(--bg-tertiary)] border border-[var(--border-default)] px-2.5 py-1 rounded-lg text-[var(--text-secondary)]">
-                  ⌘ Space
-                </span>
-              </SettingRow>
-            </>
-          )}
-
-          {activeSection === "ai" && (
-            <>
-              <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4">AI & Models</h2>
-              <SettingRow
-                label="Strict Local Mode"
-                description="Route all AI processing through local Ollama (Llama 3 8B). No data leaves your machine. Requires Ollama running locally."
-              >
-                <Toggle
-                  id="settings-strict-local"
-                  checked={strictLocal}
-                  onChange={handleStrictLocalChange}
-                  label="Toggle strict local mode"
-                />
-              </SettingRow>
-              <SettingRow label="Active Model" description="The LLM used for briefings and search.">
-                <span className="text-sm text-[var(--text-secondary)] font-mono">
-                  {strictLocal ? "llama3:8b (local)" : "gpt-4o"}
-                </span>
-              </SettingRow>
-              <SettingRow
-                label='"Drafted by Atlas" Signature'
-                description="Append a subtle Atlas signature to emails drafted by the Action Agent. Disabled for Pro users by default."
-              >
-                <Toggle
-                  id="settings-drafted-by-atlas"
-                  checked={draftedByAtlas}
-                  onChange={handleDraftedChange}
-                  label="Toggle drafted by Atlas signature"
-                />
-              </SettingRow>
-            </>
-          )}
-
-          {activeSection === "privacy" && (
-            <>
-              <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4">Privacy</h2>
-              <SettingRow
-                label="Data Retention"
-                description="How long Atlas retains indexed content in the knowledge graph."
-              >
-                <span className="text-sm text-[var(--text-secondary)]">Infinite (Pro)</span>
-              </SettingRow>
-              <SettingRow
-                label="Delete All Data"
-                description="Permanently remove all indexed data, vectors, and graph nodes. This action cannot be undone."
-              >
-                <Button size="sm" variant="danger" id="settings-delete-all-data">
-                  Delete All Data
-                </Button>
-              </SettingRow>
-            </>
-          )}
-
-          {activeSection === "notifications" && (
-            <>
-              <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4">Notifications</h2>
-              <SettingRow label="Push Notifications" description="Receive OS notifications for urgent items.">
-                <Toggle
-                  id="settings-push-notifications"
-                  checked={notifications}
-                  onChange={setNotifications}
-                  label="Toggle push notifications"
-                />
-              </SettingRow>
             </>
           )}
 
           {activeSection === "integrations" && (
             <>
-              <h2 className="text-base font-semibold text-[var(--text-primary)] mb-4">Integrations</h2>
+              <h2 className="text-base font-semibold text-[var(--text-primary)] mb-1">
+                Integrations
+              </h2>
               <p className="text-sm text-[var(--text-secondary)] mb-4">
-                Connect your tools to build your personal knowledge graph.
+                Configure your connectors by providing API tokens or credentials
+                directly. All secrets are stored locally on your device.
               </p>
-              {[
-                { name: "Google Workspace", desc: "Gmail, Calendar & Tasks", id: "google_workspace" },
-                { name: "GitHub",           desc: "Issues & Pull Requests", id: "github" },
-                { name: "Slack",            desc: "Messages & Mentions", id: "slack" },
-                { name: "Notion",           desc: "Pages & Databases", id: "notion" },
-                { name: "Local Files",      desc: "Documents & Code", id: "local_fs" },
-              ].map((integration) => {
-                const status = getConnectorStatus(integration.id);
-                return (
-                <div key={integration.id}>
-                  <div
-                    className="flex items-center justify-between py-3 border-b border-[var(--border-subtle)] last:border-0"
-                  >
-                    <div>
-                      <p className="text-sm font-medium text-[var(--text-primary)]">{integration.name}</p>
-                      <p className="text-xs text-[var(--text-muted)]">{integration.desc}</p>
-                    </div>
-                    {integration.id === "local_fs" && status === "active" ? (
-                      <Button 
-                        size="sm" 
-                        variant="secondary" 
-                        id={`reconfigure-${integration.id}`}
-                        onClick={() => {
-                          // Pre-fill with existing paths from connector config
-                          const connector = connectors.find(c => c.provider === "local_fs");
-                          if (connector?.display_name) {
-                            try {
-                              const config = JSON.parse(connector.display_name);
-                              if (config.watch_paths && Array.isArray(config.watch_paths)) {
-                                setLocalFsPaths(config.watch_paths.join("\n"));
-                              }
-                            } catch {
-                              // display_name wasn't JSON, ignore
-                            }
-                          }
-                          setShowLocalFsForm(true);
-                        }}
-                      >
-                        Reconfigure
-                      </Button>
-                    ) : status === "active" ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-green-400 font-medium">Connected</span>
-                        <Button 
-                          size="sm" 
-                          variant="danger" 
-                          id={`disconnect-${integration.id}`}
-                          onClick={async () => {
-                            if (confirm(`Disconnect ${integration.name}? You can reconnect later.`)) {
-                              await connectorsAPI.disconnect(integration.id as any);
-                              queryClient.invalidateQueries({ queryKey: ["connectors"] });
-                            }
-                          }}
-                        >
-                          Disconnect
-                        </Button>
-                      </div>
-                    ) : (
-                      <Button 
-                        size="sm" 
-                        variant="primary" 
-                        id={`connect-${integration.id}`}
-                        onClick={() => {
-                          if (integration.id === "google_workspace") {
-                            connectorsAPI.initiateOAuth("google");
-                          } else if (integration.id === "github") {
-                            connectorsAPI.initiateOAuth("github");
-                          } else if (integration.id === "slack") {
-                            connectorsAPI.initiateOAuth("slack");
-                          } else if (integration.id === "notion") {
-                            connectorsAPI.initiateOAuth("notion");
-                          } else if (integration.id === "local_fs") {
-                            setShowLocalFsForm(true);
-                          }
-                        }}
-                      >
-                        Connect
-                      </Button>
-                    )}
-                  </div>
 
-                  {/* Local Files inline configuration form */}
-                  {integration.id === "local_fs" && showLocalFsForm && (
-                    <motion.div
-                      className="py-3 px-4 my-2 rounded-2xl bg-[var(--bg-tertiary)] border border-[var(--border-default)]"
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                    >
-                      <label
-                        htmlFor="local-fs-paths"
-                        className="block text-sm font-medium text-[var(--text-primary)] mb-1.5"
-                      >
-                        Directory paths to watch
-                      </label>
-                      <p className="text-xs text-[var(--text-muted)] mb-2">
-                        {status === "active"
-                          ? "Edit paths or add new directories. Atlas will re-index and monitor these folders."
-                          : "Enter one directory path per line. Atlas will index and monitor these folders."}
-                      </p>
-                      <textarea
-                        id="local-fs-paths"
-                        value={localFsPaths}
-                        onChange={(e) => setLocalFsPaths(e.target.value)}
-                        placeholder={"C:\\Users\\you\\Documents\nC:\\Projects\\my-app"}
-                        rows={3}
-                        className="w-full px-3 py-2 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] resize-none font-mono"
-                      />
-                      {localFsError && (
-                        <p className="text-xs text-red-400 mt-1.5">{localFsError}</p>
-                      )}
-                      <div className="flex gap-2 mt-3">
-                        <Button
-                          size="sm"
-                          variant="primary"
-                          id="local-fs-submit"
-                          disabled={configureLocalFs.isPending || !localFsPaths.trim()}
-                          onClick={() => {
-                            const paths = localFsPaths
-                              .split("\n")
-                              .map((p) => p.trim())
-                              .filter(Boolean);
-                            if (paths.length > 0) {
-                              configureLocalFs.mutate(paths);
-                            }
-                          }}
-                        >
-                          {configureLocalFs.isPending
-                            ? "Saving…"
-                            : status === "active"
-                            ? "Save Changes"
-                            : "Connect"}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          id="local-fs-cancel"
-                          onClick={() => {
-                            setShowLocalFsForm(false);
-                            setLocalFsPaths("");
-                            setLocalFsError(null);
-                          }}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                    </motion.div>
-                  )}
-                </div>
-                );
-              })}
+              {connectorConfigs.map((connector) => (
+                <ConnectorCard
+                  key={connector.id}
+                  config={connector}
+                  status={statuses[connector.id]}
+                  onSave={(values) => handleSave(connector.id, values)}
+                  onTest={() => handleTest(connector.id)}
+                />
+              ))}
             </>
           )}
         </motion.div>

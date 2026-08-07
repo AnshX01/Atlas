@@ -1,15 +1,49 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Moon, Sun, RefreshCw, User } from "lucide-react";
+import { Search, Moon, Sun, RefreshCw } from "lucide-react";
 import { useAppStore } from "@/lib/store/useAppStore";
+import { useAuthStore } from "@/lib/store/useAuthStore";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 
+const AVATAR_STORAGE_KEY = "atlas-profile-avatar";
+
 export function TopBar() {
-  const { theme, toggleTheme, syncProgress, setCommandBarOpen } = useAppStore();
+  const { theme, toggleTheme, syncProgress } = useAppStore();
+  const { user } = useAuthStore();
   const router = useRouter();
   const isSyncing = syncProgress !== null;
+
+  // ── Avatar from localStorage ──────────────────────────────────────
+  const [avatar, setAvatar] = useState<string | null>(null);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(AVATAR_STORAGE_KEY);
+    if (stored) setAvatar(stored);
+
+    // Listen for storage changes (e.g. avatar updated on profile page)
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === AVATAR_STORAGE_KEY) {
+        setAvatar(e.newValue);
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  // Also re-check on focus (catches same-tab localStorage writes)
+  useEffect(() => {
+    const handleFocus = () => {
+      const stored = localStorage.getItem(AVATAR_STORAGE_KEY);
+      setAvatar(stored);
+    };
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+  }, []);
+
+  const userInitial = (user?.full_name?.[0] ?? user?.email?.[0] ?? "U").toUpperCase();
 
   return (
     <header
@@ -19,10 +53,10 @@ export function TopBar() {
       {/* Left: breadcrumb / page title */}
       <div id="topbar-title" className="text-sm font-medium text-[var(--text-secondary)]" />
 
-      {/* Center: AI Search trigger (opens CommandBar) */}
+      {/* Center: AI Chat trigger */}
       <button
         id="global-search-trigger"
-        onClick={() => setCommandBarOpen(true)}
+        onClick={() => router.push('/chat')}
         className={cn(
           "hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl",
           "border border-[var(--border-default)] bg-[var(--bg-tertiary)]",
@@ -31,14 +65,11 @@ export function TopBar() {
           "transition-all duration-150 cursor-pointer select-none",
           "w-64"
         )}
-        aria-label="Open AI Search (⌘Space)"
+        aria-label="Open AI Chat"
         style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
       >
         <Search size={13} />
-        <span className="flex-1 text-left text-xs">AI Search...</span>
-        <kbd className="text-[10px] font-mono bg-[var(--bg-primary)] border border-[var(--border-default)] px-1.5 py-0.5 rounded-md text-[var(--text-muted)]">
-          ⌘Space
-        </kbd>
+        <span className="flex-1 text-left text-xs">Ask Atlas anything...</span>
       </button>
 
       {/* Right: Actions */}
@@ -78,10 +109,20 @@ export function TopBar() {
         <button
           id="user-avatar-btn"
           onClick={() => router.push('/profile')}
-          className="w-7 h-7 rounded-full bg-gradient-to-br from-[var(--accent)] to-purple-500 flex items-center justify-center text-white ml-1"
+          className="w-7 h-7 rounded-full bg-gradient-to-br from-[var(--accent)] to-purple-500 flex items-center justify-center text-white ml-1 overflow-hidden"
           aria-label="Open profile"
         >
-          <User size={13} />
+          {avatar ? (
+            <img
+              src={avatar}
+              alt="Profile"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <span className="text-xs font-semibold leading-none">
+              {userInitial}
+            </span>
+          )}
         </button>
       </div>
     </header>

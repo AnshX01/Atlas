@@ -1,8 +1,16 @@
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 import { Providers } from "./providers";
 import { AppShell } from "@/components/layout/AppShell";
 import "@/styles/globals.css";
 import "@/styles/animations.css";
+
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-sans",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Atlas — Personal Command Center",
@@ -17,22 +25,19 @@ export const metadata: Metadata = {
   },
 };
 
-// Query client is now initialized in Providers component
-
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark" suppressHydrationWarning>
+    <html lang="en" className={`dark ${inter.variable}`} suppressHydrationWarning>
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link rel="icon" type="image/png" href="/favicon.png" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#09090b" />
       </head>
-      <body>
+      <body className={inter.className}>
         {/* Skip to main content — WCAG 2.1 AA */}
         <a
           href="#main-content"

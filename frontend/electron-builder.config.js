@@ -9,19 +9,25 @@ module.exports = {
   files: [
     "out/**/*",
     "dist-electron/**/*",
+    "public/icon.png",
+    "public/logo.png",
   ],
+  icon: "public/icon.png",
   mac: {
     category: "public.app-category.productivity",
     target: [{ target: "dmg", arch: ["arm64", "x64"] }],
+    icon: "public/icon.png",
     darkModeSupport: true,
     hardenedRuntime: true,
     gatekeeperAssess: false,
   },
   win: {
     target: [{ target: "nsis", arch: ["x64"] }],
+    icon: "public/icon.png",
   },
   linux: {
     target: ["AppImage", "deb"],
+    icon: "public/icon.png",
     category: "Office",
   },
   nsis: {

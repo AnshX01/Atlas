@@ -1,98 +1,92 @@
-# ⚡ Atlas — Personal Command Center
+# ⚡ Atlas — AI Desktop Command Center
 
-> **The world's first AI Chief of Staff for knowledge workers.**  
-> Atlas eliminates the integration tax of modern work by connecting your entire digital ecosystem into a single, unified, proactively briefed intelligence layer.
+> **Your personal AI Chief of Staff — a privacy-first Electron desktop app.**  
+> Atlas connects your entire digital ecosystem (Gmail, GitHub, Slack, Notion, local files) into a unified AI-powered chatbot that can search, summarize, and take actions on your behalf.
 
-[![CI](https://github.com/your-org/atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/atlas/actions)
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://python.org)
-[![Next.js 14](https://img.shields.io/badge/Next.js-14-black.svg)](https://nextjs.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+**100% local. No cloud. No servers. Just clone, install, and run.**
 
 ---
 
-## Architecture Overview
+## What Atlas Does
+
+- **AI Chatbot** — Ask anything about your emails, PRs, calendar, documents. Get structured answers with cards and take actions inline.
+- **Write Actions** — Reply to emails, merge PRs, post to Slack, create Notion pages — all from the chat with approval flow.
+- **Daily Briefing** — AI-generated priority feed of what needs your attention today.
+- **Local-First** — Runs Ollama locally for AI. Your data never leaves your machine.
+- **MCP Integration** — Model Context Protocol servers for each connector (Google, GitHub, Slack, Notion, Files).
+
+---
+
+## Quick Start
+
+### Prerequisites
+- [Node.js](https://nodejs.org/) ≥ 20
+- [Ollama](https://ollama.ai/) (for local AI)
+
+### 1. Clone and install
+
+```bash
+git clone https://github.com/your-org/atlas.git
+cd atlas/frontend
+npm install
+```
+
+### 2. Set up Ollama
+
+```bash
+# Install Ollama from https://ollama.ai
+ollama pull llama3:8b
+ollama pull nomic-embed-text
+```
+
+### 3. Run the app
+
+```bash
+npm run electron-dev
+```
+
+That's it! Atlas opens as a desktop app. Create an account on first launch (stored locally), then configure your connectors in Settings.
+
+---
+
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    Electron Desktop Shell                            │
 │   ┌─────────────────────────────────────────────────────────────┐   │
-│   │              Next.js 14 (App Router + React)                │   │
-│   │   CommandBar │ DailyBriefing │ OmniSearch │ Settings        │   │
+│   │              Next.js 15 (App Router + React)                 │   │
+│   │   Dashboard │ AI Chatbot │ Daily Briefing │ Settings        │   │
 │   └────────────────────────┬────────────────────────────────────┘   │
-│                            │ HTTP + WebSocket                        │
-└────────────────────────────┼────────────────────────────────────────┘
-                             │
-┌────────────────────────────▼────────────────────────────────────────┐
-│                    FastAPI Backend (Python 3.12)                      │
-│   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌───────────────────┐  │
-│   │  /v1/    │  │ LangGraph │  │  Celery  │  │   WebSocket Relay │  │
-│   │  REST    │  │ Agents   │  │  Workers │  │   (Redis Pub/Sub) │  │
-│   └──────────┘  └──────────┘  └──────────┘  └───────────────────┘  │
-└────────────┬──────────┬──────────┬──────────────────────────────────┘
-             │          │          │
-    ┌────────▼─┐  ┌─────▼───┐  ┌──▼──────┐  ┌─────────┐
-    │PostgreSQL│  │  Neo4j  │  │ Qdrant  │  │  Redis  │
-    │ (State)  │  │ (Graph) │  │(Vectors)│  │(Broker) │
-    └──────────┘  └─────────┘  └─────────┘  └─────────┘
+│                            │ Electron IPC                            │
+│   ┌────────────────────────┼────────────────────────────────────┐   │
+│   │          Local Services (Electron Main Process)              │   │
+│   │                                                              │   │
+│   │   ┌──────────┐  ┌──────────────┐  ┌────────────────────┐   │   │
+│   │   │  Ollama  │  │  MCP Servers │  │  LangGraph Engine  │   │   │
+│   │   │ (LLM AI) │  │  (Connectors)│  │  (Orchestrator)    │   │   │
+│   │   └──────────┘  └──────────────┘  └────────────────────┘   │   │
+│   │                                                              │   │
+│   │   ┌──────────────────────────────────────────────────────┐  │   │
+│   │   │  SQLite (userData) — Auth, Conversations, Config     │  │   │
+│   │   └──────────────────────────────────────────────────────┘  │   │
+│   └──────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Quick Start (Local Dev)
+## Configuring Connectors
 
-### Prerequisites
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) ≥ 24
-- [Node.js](https://nodejs.org/) ≥ 20 (for frontend-only dev)
-- [Python](https://python.org) ≥ 3.12 (for backend-only dev)
+Go to **Settings → Integrations** in the app and provide credentials for each service:
 
-### 1. Clone and set up secrets
-
-```bash
-git clone https://github.com/your-org/atlas.git
-cd atlas
-
-# Generate random secrets (.env will be created)
-make init-secrets
-
-# Fill in your OAuth credentials and AI API keys:
-# GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
-# GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET
-# OPENAI_API_KEY (or set OLLAMA_ENABLED=true for local AI)
-nano .env
-```
-
-### 2. Start all services
-
-```bash
-make up
-# Equivalent to: docker-compose up -d --build
-```
-
-Services will be available at:
-
-| Service | URL | Credentials |
-|---------|-----|-------------|
-| **Atlas API** | http://localhost:8000 | — |
-| **API Docs** | http://localhost:8000/docs | — |
-| **Next.js UI** | http://localhost:3000 | — |
-| **Neo4j Browser** | http://localhost:7474 | neo4j / (see .env) |
-| **Flower (Celery)** | http://localhost:5555 | — |
-
-### 3. Create your first user
-
-```bash
-curl -X POST http://localhost:8000/v1/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"email": "you@example.com", "password": "SecurePass1", "full_name": "Your Name"}'
-```
-
-### 4. Run the desktop app (Electron)
-
-```bash
-cd frontend
-npm install
-npm run electron-dev
-```
+| Connector | What to provide | Where to get it |
+|-----------|----------------|-----------------|
+| **Google Workspace** | Client ID + Client Secret | [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials |
+| **GitHub** | Personal Access Token | [GitHub Settings](https://github.com/settings/tokens) → Generate new token (scopes: `repo`, `user`) |
+| **Slack** | Bot Token (`xoxb-...`) | [Slack API](https://api.slack.com/apps) → Create App → Install → Bot Token |
+| **Notion** | Integration Token (`secret_...`) | [Notion Integrations](https://www.notion.so/my-integrations) → Create Integration |
+| **Local Files** | Directory paths | Just enter paths to folders you want Atlas to index |
 
 ---
 
@@ -100,31 +94,20 @@ npm run electron-dev
 
 ```
 atlas/
-├── backend/                    # FastAPI + Celery (Python 3.12)
-│   ├── app/
-│   │   ├── api/v1/             # REST endpoints
-│   │   ├── core/               # Config, Security, Logging, Exceptions
-│   │   ├── domain/             # ORM models, Pydantic schemas, Interfaces
-│   │   ├── infrastructure/     # PG, Neo4j, Qdrant, Redis clients
-│   │   ├── services/           # AI agents, Connectors, Briefing
-│   │   └── workers/            # Celery sync + embedding tasks
-│   ├── alembic/                # Database migrations
-│   └── tests/                  # Unit + integration tests
-│
-├── frontend/                   # Next.js 14 + Electron
+├── frontend/                   # The entire app (Electron + Next.js)
 │   ├── src/
-│   │   ├── app/                # App Router pages (briefing, settings)
-│   │   ├── components/         # UI atoms, composite widgets, layout
-│   │   └── lib/                # Zustand stores, API fetchers, shortcuts
-│   └── electron/               # Desktop shell (main.ts + preload.ts)
+│   │   ├── app/                # Pages: dashboard, chat, briefing, settings, profile
+│   │   ├── components/         # UI components, layout, icons
+│   │   ├── lib/                # Stores (Zustand), API clients, utilities
+│   │   └── types/              # TypeScript declarations
+│   ├── electron/
+│   │   ├── main.ts             # Electron main process
+│   │   ├── preload.ts          # Context bridge (secure IPC)
+│   │   └── services/           # Ollama, MCP manager, orchestrator, local DB
+│   └── public/                 # Static assets (logo, favicon)
 │
-├── docs/
-│   ├── adr/                    # Architecture Decision Records
-│   └── developer-guide/        # Connector onboarding, API guides
-│
-├── docker-compose.yml          # Full local stack
-├── Makefile                    # Dev commands
-└── .env.example                # Environment template
+├── backend/                    # Optional: FastAPI backend (for advanced/dev use)
+└── README.md
 ```
 
 ---
@@ -132,69 +115,59 @@ atlas/
 ## Key Commands
 
 ```bash
-make up              # Start all Docker services
-make down            # Stop and remove containers
-make logs            # Follow all service logs
-make migrate         # Run Alembic DB migrations
-make init-secrets    # Generate random secrets into .env
-make lint            # Ruff (Python) + ESLint (TypeScript)
-make test            # Run all unit tests
-make test-integration  # Run integration tests (requires Docker)
-make shell-backend   # Open bash in the backend container
+cd frontend
+
+npm run electron-dev          # Run desktop app in development
+npm run electron-build        # Build production installer
+npm run dev                   # Run Next.js only (UI development)
+npm run build                 # Build static export
+npm test                      # Run tests
 ```
 
 ---
 
-## Environment Variables
+## Building for Distribution
 
-See [`.env.example`](.env.example) for the full reference. Key variables:
+```bash
+cd frontend
+npm run electron-build
+```
 
-| Variable | Description |
-|----------|-------------|
-| `APP_MASTER_ENCRYPTION_KEY` | AES-256 key for OAuth token encryption at rest |
-| `JWT_SECRET_KEY` | HMAC secret for JWT signing |
-| `OPENAI_API_KEY` | OpenAI API key (or use `OLLAMA_ENABLED=true`) |
-| `GOOGLE_CLIENT_ID/SECRET` | Google OAuth for Gmail + Calendar |
-| `GITHUB_CLIENT_ID/SECRET` | GitHub OAuth for Issues + PRs |
-| `OLLAMA_ENABLED` | Route all AI to local Ollama (privacy mode) |
-
----
-
-## Phase 1 MVP Features
-
-- [x] Electron + Next.js shell (dark mode, glass morphism, Cmd+Space command bar)
-- [x] FastAPI backend with JWT auth, RFC 7807 errors, OpenAPI docs
-- [x] PostgreSQL schema + Alembic migrations
-- [x] Neo4j graph with RBAC schema constraints
-- [x] Qdrant vector store with per-user collection isolation
-- [x] Google Workspace connector (Gmail + Calendar, read-only)
-- [x] GitHub connector (PRs + Issues, with tenacity retry)
-- [x] Local File System connector (watchdog, 15 file types)
-- [x] LangGraph supervisor → Triage → Synthesizer → Action agents
-- [x] Hybrid RAG (vector + graph + cross-encoder reranking)
-- [x] Daily Briefing with Focus Score ring
-- [x] Celery workers with Redis Pub/Sub → WebSocket real-time updates
-- [x] GitHub Actions CI (lint, test, multi-arch Docker build)
-
-## Roadmap
-
-- **Phase 2 (Months 3-4)**: Read/write actions, Neo4j relationship mapping, Triage Agent scoring, push notifications
-- **Phase 3 (Months 5-6)**: Public connector API, Ollama deep integration, mobile companion app
+Produces platform-specific installers in `frontend/release/`:
+- **Windows**: `.exe` installer
+- **macOS**: `.dmg` disk image
+- **Linux**: `.AppImage` and `.deb`
 
 ---
 
-## Documentation
+## How It Works
 
-- [API Reference](http://localhost:8000/docs) — Auto-generated OpenAPI (Swagger)
-- [ADR-001: Neo4j for Knowledge Graph](docs/adr/001-use-neo4j-for-knowledge-graph.md)
-- [ADR-002: Hybrid RAG Pipeline](docs/adr/002-hybrid-rag-pipeline.md)
-- [Writing a Connector](docs/developer-guide/writing-a-connector.md)
+1. **You ask a question** in the AI Chat (e.g., "What emails did Sarah send me this week?")
+2. **Atlas classifies intent** locally using Ollama (search, action, or general chat)
+3. **MCP servers fetch data** from your connected services (Gmail, GitHub, etc.) using your stored tokens
+4. **Ollama generates a response** with the fetched context, streaming tokens in real-time
+5. **If an action is needed** (reply, merge, etc.), Atlas shows an approval card — nothing executes without your explicit OK
 
 ---
 
-## Security
+## Security & Privacy
 
-All OAuth tokens are encrypted at rest with AES-256-GCM. The master key must reside exclusively in your environment's secret manager (AWS Secrets Manager, Doppler, or `.env` for local dev only). Every database query, vector search, and graph traversal enforces `user_id` RBAC isolation. See [Section 10](docs/adr/) for the full threat model.
+- **Zero cloud dependency** — AI runs locally via Ollama, no data sent to OpenAI/Anthropic
+- **Tokens stored locally** — OAuth credentials and API keys stored in your OS app data folder
+- **Per-user isolation** — SQLite database in Electron userData, sandboxed
+- **Electron security** — contextIsolation + sandbox enabled, no nodeIntegration in renderer
+- **No telemetry** — Zero analytics, zero tracking, zero phone-home
+
+---
+
+## Tech Stack
+
+- **Frontend**: Next.js 15, React 18, Tailwind CSS, Framer Motion, Zustand
+- **Desktop**: Electron 36, electron-builder
+- **AI**: Ollama (llama3:8b, nomic-embed-text)
+- **Connectors**: MCP (Model Context Protocol) stdio servers
+- **Storage**: SQLite (better-sqlite3)
+- **Language**: TypeScript throughout
 
 ---
 

@@ -9,7 +9,6 @@ import { BriefingCardSkeleton } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
 import { useBriefingStore } from "@/lib/store/useBriefingStore";
 import { useRouter } from "next/navigation";
-import { useKeyboardShortcuts } from "@/lib/shortcuts/useKeyboardShortcuts";
 import { briefingAPI } from "@/lib/api/briefing";
 import { connectorsAPI } from "@/lib/api/connectors";
 import { useAuthStore } from "@/lib/store/useAuthStore";
@@ -22,7 +21,7 @@ function EmptyBriefing() {
     queryFn: connectorsAPI.listConnectors,
   });
 
-  if (connectorsLoading) return null; // Don't show empty state while loading
+  if (connectorsLoading) return null;
 
   const activeConnectors = connectors?.filter((c) => c.status === "active") ?? [];
   const hasConnectors = activeConnectors.length > 0;
@@ -80,7 +79,6 @@ function BriefingError({ onRetry }: { onRetry: () => void }) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BriefingPage() {
-  useKeyboardShortcuts();
   const { user } = useAuthStore();
   const { setBriefing, setLoading, setError, items, isDismissed, dismissItem } =
     useBriefingStore();

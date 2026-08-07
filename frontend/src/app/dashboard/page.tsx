@@ -3,11 +3,20 @@
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { Plug, Search, Zap, Calendar, Activity, ArrowRight, Mail, GitPullRequest, FileText } from "lucide-react";
+import {
+  GoogleLogo,
+  GitHubLogo,
+  SlackLogo,
+  NotionLogo,
+  LocalFilesLogo,
+  JiraLogo,
+  LinearLogo,
+} from "@/components/icons/ProviderLogos";
 import { useRouter } from "next/navigation";
-import { useKeyboardShortcuts } from "@/lib/shortcuts/useKeyboardShortcuts";
 import { connectorsAPI } from "@/lib/api/connectors";
 import { briefingAPI } from "@/lib/api/briefing";
 import { useAuthStore } from "@/lib/store/useAuthStore";
+import { DashboardStatusSkeleton, ActivityItemSkeleton } from "@/components/ui/Skeleton";
 
 // ── Quick Action Card ─────────────────────────────────────────────────────────
 function QuickActionCard({
@@ -16,22 +25,26 @@ function QuickActionCard({
   description,
   onClick,
   delay,
+  prefetchHref,
 }: {
   icon: React.ReactNode;
   label: string;
   description: string;
   onClick: () => void;
   delay: number;
+  prefetchHref?: string;
 }) {
+  const cardRouter = useRouter();
   return (
     <motion.button
       onClick={onClick}
+      onMouseEnter={() => { if (prefetchHref) cardRouter.prefetch(prefetchHref); }}
       className="p-4 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] text-left
-                 hover:border-[var(--accent)] hover:bg-[var(--bg-tertiary)] transition-colors group flex flex-col gap-2"
+                 hover:border-[var(--accent)] hover:bg-[var(--bg-tertiary)] transition-all duration-150 group flex flex-col gap-2"
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, type: "spring", stiffness: 400, damping: 30 }}
-      whileHover={{ scale: 1.02 }}
+      whileHover={{ y: -1, boxShadow: "0 4px 16px rgba(0,0,0,0.12)" }}
       whileTap={{ scale: 0.98 }}
     >
       <div className="flex items-center justify-between">
@@ -64,13 +77,21 @@ const providerDisplayNames: Record<string, string> = {
   google_workspace: "Google Workspace",
   github: "GitHub",
   local_fs: "Local Files",
+  slack: "Slack",
+  notion: "Notion",
+  jira: "Jira",
+  linear: "Linear",
 };
 
 // ── Provider Icons ────────────────────────────────────────────────────────────
 const providerIcons: Record<string, React.ReactNode> = {
-  google_workspace: <Mail size={15} className="text-blue-400" />,
-  github: <GitPullRequest size={15} className="text-purple-400" />,
-  local_fs: <FileText size={15} className="text-slate-400" />,
+  google_workspace: <GoogleLogo size={15} />,
+  github: <GitHubLogo size={15} />,
+  local_fs: <LocalFilesLogo size={15} />,
+  slack: <SlackLogo size={15} />,
+  notion: <NotionLogo size={15} />,
+  jira: <JiraLogo size={15} />,
+  linear: <LinearLogo size={15} />,
 };
 
 // ── Time-aware Greeting ───────────────────────────────────────────────────────
@@ -83,7 +104,6 @@ const getGreeting = () => {
 
 // ── Main Dashboard Page ───────────────────────────────────────────────────────
 export default function DashboardPage() {
-  useKeyboardShortcuts();
   const router = useRouter();
   const { user } = useAuthStore();
 
@@ -93,7 +113,7 @@ export default function DashboardPage() {
     staleTime: 1000 * 60 * 5,
   });
 
-  const { data: briefing } = useQuery({
+  const { data: briefing, isLoading: briefingLoading } = useQuery({
     queryKey: ["briefing", "daily"],
     queryFn: briefingAPI.getDaily,
     staleTime: 1000 * 60 * 5,
@@ -130,35 +150,32 @@ export default function DashboardPage() {
       </motion.div>
 
       {/* Status Row: Integrations */}
-      <motion.div
-        className="p-5 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] mb-6"
-        initial={{ opacity: 0, scale: 0.98 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ delay: 0.1, type: "spring", stiffness: 400, damping: 30 }}
-      >
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-[var(--accent)]/10 flex items-center justify-center">
-            <Plug size={18} className="text-[var(--accent)]" />
-          </div>
-          <div>
-            {connectorsLoading ? (
-              <>
-                <div className="h-4 w-40 rounded bg-[var(--bg-tertiary)] animate-pulse mb-1" />
-                <div className="h-3 w-28 rounded bg-[var(--bg-tertiary)] animate-pulse" />
-              </>
-            ) : (
-              <>
-                <p className="text-sm font-semibold text-[var(--text-primary)]">
-                  {connectedCount} Integration{connectedCount !== 1 ? 's' : ''} Connected
-                </p>
-                <p className="text-xs text-[var(--text-muted)]">
-                  {connectedCount === 0 ? 'Connect your first service' : 'All systems operational'}
-                </p>
-              </>
-            )}
-          </div>
+      {connectorsLoading ? (
+        <div className="mb-6">
+          <DashboardStatusSkeleton />
         </div>
-      </motion.div>
+      ) : (
+        <motion.div
+          className="p-5 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] mb-6"
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ delay: 0.1, type: "spring", stiffness: 400, damping: 30 }}
+        >
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-[var(--accent)]/10 flex items-center justify-center">
+              <Plug size={18} className="text-[var(--accent)]" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-[var(--text-primary)]">
+                {connectedCount} Integration{connectedCount !== 1 ? 's' : ''} Connected
+              </p>
+              <p className="text-xs text-[var(--text-muted)]">
+                {connectedCount === 0 ? 'Connect your first service' : 'All systems operational'}
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Sync Status */}
       {connectors && connectors.filter((c) => c.status === "active").length > 0 && (
@@ -177,7 +194,7 @@ export default function DashboardPage() {
               .map((c) => (
                 <div
                   key={c.id}
-                  className="flex items-center gap-3 p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-default)]"
+                  className="flex items-center gap-3 p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-default)] hover:bg-[var(--bg-tertiary)] transition-colors duration-150"
                 >
                   <div className="w-7 h-7 rounded-lg bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
                     {providerIcons[c.provider] ?? <Plug size={15} className="text-[var(--text-muted)]" />}
@@ -210,13 +227,15 @@ export default function DashboardPage() {
             description="Today's priorities"
             onClick={() => router.push("/briefing")}
             delay={0.25}
+            prefetchHref="/briefing"
           />
           <QuickActionCard
             icon={<Search size={16} className="text-[var(--accent)]" />}
-            label="Search"
-            description="Find anything"
-            onClick={() => router.push("/search")}
+            label="AI Chat"
+            description="Ask anything"
+            onClick={() => router.push("/chat")}
             delay={0.3}
+            prefetchHref="/chat"
           />
           <QuickActionCard
             icon={<Zap size={16} className="text-[var(--accent)]" />}
@@ -224,6 +243,7 @@ export default function DashboardPage() {
             description="Integrations & prefs"
             onClick={() => router.push("/settings")}
             delay={0.35}
+            prefetchHref="/settings"
           />
         </div>
       </motion.div>
@@ -238,7 +258,13 @@ export default function DashboardPage() {
           Recent Activity
         </h2>
 
-        {recentItems.length === 0 ? (
+        {briefingLoading ? (
+          <div className="flex flex-col gap-2" aria-live="polite" aria-label="Loading activity...">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <ActivityItemSkeleton key={i} />
+            ))}
+          </div>
+        ) : recentItems.length === 0 ? (
           <div className="p-6 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] text-center">
             <Activity size={20} className="text-[var(--text-muted)] mx-auto mb-2" />
             <p className="text-sm text-[var(--text-secondary)]">
@@ -251,11 +277,12 @@ export default function DashboardPage() {
               <motion.div
                 key={item.id}
                 className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-default)]
-                           flex items-center gap-3 hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer"
+                           flex items-center gap-3 hover:bg-[var(--bg-tertiary)] transition-all duration-150 cursor-pointer group"
                 initial={{ opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.45 + index * 0.06 }}
                 onClick={() => router.push("/briefing")}
+                whileHover={{ y: -1, boxShadow: "0 4px 16px rgba(0,0,0,0.08)" }}
               >
                 <div className="w-7 h-7 rounded-lg bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
                   {typeIcons[item.type] ?? <Activity size={13} className="text-[var(--text-muted)]" />}
@@ -268,7 +295,7 @@ export default function DashboardPage() {
                     {item.source} · Priority {item.priority_score}
                   </p>
                 </div>
-                <ArrowRight size={12} className="text-[var(--text-muted)] shrink-0" />
+                <ArrowRight size={12} className="text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors shrink-0" />
               </motion.div>
             ))}
           </div>

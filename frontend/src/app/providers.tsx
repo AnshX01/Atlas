@@ -1,8 +1,7 @@
 "use client";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useState, useEffect } from "react";
-import { useAuthStore } from "@/lib/store/useAuthStore";
+import { QueryClient, QueryClientProvider, keepPreviousData } from "@tanstack/react-query";
+import { useState } from "react";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -10,19 +9,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            staleTime: 1000 * 60 * 5, // 5 minutes
+            staleTime: 60_000,
+            gcTime: 5 * 60_000,
             retry: 2,
             refetchOnWindowFocus: false,
+            placeholderData: keepPreviousData,
           },
         },
       })
   );
-
-  // Initialize auth store explicitly (if persist middleware is used, it handles most of it, 
-  // but we can trigger a re-render or side effects if needed here)
-  useEffect(() => {
-    useAuthStore.persist.rehydrate();
-  }, []);
 
   return (
     <QueryClientProvider client={queryClient}>

@@ -4,35 +4,46 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  LayoutDashboard, Settings, Zap, Github,
-  Chrome, Mail, FolderOpen, Plus, Home, LogOut
+  LayoutDashboard, Settings,
+  FolderOpen, Plus, Home, LogOut,
+  MessageSquare,
 } from "lucide-react";
+import {
+  GoogleLogo,
+  GitHubLogo,
+  SlackLogo,
+  NotionLogo,
+  LocalFilesLogo,
+  JiraLogo,
+  LinearLogo,
+} from "@/components/icons/ProviderLogos";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { connectorsAPI, type ConnectorProvider } from "@/lib/api/connectors";
 import { useAuthStore } from "@/lib/store/useAuthStore";
+import { useChatStore } from "@/lib/store/useChatStore";
 
 interface NavItem {
   id: string;
   label: string;
   href: string;
   icon: React.ReactNode;
-  shortcut?: string;
 }
 
 const navItems: NavItem[] = [
-  { id: "dashboard", label: "Dashboard",      href: "/dashboard", icon: <Home size={16} />,            shortcut: "⌘D" },
-  { id: "briefing",  label: "Daily Briefing", href: "/briefing",  icon: <LayoutDashboard size={16} />, shortcut: "⌘1" },
+  { id: "dashboard", label: "Dashboard",      href: "/dashboard", icon: <Home size={16} /> },
+  { id: "briefing",  label: "Daily Briefing", href: "/briefing",  icon: <LayoutDashboard size={16} /> },
+  { id: "chat",      label: "AI Chat",        href: "/chat",      icon: <MessageSquare size={16} /> },
 ];
 
 const providerMeta: Record<ConnectorProvider, { label: string; icon: React.ReactNode }> = {
-  google_workspace: { label: "Google Workspace", icon: <Chrome size={14} /> },
-  github:           { label: "GitHub",           icon: <Github size={14} /> },
-  local_fs:         { label: "Local Files",      icon: <FolderOpen size={14} /> },
-  slack:            { label: "Slack",            icon: <Mail size={14} /> },
-  notion:           { label: "Notion",           icon: <FolderOpen size={14} /> },
-  jira:             { label: "Jira",             icon: <FolderOpen size={14} /> },
-  linear:           { label: "Linear",           icon: <FolderOpen size={14} /> },
+  google_workspace: { label: "Google Workspace", icon: <GoogleLogo size={14} /> },
+  github:           { label: "GitHub",           icon: <GitHubLogo size={14} /> },
+  local_fs:         { label: "Local Files",      icon: <LocalFilesLogo size={14} /> },
+  slack:            { label: "Slack",            icon: <SlackLogo size={14} /> },
+  notion:           { label: "Notion",           icon: <NotionLogo size={14} /> },
+  jira:             { label: "Jira",             icon: <JiraLogo size={14} /> },
+  linear:           { label: "Linear",           icon: <LinearLogo size={14} /> },
 };
 
 function getStatusColor(status: string): string {
@@ -60,6 +71,21 @@ function getStatusLabel(status: string): string {
   }
 }
 
+function getRelativeTime(dateStr: string): string {
+  const now = Date.now();
+  const date = new Date(dateStr).getTime();
+  const diffMs = now - date;
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHr = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMin < 1) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHr < 24) return `${diffHr}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return new Date(dateStr).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -69,6 +95,12 @@ export function Sidebar() {
     queryFn: connectorsAPI.listConnectors,
     staleTime: 60000,
   });
+
+  const conversations = useChatStore((s) => s.conversations);
+  const activeConversationId = useChatStore((s) => s.activeConversationId);
+  const setActiveConversation = useChatStore((s) => s.setActiveConversation);
+
+  const recentConversations = conversations.slice(0, 10);
 
   const connectorItems = connectors.map((c) => ({
     id: c.id,
@@ -80,6 +112,16 @@ export function Sidebar() {
 
   const navigateToIntegrations = () => {
     router.push("/settings");
+  };
+
+  const handleNewChat = () => {
+    setActiveConversation(null);
+    router.push("/chat");
+  };
+
+  const handleConversationClick = (id: string) => {
+    setActiveConversation(id);
+    router.push(`/chat?id=${id}`);
   };
 
   return (
@@ -94,8 +136,8 @@ export function Sidebar() {
       {/* Logo */}
       <div className="px-4 mb-6">
         <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-[var(--accent)] to-blue-600 flex items-center justify-center shadow-[var(--shadow-glow)]">
-            <Zap size={14} className="text-white" />
+          <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center shadow-sm">
+            <img src="/logo.png" alt="Atlas" className="w-6 h-6" />
           </div>
           <span className="text-sm font-bold text-[var(--text-primary)] tracking-tight">
             Atlas
@@ -107,14 +149,17 @@ export function Sidebar() {
       </div>
 
       {/* Primary Nav */}
-      <div className="px-2 flex flex-col gap-0.5 mb-6">
+      <div className="px-2 flex flex-col gap-0.5 mb-4">
         <p className="px-2 mb-1.5 text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-widest">
           Workspace
         </p>
         {navItems.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
+          const isActive =
+            item.id === "chat"
+              ? pathname === item.href || pathname.startsWith(item.href + "?") || pathname.startsWith(item.href + "/")
+              : pathname === item.href || pathname.startsWith(item.href + "/");
           return (
-            <Link key={item.id} href={item.href} aria-current={isActive ? "page" : undefined}>
+            <Link key={item.id} href={item.href} prefetch={true} aria-current={isActive ? "page" : undefined}>
               <motion.div
                 className={cn(
                   "flex items-center gap-2.5 px-3 py-2 rounded-xl cursor-pointer",
@@ -127,7 +172,7 @@ export function Sidebar() {
               >
                 {isActive && (
                   <motion.div
-                    className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-4 bg-[var(--accent)] rounded-full"
+                    className="absolute left-0 inset-y-0 my-auto w-0.5 h-4 bg-[var(--accent)] rounded-full"
                     layoutId="activeIndicator"
                     transition={{ type: "spring", stiffness: 400, damping: 30 }}
                   />
@@ -136,15 +181,60 @@ export function Sidebar() {
                   {item.icon}
                 </span>
                 <span className="flex-1">{item.label}</span>
-                {item.shortcut && (
-                  <kbd className="text-[10px] font-mono opacity-0 group-hover:opacity-50 transition-opacity text-[var(--text-muted)]">
-                    {item.shortcut}
-                  </kbd>
-                )}
               </motion.div>
             </Link>
           );
         })}
+      </div>
+
+      {/* Conversations */}
+      <div className="px-2 flex flex-col gap-0.5 mb-4">
+        <p className="px-2 mb-1.5 text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-widest">
+          Conversations
+        </p>
+
+        {/* New Chat Button */}
+        <button
+          onClick={handleNewChat}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors border border-[var(--accent)]/30 hover:border-[var(--accent)]/50 w-full"
+          aria-label="Start a new chat conversation"
+        >
+          <Plus size={12} />
+          <span>New Chat</span>
+        </button>
+
+        {/* Conversation List */}
+        {recentConversations.length > 0 && (
+          <div className="mt-1.5 max-h-[200px] overflow-y-auto scrollbar-thin" role="list" aria-label="Recent conversations">
+            {recentConversations.map((conv) => {
+              const isActive = activeConversationId === conv.id && pathname.startsWith("/chat");
+              return (
+                <div
+                  key={conv.id}
+                  onClick={() => handleConversationClick(conv.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") handleConversationClick(conv.id);
+                  }}
+                  role="listitem"
+                  tabIndex={0}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-xl cursor-pointer transition-colors",
+                    isActive
+                      ? "bg-[var(--accent)]/10 text-[var(--accent)]"
+                      : "text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                  )}
+                  title={conv.title}
+                >
+                  <MessageSquare size={12} className="flex-shrink-0 opacity-60" />
+                  <span className="flex-1 truncate text-xs">{conv.title}</span>
+                  <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0 opacity-70">
+                    {getRelativeTime(conv.createdAt)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Connectors */}
@@ -181,7 +271,7 @@ export function Sidebar() {
           ))
         )}
 
-        {/* Add connector prompt if empty */}
+        {/* Add connector prompt */}
         <button
           onClick={navigateToIntegrations}
           className="flex items-center gap-2 px-3 py-2 mt-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors border border-[var(--border-default)] hover:border-[var(--accent)]/30"
@@ -194,11 +284,10 @@ export function Sidebar() {
 
       {/* Bottom: Settings */}
       <div className="px-2 pt-4 border-t border-[var(--border-subtle)]">
-        <Link href="/settings" aria-label="Open settings (⌘,)">
+        <Link href="/settings" prefetch={true} aria-label="Open settings">
           <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer">
             <Settings size={16} />
             <span>Settings</span>
-            <kbd className="ml-auto text-[10px] font-mono text-[var(--text-muted)] opacity-60">⌘,</kbd>
           </div>
         </Link>
         <button

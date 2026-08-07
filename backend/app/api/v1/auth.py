@@ -179,11 +179,12 @@ async def get_me(current_user: User = Depends(get_current_user)) -> UserResponse
 
 
 @router.get("/oauth/google/login/initiate", summary="Initiate Google OAuth flow for Login")
-async def google_login_initiate() -> dict:
-    """Return a Google OAuth authorization URL for user login."""
+async def google_login_initiate() -> RedirectResponse:
+    """Redirect the browser to Google OAuth for user login."""
     from google_auth_oauthlib.flow import Flow
 
     settings = get_settings()
+    login_redirect_uri = "http://localhost:8000/v1/auth/oauth/google/login/callback"
 
     flow = Flow.from_client_config(
         {
@@ -192,18 +193,18 @@ async def google_login_initiate() -> dict:
                 "client_secret": settings.GOOGLE_CLIENT_SECRET,
                 "auth_uri": "https://accounts.google.com/o/oauth2/auth",
                 "token_uri": "https://oauth2.googleapis.com/token",
-                "redirect_uris": [settings.GOOGLE_REDIRECT_URI],
+                "redirect_uris": [login_redirect_uri],
             }
         },
         scopes=["openid", "https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"],
-        redirect_uri=settings.GOOGLE_REDIRECT_URI,
+        redirect_uri=login_redirect_uri,
     )
     auth_url, _ = flow.authorization_url(
         state="login_flow",
         access_type="offline",
         include_granted_scopes="true",
     )
-    return {"auth_url": auth_url}
+    return RedirectResponse(auth_url)
 
 
 @router.get("/oauth/google/initiate", summary="Initiate Google OAuth flow")
@@ -285,6 +286,7 @@ async def google_login_callback(
     settings = get_settings()
     
     # Exchange code for token
+    login_redirect_uri = "http://localhost:8000/v1/auth/oauth/google/login/callback"
     async with httpx.AsyncClient() as client:
         token_res = await client.post(
             "https://oauth2.googleapis.com/token",
@@ -293,7 +295,7 @@ async def google_login_callback(
                 "client_secret": settings.GOOGLE_CLIENT_SECRET,
                 "code": code,
                 "grant_type": "authorization_code",
-                "redirect_uri": settings.GOOGLE_REDIRECT_URI,
+                "redirect_uri": login_redirect_uri,
             },
         )
         if token_res.status_code != 200:

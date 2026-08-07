@@ -1,9 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: process.env.ELECTRON_BUILD === "true" ? "export" : undefined,
-  trailingSlash: process.env.ELECTRON_BUILD === "true",
+  // Desktop app - always use static export for Electron
+  output: "export",
+  trailingSlash: true,
   images: {
-    unoptimized: process.env.ELECTRON_BUILD === "true",
+    unoptimized: true,
   },
   experimental: {},
   env: {

@@ -8,13 +8,10 @@ import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/ui/Toast";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 import { apiClient } from "@/lib/api/client";
-import { useKeyboardShortcuts } from "@/lib/shortcuts/useKeyboardShortcuts";
 
 const AVATAR_STORAGE_KEY = "atlas-profile-avatar";
 
 export default function ProfilePage() {
-  useKeyboardShortcuts();
-
   const { user, setUser } = useAuthStore();
 
   // ── Profile form state ──────────────────────────────────────────────
@@ -42,8 +39,19 @@ export default function ProfilePage() {
   // ── Update profile mutation ─────────────────────────────────────────
   const updateProfile = useMutation({
     mutationFn: async (data: { full_name: string; email: string }) => {
-      const { data: updated } = await apiClient.patch("/users/me/profile", data);
-      return updated;
+      try {
+        const { data: updated } = await apiClient.patch("/users/me/profile", data);
+        return updated;
+      } catch (err: any) {
+        const status = err?.response?.status;
+        // If endpoint doesn't exist (404) or method not allowed (405),
+        // fall back to local-only update
+        if (status === 404 || status === 405) {
+          return { ...user, full_name: data.full_name, email: data.email };
+        }
+        // Re-throw real errors
+        throw err;
+      }
     },
     onSuccess: (data) => {
       setUser(data);

@@ -4,13 +4,23 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopBar } from "@/components/layout/TopBar";
-import { CommandBar } from "@/components/composite/CommandBar";
+import { PageTransition } from "@/components/layout/PageTransition";
+import { ErrorBoundary } from "@/components/layout/ErrorBoundary";
+import { OfflineBanner } from "@/components/layout/OfflineBanner";
 import { useAuthStore } from "@/lib/store/useAuthStore";
+
+function HydrationSpinner() {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-[var(--bg-primary)]">
+      <div className="w-5 h-5 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
+    </div>
+  );
+}
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, isHydrated } = useAuthStore();
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
@@ -18,22 +28,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!isMounted) return;
-    
+    if (!isMounted || !isHydrated) return;
+
     // Redirect unauthenticated users away from protected routes
     if (!user && pathname !== "/login") {
-      router.push("/login");
+      router.replace("/login");
     }
-    
+
     // Redirect authenticated users away from login
     if (user && pathname === "/login") {
-      router.push("/dashboard");
+      router.replace("/dashboard");
     }
-  }, [user, pathname, router, isMounted]);
+  }, [user, pathname, router, isMounted, isHydrated]);
 
-  // Don't render anything until mounted to prevent hydration mismatch flashes
-  if (!isMounted) {
-    return null;
+  // Show spinner until both mounted AND Zustand has rehydrated from localStorage
+  // This prevents the flash-to-login race condition
+  if (!isMounted || !isHydrated) {
+    return <HydrationSpinner />;
   }
 
   if (pathname === "/login") {
@@ -46,14 +57,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <>
+      <OfflineBanner />
       <div className="app-layout">
         <TopBar />
         <Sidebar />
         <main id="main-content" className="app-main" role="main">
-          {children}
+          <ErrorBoundary>
+            <PageTransition>
+              {children}
+            </PageTransition>
+          </ErrorBoundary>
         </main>
       </div>
-      <CommandBar />
     </>
   );
 }
