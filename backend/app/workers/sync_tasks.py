@@ -31,11 +31,15 @@ def _get_connector_instance(connector_row: object, user_id: uuid.UUID) -> object
     from app.services.connectors.github_connector import GitHubConnector
     from app.services.connectors.google_workspace import GoogleWorkspaceConnector
     from app.services.connectors.local_fs import LocalFSConnector
+    from app.services.connectors.notion_connector import NotionConnector
+    from app.services.connectors.slack_connector import SlackConnector
 
     provider_map = {
         ConnectorProvider.GOOGLE_WORKSPACE: GoogleWorkspaceConnector,
         ConnectorProvider.GITHUB: GitHubConnector,
         ConnectorProvider.LOCAL_FS: LocalFSConnector,
+        ConnectorProvider.SLACK: SlackConnector,
+        ConnectorProvider.NOTION: NotionConnector,
     }
     cls = provider_map.get(connector_row.provider)
     if not cls:

@@ -74,18 +74,36 @@ async def omni_search(
         # Fallback: direct vector search without AI rewriting
         context_items = []
 
-    # If AI pipeline returned nothing, do direct semantic search
+    # If AI pipeline returned nothing, do direct semantic search with smart filtering
     if not context_items:
         from sentence_transformers import SentenceTransformer
         from app.infrastructure.qdrant_client import semantic_search
 
         _embedder = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+        query_lower = payload.query.lower()
+
+        # Detect source filter from natural language
+        source_filter = None
+        if any(kw in query_lower for kw in ["email", "mail", "gmail", "inbox"]):
+            source_filter = "email"
+        elif any(kw in query_lower for kw in ["pr", "pull request", "merge"]):
+            source_filter = "pr"
+        elif any(kw in query_lower for kw in ["issue", "bug", "ticket"]):
+            source_filter = "issue"
+        elif any(kw in query_lower for kw in ["meeting", "calendar", "event", "schedule"]):
+            source_filter = "calendar"
+        elif any(kw in query_lower for kw in ["task", "todo", "to-do"]):
+            source_filter = "task"
+        elif any(kw in query_lower for kw in ["file", "document", "doc"]):
+            source_filter = "document"
+
         query_vector = _embedder.encode(payload.query).tolist()
         context_items = await semantic_search(
             user_id=current_user.id,
             query_vector=query_vector,
             limit=payload.limit,
-            score_threshold=0.3,
+            score_threshold=0.2,
+            source_filter=source_filter,
         )
 
     took_ms = (time.perf_counter() - start) * 1000

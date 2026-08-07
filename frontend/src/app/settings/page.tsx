@@ -315,8 +315,8 @@ export default function SettingsPage() {
                 { name: "Google Workspace", desc: "Gmail & Calendar", status: getConnectorStatus("google_workspace"), id: "google_workspace" },
                 { name: "GitHub",           desc: "Issues & Pull Requests", status: getConnectorStatus("github"), id: "github" },
                 { name: "Local Files",      desc: "Documents & Code", status: getConnectorStatus("local_fs"), id: "local_fs" },
-                { name: "Slack",            desc: "Messages & Threads", status: "coming_soon", id: "slack" },
-                { name: "Notion",           desc: "Pages & Databases", status: "coming_soon", id: "notion" },
+                { name: "Slack",            desc: "Messages & Threads", status: "setup_required", id: "slack" },
+                { name: "Notion",           desc: "Pages & Databases", status: "setup_required", id: "notion" },
               ].map((integration) => (
                 <div key={integration.id}>
                   <div
@@ -330,6 +330,10 @@ export default function SettingsPage() {
                       <span className="text-xs px-2 py-1 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-muted)]">
                         Coming Soon
                       </span>
+                    ) : integration.status === "setup_required" ? (
+                      <Button size="sm" variant="secondary" disabled id={`connect-${integration.id}`}>
+                        Setup Required
+                      </Button>
                     ) : integration.id === "local_fs" && integration.status === "active" ? (
                       <Button 
                         size="sm" 

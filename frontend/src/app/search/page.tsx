@@ -42,22 +42,6 @@ const suggestedSearches = [
   { label: "Unread issues", icon: <Zap size={13} /> },
 ];
 
-function ScoreBar({ score }: { score: number }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <div className="w-12 h-1 rounded-full bg-[var(--bg-tertiary)] overflow-hidden">
-        <motion.div
-          className="h-full rounded-full bg-[var(--accent)]"
-          initial={{ width: 0 }}
-          animate={{ width: `${score * 100}%` }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
-        />
-      </div>
-      <span className="text-[10px] text-[var(--text-muted)]">{Math.round(score * 100)}%</span>
-    </div>
-  );
-}
-
 export default function SearchPage() {
   useKeyboardShortcuts();
   const [query, setQuery] = useState("");

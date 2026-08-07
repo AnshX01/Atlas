@@ -190,7 +190,7 @@ class GoogleWorkspaceConnector(BaseConnector):
         since_ts = int(since.timestamp())
         # Fetch recent emails - rely on sender/subject filters below to skip junk
         # (category:primary doesn't work for accounts without inbox tabs)
-        query = f"after:{since_ts} -category:promotions -category:social"
+        query = f"after:{since_ts} -category:promotions -category:social -in:sent"
 
         results = service.users().messages().list(userId="me", q=query, maxResults=50).execute()
         messages = results.get("messages", [])
@@ -222,6 +222,14 @@ class GoogleWorkspaceConnector(BaseConnector):
             "sign-in attempt", "new login",
             "unsubscribe", "newsletter",
             "promotional", "sale", "discount", "offer",
+            "brocade", "silk suit", "cotton fabric",  # shopping
+            "prize pool", "apply today",  # recruitment spam
+            "saved:", "up to",  # deal emails
+            "ipo", "asba", "funds/securities",  # stock/trading automated
+            "2-step verification", "verification turned on",  # security notifications
+            "data pipeline",  # automated alerts
+            "codeforces", "rated for div",  # competitive programming notifications
+            "docker", "ready for action",  # product onboarding
         ]
 
         for msg_ref in messages:
@@ -258,6 +266,14 @@ class GoogleWorkspaceConnector(BaseConnector):
                 # Skip transactional/no-action emails (OTPs, deliveries, receipts)
                 subject_lower = subject.lower()
                 if any(kw in subject_lower for kw in _skip_subject_keywords):
+                    continue
+
+                # Skip emails sent BY the user (replies) - we only want received emails
+                # Check if sender matches the user's own email patterns
+                if sender_email and (
+                    sender_email.lower() == 'anshsaxena743@gmail.com'
+                    or 'ansh' in sender_email.lower().split('@')[0]
+                ):
                     continue
 
                 snippet = msg.get("snippet", "")
