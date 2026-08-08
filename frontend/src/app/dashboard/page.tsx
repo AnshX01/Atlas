@@ -267,9 +267,15 @@ export default function DashboardPage() {
         ) : recentItems.length === 0 ? (
           <div className="p-6 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] text-center">
             <Activity size={20} className="text-[var(--text-muted)] mx-auto mb-2" />
-            <p className="text-sm text-[var(--text-secondary)]">
-              No recent activity yet. Connect an integration to get started.
-            </p>
+            {connectedCount > 0 ? (
+              <p className="text-sm text-[var(--text-secondary)]">
+                No recent activity. Try asking Atlas in the AI Chat.
+              </p>
+            ) : (
+              <p className="text-sm text-[var(--text-secondary)]">
+                No recent activity yet. Connect an integration to get started.
+              </p>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-2">

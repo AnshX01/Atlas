@@ -22,9 +22,9 @@
   --border-default: rgba(0, 0, 0, 0.08);
   --border-subtle: rgba(0, 0, 0, 0.04);
 
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
-  --accent-glow: rgba(59, 130, 246, 0.2);
+  --accent: #18181b;
+  --accent-hover: #09090b;
+  --accent-glow: rgba(0, 0, 0, 0.1);
 
   --status-urgent: #ef4444;
   --status-high: #f97316;
@@ -61,11 +61,15 @@
   --border-default: rgba(255, 255, 255, 0.08);
   --border-subtle: rgba(255, 255, 255, 0.04);
 
+  --accent: #e4e4e7;
+  --accent-hover: #ffffff;
+  --accent-glow: rgba(255, 255, 255, 0.1);
+
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
   --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --shadow-glow: 0 0 24px rgba(59, 130, 246, 0.25);
+  --shadow-glow: 0 0 24px rgba(255, 255, 255, 0.1);
 }
 
 /* ── Reset & Base ───────────────────────────────────────────── */

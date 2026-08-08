@@ -7,7 +7,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Settings,
   FolderOpen, Plus, Home, LogOut,
-  MessageSquare, X,
+  MessageSquare, Trash2,
 } from "lucide-react";
 import {
   GoogleLogo,
@@ -139,7 +139,8 @@ export function Sidebar() {
 
   const handleNewChat = () => {
     setActiveConversation(null);
-    router.push("/chat");
+    // Force navigation even if already on /chat
+    router.push(`/chat?t=${Date.now()}`);
   };
 
   const handleConversationClick = (id: string) => {
@@ -165,7 +166,7 @@ export function Sidebar() {
           <span className="text-sm font-bold text-[var(--text-primary)] tracking-tight">
             Atlas
           </span>
-          <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] font-medium">
+          <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-medium">
             BETA
           </span>
         </div>
@@ -299,7 +300,7 @@ export function Sidebar() {
                     className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text-muted)] hover:text-red-400"
                     aria-label="Delete conversation"
                   >
-                    <X size={12} />
+                    <Trash2 size={11} />
                   </button>
                 </div>
               );
