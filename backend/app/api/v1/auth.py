@@ -117,7 +117,25 @@ async def login(
     result = await session.execute(select(User).where(User.email == payload.email))
     user = result.scalar_one_or_none()
 
-    if not user or not verify_password(payload.password, user.hashed_password):
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    if not verify_password(payload.password, user.hashed_password):
+        # Check if this user signed up via OAuth
+        stmt = select(Connector).where(
+            Connector.user_id == user.id,
+            Connector.provider == ConnectorProvider.GOOGLE_WORKSPACE,
+        )
+        oauth_result = await session.execute(stmt)
+        oauth_connector = oauth_result.scalar_one_or_none()
+        if oauth_connector:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="This account was created with Google. Please use 'Sign in with Google' instead.",
+            )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
