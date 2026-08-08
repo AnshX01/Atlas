@@ -249,6 +249,127 @@ async def disconnect_connector(
     return {"message": f"{provider.value} disconnected successfully"}
 
 
+@connectors_router.get(
+    "/tokens",
+    summary="Get all stored connector credentials for the user (for device sync)",
+)
+async def get_connector_tokens(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return all connector credentials for the authenticated user.
+    Credentials are encrypted at rest and decrypted for the response.
+    Used for syncing connector config across devices."""
+    from app.domain.models.connector import Connector, OAuthToken
+    from app.infrastructure.database import get_session_factory
+    from app.core.security import decrypt_token
+    from sqlalchemy import select
+    import json
+
+    factory = get_session_factory()
+    async with factory() as session:
+        stmt = select(Connector).where(Connector.user_id == current_user.id)
+        result = await session.execute(stmt)
+        connectors = result.scalars().all()
+
+    tokens = {}
+    async with factory() as session:
+        for connector in connectors:
+            stmt = select(OAuthToken).where(OAuthToken.connector_id == connector.id)
+            result = await session.execute(stmt)
+            token_row = result.scalar_one_or_none()
+            if token_row:
+                try:
+                    creds = {
+                        "access_token": decrypt_token(token_row.access_token),
+                    }
+                    if token_row.refresh_token:
+                        creds["refresh_token"] = decrypt_token(token_row.refresh_token)
+                    if token_row.scope:
+                        creds["scope"] = token_row.scope
+                    tokens[connector.provider.value] = creds
+                except Exception:
+                    pass  # Skip tokens that can't be decrypted
+            elif connector.display_name:
+                # For local_fs and other non-OAuth connectors, config is in display_name
+                try:
+                    tokens[connector.provider.value] = json.loads(connector.display_name)
+                except (json.JSONDecodeError, TypeError):
+                    tokens[connector.provider.value] = {"display_name": connector.display_name}
+
+    return {"tokens": tokens}
+
+
+@connectors_router.put(
+    "/tokens/{provider}",
+    summary="Store connector credentials (for device sync)",
+)
+async def put_connector_token(
+    provider: ConnectorProvider = Path(...),
+    payload: dict = {},
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Store or update connector credentials. Used when syncing from another device."""
+    import uuid as _uuid
+    from app.domain.models.connector import Connector, ConnectorStatus, OAuthToken
+    from app.infrastructure.database import get_session_factory
+    from app.core.security import encrypt_token
+    from sqlalchemy import select
+
+    factory = get_session_factory()
+    async with factory() as session:
+        # Get or create connector
+        stmt = select(Connector).where(
+            Connector.user_id == current_user.id,
+            Connector.provider == provider,
+        )
+        result = await session.execute(stmt)
+        connector = result.scalar_one_or_none()
+
+        if not connector:
+            connector = Connector(
+                id=_uuid.uuid4(),
+                user_id=current_user.id,
+                provider=provider,
+                status=ConnectorStatus.ACTIVE,
+            )
+            session.add(connector)
+            await session.flush()
+
+        # Store credentials
+        credentials = payload.get("credentials", {})
+        access_token = credentials.get("access_token") or credentials.get("personal_access_token") or credentials.get("bot_token") or credentials.get("integration_token") or credentials.get("client_id", "")
+
+        if access_token:
+            # Upsert OAuth token
+            stmt = select(OAuthToken).where(OAuthToken.connector_id == connector.id)
+            result = await session.execute(stmt)
+            token_row = result.scalar_one_or_none()
+
+            if token_row:
+                token_row.access_token = encrypt_token(access_token)
+                if credentials.get("refresh_token"):
+                    token_row.refresh_token = encrypt_token(credentials["refresh_token"])
+            else:
+                token_row = OAuthToken(
+                    id=_uuid.uuid4(),
+                    connector_id=connector.id,
+                    access_token=encrypt_token(access_token),
+                    refresh_token=encrypt_token(credentials.get("refresh_token", "")) if credentials.get("refresh_token") else None,
+                )
+                session.add(token_row)
+
+            connector.status = ConnectorStatus.ACTIVE
+        else:
+            # Non-token config (like local_fs paths)
+            import json
+            connector.display_name = json.dumps(credentials)
+            connector.status = ConnectorStatus.ACTIVE
+
+        await session.commit()
+
+    return {"message": f"{provider.value} credentials stored", "provider": provider.value}
+
+
 @connectors_router.post(
     "/{provider}/sync",
     response_model=SyncTriggerResponse,

@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     LOCAL_FS_WATCH_PATHS: str = ""
     LOCAL_FS_IGNORE_PATTERNS: str = "node_modules,.git,*.pyc"
 
+    # ── Email (Resend) ────────────────────────────────────────────────────────
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "Atlas <noreply@atlas-app.com>"
+
     # ── Frontend ──────────────────────────────────────────────────────────────
     NEXT_PUBLIC_API_URL: AnyHttpUrl = "http://localhost:8000"  # type: ignore[assignment]
 

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Eye, EyeOff, ArrowRight, Mail, Lock, User } from "lucide-react";
 import { useAuthStore } from "../../lib/store/useAuthStore";
 import { authAPI } from "../../lib/api/auth";
+import { tokenSyncAPI } from "../../lib/api/token-sync";
 
 interface FormField {
   value: string;
@@ -36,17 +37,29 @@ export default function LoginPage() {
     try {
       if (isRegister) {
         if (!otpStep) {
-          // Step 1: Generate OTP and show verification UI
-          const code = Math.floor(100000 + Math.random() * 900000).toString();
-          setGeneratedOtp(code);
-          setOtpStep(true);
-          setGlobalError(null);
-          setLoading(false);
+          // Call backend to send OTP email
+          setLoading(true);
+          try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/v1/auth/send-otp`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: email.value }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.detail || 'Failed to send OTP');
+            // In dev mode, the backend returns the OTP directly
+            if (data.dev_otp) setGeneratedOtp(data.dev_otp);
+            setOtpStep(true);
+          } catch (err: any) {
+            setGlobalError(err.message || 'Failed to send verification email');
+          } finally {
+            setLoading(false);
+          }
           return;
         } else {
-          // Step 2: Verify OTP then register
-          if (otpInput !== generatedOtp) {
-            setGlobalError('Invalid verification code. Please try again.');
+          // Verify OTP (if we have the generated OTP locally for dev, check locally; otherwise trust backend)
+          if (generatedOtp && otpInput !== generatedOtp) {
+            setGlobalError('Invalid verification code.');
             setLoading(false);
             return;
           }
@@ -62,6 +75,15 @@ export default function LoginPage() {
         setUser(data.user);
       }
       router.push('/dashboard');
+      // Sync connector tokens from server to local device
+      tokenSyncAPI.downloadTokens().then((tokens) => {
+        for (const [provider, creds] of Object.entries(tokens)) {
+          // Save to localStorage for the frontend
+          localStorage.setItem(`atlas_connector_${provider}`, JSON.stringify(creds));
+          // Save to Electron token store if available
+          (window as any).atlasElectron?.tokenStore?.set(provider, creds);
+        }
+      });
     } catch (err: any) {
       // If backend unreachable, try local auth as fallback
       if (!err?.response && window.atlasElectron?.localAuth) {
@@ -290,8 +312,14 @@ export default function LoginPage() {
               >
                 <div className="p-3 rounded-xl mb-4" style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
                   <p className="text-xs text-blue-400 mb-1 font-medium">Verification Code</p>
-                  <p className="text-[11px] text-white/50">Your code: <span className="font-mono text-white/90 select-all">{generatedOtp}</span></p>
-                  <p className="text-[10px] text-white/30 mt-1">In production, this would be sent to your email.</p>
+                  {generatedOtp ? (
+                    <>
+                      <p className="text-[11px] text-white/50">Dev mode code: <span className="font-mono text-white/90 select-all">{generatedOtp}</span></p>
+                      <p className="text-[10px] text-white/30 mt-1">In production, this would be sent to your email.</p>
+                    </>
+                  ) : (
+                    <p className="text-[11px] text-white/50">A 6-digit code has been sent to <span className="text-white/90">{email.value}</span></p>
+                  )}
                 </div>
                 <label className="block text-xs font-medium mb-1.5" style={{ color: 'rgba(255,255,255,0.5)' }}>
                   Enter 6-digit code

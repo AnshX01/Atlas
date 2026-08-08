@@ -25,6 +25,7 @@ import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/ui/Toast";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { cn } from "@/lib/utils";
+import { tokenSyncAPI } from "@/lib/api/token-sync";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -456,6 +457,9 @@ export default function SettingsPage() {
           ...prev,
           [connectorId]: { ...prev[connectorId], configured: true },
         }));
+
+        // Upload to cloud for cross-device sync
+        tokenSyncAPI.uploadToken(connectorId, values).catch(() => {});
 
         // Invalidate React Query cache so the sidebar updates immediately
         queryClient.invalidateQueries({ queryKey: ["connectors"] });

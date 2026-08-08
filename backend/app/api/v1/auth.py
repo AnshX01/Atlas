@@ -175,6 +175,40 @@ async def get_me(current_user: User = Depends(get_current_user)) -> UserResponse
     return UserResponse.model_validate(current_user)
 
 
+# ── Email OTP Verification ─────────────────────────────────────────────────
+
+
+@router.post("/send-otp", summary="Send OTP to email for verification")
+async def send_otp(payload: dict) -> dict:
+    """Generate and send a one-time verification code to the provided email."""
+    from app.services.email_service import send_otp_email
+
+    email = payload.get("email", "")
+    if not email or "@" not in email:
+        raise HTTPException(status_code=422, detail="Valid email required")
+    otp = await send_otp_email(email)
+    # In dev mode (no Resend key), return OTP in response
+    settings = get_settings()
+    response: dict = {"message": "OTP sent to your email"}
+    if not settings.RESEND_API_KEY:
+        response["dev_otp"] = otp  # Only in dev mode
+    return response
+
+
+@router.post("/verify-otp", summary="Verify OTP code")
+async def verify_otp_endpoint(payload: dict) -> dict:
+    """Verify a one-time code previously sent to an email address."""
+    from app.services.email_service import verify_otp
+
+    email = payload.get("email", "")
+    otp = payload.get("otp", "")
+    if not email or not otp:
+        raise HTTPException(status_code=422, detail="Email and OTP required")
+    if verify_otp(email, otp):
+        return {"verified": True}
+    raise HTTPException(status_code=400, detail="Invalid or expired verification code")
+
+
 # ── OAuth Initiate Endpoints ──────────────────────────────────────────────────
 
 
