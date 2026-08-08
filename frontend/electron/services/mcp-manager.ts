@@ -1,530 +1,421 @@
-import { ChildProcess, spawn } from "child_process";
-import { MCPProtocolHandler, MCPToolResult } from "./mcp-protocol";
-import { readConfig, AtlasMCPConfig } from "./config";
-
 /**
- * Atlas MCP Server Manager.
+ * Atlas MCP Server Manager
  *
- * Manages stdio-based MCP server subprocesses, handling:
- * - Spawning configured MCP servers (Python, npx-based)
- * - Auto-restart on crash (max 3 retries)
- * - Graceful shutdown (SIGTERM → wait 5s → SIGKILL)
- * - JSON-RPC 2.0 communication via the protocol handler
- * - Status tracking for all servers
+ * Spawns and manages MCP (Model Context Protocol) server subprocesses.
+ * Each server communicates via stdio using JSON-RPC 2.0.
+ *
+ * Official servers used:
+ * - GitHub: @modelcontextprotocol/server-github
+ * - Slack: @modelcontextprotocol/server-slack
+ * - Filesystem: @modelcontextprotocol/server-filesystem
+ *
+ * For Google Workspace and Notion, we use direct API connectors
+ * since official MCP servers don't exist for them yet.
  */
+
+import { spawn, ChildProcess } from 'child_process';
+import * as path from 'path';
+import { getToken } from './token-store';
+import { GmailConnector } from './connectors/gmail';
+import { NotionConnector } from './connectors/notion';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export type MCPServerStatus = "running" | "stopped" | "error" | "starting";
-
-export interface MCPServerState {
+interface MCPServerConfig {
   name: string;
-  process: ChildProcess | null;
-  protocol: MCPProtocolHandler | null;
   command: string;
   args: string[];
-  status: MCPServerStatus;
   env: Record<string, string>;
-  restartCount: number;
-  maxRestarts: number;
-  lastError?: string;
+  getEnv: () => Record<string, string> | null; // Dynamic env based on stored tokens
 }
+
+interface MCPServer {
+  name: string;
+  process: ChildProcess | null;
+  status: 'stopped' | 'starting' | 'running' | 'error';
+  restartCount: number;
+  config: MCPServerConfig;
+}
+
+interface MCPRequest {
+  jsonrpc: '2.0';
+  id: number;
+  method: string;
+  params?: any;
+}
+
+interface MCPResponse {
+  jsonrpc: '2.0';
+  id: number;
+  result?: any;
+  error?: { code: number; message: string; data?: any };
+}
+
+export type MCPServerStatus = 'running' | 'stopped' | 'error' | 'starting' | 'direct_api';
 
 export interface MCPServerStatusInfo {
   name: string;
   status: MCPServerStatus;
-  restartCount: number;
+  restartCount?: number;
   lastError?: string;
 }
 
-// ── Server Definitions ─────────────────────────────────────────────────────────
+// ── Request ID Generator ───────────────────────────────────────────────────────
 
-interface ServerDefinition {
-  command: string;
-  args: string[];
-  envKeys: string[];
-  /** Extra args from config (e.g., filesystem allowed dirs) */
-  usesConfigArgs?: boolean;
-}
-
-/**
- * Platform-aware command resolution.
- * On Windows, npx needs to be invoked via cmd.exe or with .cmd extension.
- */
-function getNpxCommand(): string {
-  return process.platform === "win32" ? "npx.cmd" : "npx";
-}
-
-function getPythonCommand(): string {
-  return process.platform === "win32" ? "python" : "python3";
-}
-
-const SERVER_DEFINITIONS: Record<string, ServerDefinition> = {
-  google_workspace: {
-    command: getPythonCommand(),
-    args: ["-m", "mcp_google_workspace"],
-    envKeys: ["GOOGLE_CREDENTIALS_PATH"],
-  },
-  slack: {
-    command: getNpxCommand(),
-    args: ["-y", "@anthropic/mcp-server-slack"],
-    envKeys: ["SLACK_TOKEN"],
-  },
-  notion: {
-    command: getNpxCommand(),
-    args: ["-y", "@anthropic/mcp-server-notion"],
-    envKeys: ["NOTION_TOKEN"],
-  },
-  github: {
-    command: getNpxCommand(),
-    args: ["-y", "@anthropic/mcp-server-github"],
-    envKeys: ["GITHUB_TOKEN"],
-  },
-  filesystem: {
-    command: getNpxCommand(),
-    args: ["-y", "@anthropic/mcp-server-filesystem"],
-    envKeys: [],
-    usesConfigArgs: true,
-  },
-};
+let requestId = 0;
+function nextId(): number { return ++requestId; }
 
 // ── Manager Class ──────────────────────────────────────────────────────────────
 
-export type ToolResponseCallback = (
-  serverName: string,
-  toolName: string,
-  result: MCPToolResult
-) => void;
-
 export class MCPServerManager {
-  private servers: Map<string, MCPServerState> = new Map();
-  private responseCallbacks: ToolResponseCallback[] = [];
-  private shuttingDown = false;
+  private servers: Map<string, MCPServer> = new Map();
+  private pendingRequests: Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; timeout: NodeJS.Timeout }> = new Map();
+  private buffers: Map<string, string> = new Map();
+
+  // Direct API connectors for services without MCP servers
+  private gmailConnector = new GmailConnector();
+  private notionConnector = new NotionConnector();
 
   constructor() {
-    this.initializeServerStates();
+    // Resolve the npx path for spawning MCP servers
+    const npxPath = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+
+    // Define server configs
+    this.defineServer('github', {
+      name: 'github',
+      command: npxPath,
+      args: ['-y', '@modelcontextprotocol/server-github'],
+      env: {},
+      getEnv: () => {
+        const creds = getToken('github') as Record<string, string> | null;
+        if (!creds?.personal_access_token) return null;
+        return { GITHUB_PERSONAL_ACCESS_TOKEN: creds.personal_access_token };
+      },
+    });
+
+    this.defineServer('slack', {
+      name: 'slack',
+      command: npxPath,
+      args: ['-y', '@modelcontextprotocol/server-slack'],
+      env: {},
+      getEnv: () => {
+        const creds = getToken('slack') as Record<string, string> | null;
+        if (!creds?.bot_token) return null;
+        return { SLACK_BOT_TOKEN: creds.bot_token };
+      },
+    });
+
+    this.defineServer('filesystem', {
+      name: 'filesystem',
+      command: npxPath,
+      args: ['-y', '@modelcontextprotocol/server-filesystem'],
+      env: {},
+      getEnv: () => {
+        const creds = getToken('local_fs') as Record<string, string> | null;
+        if (!creds?.watch_paths && !creds?.paths) return null;
+        const paths = (creds.watch_paths || creds.paths || '').split('\n').filter(Boolean);
+        if (paths.length === 0) return null;
+        // Filesystem server takes paths as additional args
+        return { FS_PATHS: paths.join(',') };
+      },
+    });
+
+    console.log('[MCP Manager] Initialized with servers: github, slack, filesystem, google_workspace (direct), notion (direct)');
   }
 
-  /**
-   * Initialize server state entries from config on disk.
-   */
-  private initializeServerStates(): void {
-    const config = readConfig();
-
-    for (const [name, definition] of Object.entries(SERVER_DEFINITIONS)) {
-      const serverConfig = config.servers[name as keyof AtlasMCPConfig["servers"]];
-      const env: Record<string, string> = {};
-
-      // Pull env vars from config
-      if (serverConfig) {
-        for (const key of definition.envKeys) {
-          if (serverConfig.env[key]) {
-            env[key] = serverConfig.env[key];
-          }
-        }
-      }
-
-      // Build args — include config-specified extra args (like filesystem dirs)
-      const args = [...definition.args];
-      if (definition.usesConfigArgs && serverConfig?.args) {
-        args.push(...serverConfig.args);
-      }
-
-      this.servers.set(name, {
-        name,
-        process: null,
-        protocol: null,
-        command: definition.command,
-        args,
-        status: "stopped",
-        env,
-        restartCount: 0,
-        maxRestarts: 3,
-      });
-    }
-  }
-
-  /**
-   * Reload configuration from disk (e.g., after user changes settings).
-   */
-  reloadConfig(): void {
-    const config = readConfig();
-
-    for (const [name, definition] of Object.entries(SERVER_DEFINITIONS)) {
-      const serverConfig = config.servers[name as keyof AtlasMCPConfig["servers"]];
-      const state = this.servers.get(name);
-      if (!state || !serverConfig) continue;
-
-      // Update env
-      const env: Record<string, string> = {};
-      for (const key of definition.envKeys) {
-        if (serverConfig.env[key]) {
-          env[key] = serverConfig.env[key];
-        }
-      }
-      state.env = env;
-
-      // Update args
-      const args = [...definition.args];
-      if (definition.usesConfigArgs && serverConfig.args) {
-        args.push(...serverConfig.args);
-      }
-      state.args = args;
-    }
+  private defineServer(name: string, config: MCPServerConfig) {
+    this.servers.set(name, {
+      name,
+      process: null,
+      status: 'stopped',
+      restartCount: 0,
+      config,
+    });
   }
 
   // ── Start / Stop ─────────────────────────────────────────────────────────────
 
-  /**
-   * Start all enabled MCP servers based on config.
-   */
-  async startAll(): Promise<void> {
-    const config = readConfig();
-    const startPromises: Promise<void>[] = [];
-
-    for (const [name, serverConfig] of Object.entries(config.servers)) {
-      if (serverConfig.enabled) {
-        startPromises.push(this.startServer(name));
-      }
+  async startServer(name: string): Promise<boolean> {
+    const server = this.servers.get(name);
+    if (!server) {
+      console.error(`[MCP Manager] Unknown server: ${name}`);
+      return false;
     }
 
+    if (server.status === 'running' && server.process) return true;
+
+    const env = server.config.getEnv();
+    if (!env) {
+      console.warn(`[MCP Manager] Cannot start ${name} - no credentials configured`);
+      return false;
+    }
+
+    server.status = 'starting';
+
+    try {
+      const proc = spawn(server.config.command, server.config.args, {
+        env: { ...process.env, ...env },
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: true,
+        windowsHide: true,
+      });
+
+      server.process = proc;
+      this.buffers.set(name, '');
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        const buffer = (this.buffers.get(name) || '') + data.toString();
+        const lines = buffer.split('\n');
+        this.buffers.set(name, lines.pop() || '');
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const response = JSON.parse(line) as MCPResponse;
+            const pending = this.pendingRequests.get(response.id);
+            if (pending) {
+              clearTimeout(pending.timeout);
+              this.pendingRequests.delete(response.id);
+              if (response.error) {
+                pending.reject(new Error(response.error.message));
+              } else {
+                pending.resolve(response.result);
+              }
+            }
+          } catch {
+            // Not JSON, ignore (could be log output)
+          }
+        }
+      });
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        console.error(`[MCP ${name}] stderr:`, data.toString().trim());
+      });
+
+      proc.on('exit', (code) => {
+        console.log(`[MCP ${name}] Process exited with code ${code}`);
+        server.status = 'stopped';
+        server.process = null;
+      });
+
+      proc.on('error', (err: Error) => {
+        console.error(`[MCP Manager] Process error for "${name}":`, err.message);
+        server.status = 'error';
+        server.process = null;
+      });
+
+      // Wait a moment for startup
+      await new Promise(r => setTimeout(r, 2000));
+
+      // Initialize the MCP server with handshake
+      await this.sendRequest(name, 'initialize', {
+        protocolVersion: '2024-11-05',
+        capabilities: {},
+        clientInfo: { name: 'atlas', version: '1.0.0' },
+      });
+
+      // Send initialized notification (no id = notification)
+      if (server.process?.stdin) {
+        const notification = JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' });
+        server.process.stdin.write(notification + '\n');
+      }
+
+      server.status = 'running';
+      console.log(`[MCP Manager] Server ${name} started successfully`);
+      return true;
+    } catch (err: any) {
+      console.error(`[MCP Manager] Failed to start ${name}:`, err.message);
+      server.status = 'error';
+      return false;
+    }
+  }
+
+  /**
+   * Start all MCP servers that have credentials configured.
+   */
+  async startAll(): Promise<void> {
+    const startPromises: Promise<boolean>[] = [];
+    for (const [name] of this.servers) {
+      startPromises.push(this.startServer(name));
+    }
     await Promise.allSettled(startPromises);
   }
 
-  /**
-   * Start a specific MCP server by name.
-   */
-  async startServer(name: string): Promise<void> {
-    const state = this.servers.get(name);
-    if (!state) {
-      throw new Error(`[MCP Manager] Unknown server: ${name}`);
-    }
-
-    if (state.status === "running" && state.process && !state.process.killed) {
-      console.log(`[MCP Manager] Server "${name}" is already running`);
-      return;
-    }
-
-    state.status = "starting";
-    state.restartCount = 0;
-    state.lastError = undefined;
-
-    await this.spawnServer(state);
-  }
-
-  /**
-   * Stop all running MCP servers gracefully.
-   */
-  async stopAll(): Promise<void> {
-    this.shuttingDown = true;
-    const stopPromises: Promise<void>[] = [];
-
-    for (const [name] of this.servers) {
-      stopPromises.push(this.stopServer(name));
-    }
-
-    await Promise.allSettled(stopPromises);
-    this.shuttingDown = false;
-  }
-
-  /**
-   * Stop a specific MCP server by name.
-   */
   async stopServer(name: string): Promise<void> {
-    const state = this.servers.get(name);
-    if (!state) {
-      throw new Error(`[MCP Manager] Unknown server: ${name}`);
+    const server = this.servers.get(name);
+    if (!server?.process) return;
+
+    // Try graceful shutdown first
+    try {
+      server.process.kill();
+    } catch {
+      // Already dead
     }
 
-    if (!state.process || state.process.killed) {
-      state.status = "stopped";
-      state.process = null;
-      state.protocol?.detach();
-      state.protocol = null;
-      return;
+    server.process = null;
+    server.status = 'stopped';
+    console.log(`[MCP Manager] Server ${name} stopped`);
+  }
+
+  async stopAll(): Promise<void> {
+    for (const [name] of this.servers) {
+      await this.stopServer(name);
+    }
+  }
+
+  // ── JSON-RPC Communication ───────────────────────────────────────────────────
+
+  private sendRequest(name: string, method: string, params?: any): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const server = this.servers.get(name);
+      if (!server?.process?.stdin) {
+        reject(new Error(`Server ${name} is not running`));
+        return;
+      }
+
+      const id = nextId();
+      const request: MCPRequest = { jsonrpc: '2.0', id, method, params };
+
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(id);
+        reject(new Error(`MCP request timeout for ${name}/${method}`));
+      }, 30000);
+
+      this.pendingRequests.set(id, { resolve, reject, timeout });
+      server.process.stdin.write(JSON.stringify(request) + '\n');
+    });
+  }
+
+  // ── Tool Operations ──────────────────────────────────────────────────────────
+
+  async listTools(name: string): Promise<any[]> {
+    if (name === 'google_workspace' || name === 'notion') {
+      // These use direct API connectors
+      return this.getDirectTools(name);
+    }
+    const server = this.servers.get(name);
+    if (!server || server.status !== 'running') {
+      const started = await this.startServer(name);
+      if (!started) return [];
+    }
+    try {
+      const result = await this.sendRequest(name, 'tools/list');
+      return result?.tools || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async callTool(serverName: string, toolName: string, args: Record<string, any> = {}): Promise<any> {
+    // Handle direct API connectors (Google, Notion)
+    if (serverName === 'google_workspace') {
+      return this.callGoogleTool(toolName, args);
+    }
+    if (serverName === 'notion') {
+      return this.callNotionTool(toolName, args);
     }
 
-    // Detach protocol handler
-    state.protocol?.detach();
-    state.protocol = null;
+    // MCP server path — auto-start if needed
+    const server = this.servers.get(serverName);
+    if (!server || server.status !== 'running') {
+      const started = await this.startServer(serverName);
+      if (!started) return { error: `Cannot start ${serverName} server. Check credentials in Settings.` };
+    }
 
-    await this.gracefulKill(state);
-    state.status = "stopped";
+    try {
+      const result = await this.sendRequest(serverName, 'tools/call', {
+        name: toolName,
+        arguments: args,
+      });
+      return result;
+    } catch (err: any) {
+      return { error: err.message };
+    }
+  }
+
+  // ── Direct API Connector Methods (Google & Notion) ───────────────────────────
+
+  private async callGoogleTool(tool: string, params: Record<string, any>): Promise<any> {
+    if (!(await this.gmailConnector.init())) {
+      return { error: 'Google Workspace not configured. Complete OAuth in Settings > Test Connection.' };
+    }
+    switch (tool) {
+      case 'list_emails':
+      case 'search_emails':
+      case 'read_emails': return await this.gmailConnector.listEmails(params.maxResults || 10, params.query || '');
+      case 'get_email': return await this.gmailConnector.getEmail(params.messageId);
+      case 'send_email': return await this.gmailConnector.sendEmail(params.to, params.subject, params.body);
+      case 'list_calendar':
+      case 'list_events': return await this.gmailConnector.listCalendarEvents();
+      default: return { error: `Unknown Google tool: ${tool}` };
+    }
+  }
+
+  private async callNotionTool(tool: string, params: Record<string, any>): Promise<any> {
+    if (!(await this.notionConnector.init())) {
+      return { error: 'Notion not configured. Add your Integration Token in Settings.' };
+    }
+    switch (tool) {
+      case 'search_pages':
+      case 'search': return await this.notionConnector.searchPages(params.query || '');
+      case 'get_page': return await this.notionConnector.getPage(params.pageId);
+      case 'list_databases': return await this.notionConnector.listDatabases();
+      case 'create_page': return await this.notionConnector.createPage(params.parentId, params.title, params.content);
+      default: return { error: `Unknown Notion tool: ${tool}` };
+    }
+  }
+
+  private getDirectTools(name: string): any[] {
+    if (name === 'google_workspace') {
+      return [
+        { name: 'list_emails', description: 'List recent emails' },
+        { name: 'search_emails', description: 'Search emails by query' },
+        { name: 'get_email', description: 'Get email details by ID' },
+        { name: 'send_email', description: 'Send an email' },
+        { name: 'list_calendar', description: 'List today\'s calendar events' },
+      ];
+    }
+    if (name === 'notion') {
+      return [
+        { name: 'search_pages', description: 'Search Notion pages' },
+        { name: 'get_page', description: 'Get a specific page' },
+        { name: 'list_databases', description: 'List Notion databases' },
+        { name: 'create_page', description: 'Create a new Notion page' },
+      ];
+    }
+    return [];
   }
 
   // ── Status ────────────────────────────────────────────────────────────────────
 
-  /**
-   * Get status of all servers.
-   */
   getStatus(): MCPServerStatusInfo[] {
     const statuses: MCPServerStatusInfo[] = [];
-    for (const [, state] of this.servers) {
-      statuses.push({
-        name: state.name,
-        status: state.status,
-        restartCount: state.restartCount,
-        lastError: state.lastError,
-      });
+    for (const [name, server] of this.servers) {
+      statuses.push({ name, status: server.status, restartCount: server.restartCount });
     }
+    // Add direct connector statuses
+    statuses.push({ name: 'google_workspace', status: 'direct_api' });
+    statuses.push({ name: 'notion', status: 'direct_api' });
     return statuses;
   }
 
-  // ── Tool Calls ────────────────────────────────────────────────────────────────
+  /**
+   * Reload configuration — re-reads token store. Call after settings change.
+   */
+  reloadConfig(): void {
+    console.log('[MCP Manager] Config reload requested');
+    // Servers will pick up new tokens on next startServer() call via getEnv()
+  }
 
   /**
-   * Send a tool call to a specific server.
+   * Send a tool call (legacy compatibility with old orchestrator interface).
+   * Maps to callTool internally.
    */
   async sendToolCall(
     serverName: string,
     toolName: string,
     params: Record<string, unknown>
-  ): Promise<MCPToolResult> {
-    const state = this.servers.get(serverName);
-    if (!state) {
-      throw new Error(`[MCP Manager] Unknown server: ${serverName}`);
-    }
-    if (state.status !== "running" || !state.protocol) {
-      throw new Error(`[MCP Manager] Server "${serverName}" is not running`);
-    }
-
-    const result = await state.protocol.callTool(toolName, params);
-
-    // Notify callbacks
-    for (const cb of this.responseCallbacks) {
-      try {
-        cb(serverName, toolName, result);
-      } catch (err) {
-        console.error("[MCP Manager] Tool response callback error:", err);
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * List tools available on a specific server.
-   */
-  async listTools(serverName: string): Promise<Array<{ name: string; description: string }>> {
-    const state = this.servers.get(serverName);
-    if (!state) {
-      throw new Error(`[MCP Manager] Unknown server: ${serverName}`);
-    }
-    if (state.status !== "running" || !state.protocol) {
-      throw new Error(`[MCP Manager] Server "${serverName}" is not running`);
-    }
-
-    const response = await state.protocol.listTools();
-    return (response.tools || []).map((tool) => ({
-      name: tool.name,
-      description: tool.description || "",
-    }));
-  }
-
-  /**
-   * Register a callback for tool responses.
-   */
-  onToolResponse(callback: ToolResponseCallback): () => void {
-    this.responseCallbacks.push(callback);
-    return () => {
-      const idx = this.responseCallbacks.indexOf(callback);
-      if (idx >= 0) this.responseCallbacks.splice(idx, 1);
-    };
-  }
-
-  // ── Internal: Spawn & Lifecycle ──────────────────────────────────────────────
-
-  /**
-   * Spawn the child process for an MCP server.
-   */
-  private async spawnServer(state: MCPServerState): Promise<void> {
-    try {
-      const mergedEnv: Record<string, string> = {
-        ...process.env as Record<string, string>,
-        ...state.env,
-      };
-
-      console.log(
-        `[MCP Manager] Spawning "${state.name}": ${state.command} ${state.args.join(" ")}`
-      );
-
-      const child = spawn(state.command, state.args, {
-        stdio: ["pipe", "pipe", "pipe"],
-        env: mergedEnv,
-        // On Windows, use shell to resolve .cmd files and PATH
-        shell: process.platform === "win32",
-        // Don't throw on ENOENT — we handle it in the error event
-        windowsHide: true,
-      });
-
-      state.process = child;
-
-      // Set up protocol handler
-      const protocol = new MCPProtocolHandler();
-      protocol.attach(child);
-      state.protocol = protocol;
-
-      // Handle stderr (logging)
-      child.stderr?.on("data", (data: Buffer) => {
-        const text = data.toString("utf-8").trim();
-        if (text) {
-          console.log(`[MCP:${state.name}:stderr] ${text}`);
-        }
-      });
-
-      // Handle process errors (e.g., ENOENT if command not found)
-      child.on("error", (err: Error) => {
-        console.error(`[MCP Manager] Process error for "${state.name}":`, err.message);
-        state.status = "error";
-        state.lastError = err.message;
-        state.process = null;
-        state.protocol?.detach();
-        state.protocol = null;
-      });
-
-      // Handle process exit
-      child.on("exit", (code, signal) => {
-        console.log(
-          `[MCP Manager] Server "${state.name}" exited with code=${code}, signal=${signal}`
-        );
-
-        state.process = null;
-        state.protocol?.detach();
-        state.protocol = null;
-
-        // Don't restart if we're shutting down or manually stopped
-        if (this.shuttingDown || state.status === "stopped") {
-          return;
-        }
-
-        state.status = "error";
-        state.lastError = `Process exited with code ${code}`;
-
-        // Auto-restart if under max retries
-        if (state.restartCount < state.maxRestarts) {
-          state.restartCount++;
-          console.log(
-            `[MCP Manager] Auto-restarting "${state.name}" (attempt ${state.restartCount}/${state.maxRestarts})`
-          );
-          // Delay restart slightly to avoid tight loops
-          setTimeout(() => {
-            if (state.status !== "stopped" && !this.shuttingDown) {
-              this.spawnServer(state).catch((err) => {
-                console.error(`[MCP Manager] Restart failed for "${state.name}":`, err);
-              });
-            }
-          }, 1000 * state.restartCount); // Exponential backoff: 1s, 2s, 3s
-        } else {
-          console.error(
-            `[MCP Manager] Server "${state.name}" exceeded max restarts (${state.maxRestarts})`
-          );
-        }
-      });
-
-      // Wait briefly for the process to start (check it didn't immediately die)
-      await new Promise<void>((resolve, reject) => {
-        const startTimeout = setTimeout(() => {
-          // If process is still alive after 2s, consider it started
-          if (child.killed || state.status === "error") {
-            reject(new Error(`Server "${state.name}" failed to start`));
-          } else {
-            resolve();
-          }
-        }, 2000);
-
-        child.on("error", () => {
-          clearTimeout(startTimeout);
-          reject(new Error(`Server "${state.name}" failed to spawn`));
-        });
-
-        // If process exits in the first 2s, it failed to start
-        child.on("exit", (code) => {
-          if (code !== null && code !== 0) {
-            clearTimeout(startTimeout);
-            reject(new Error(`Server "${state.name}" exited immediately with code ${code}`));
-          }
-        });
-      });
-
-      // Perform MCP initialization handshake
-      try {
-        await protocol.initialize();
-        protocol.sendInitialized();
-        state.status = "running";
-        console.log(`[MCP Manager] Server "${state.name}" initialized successfully`);
-      } catch (err) {
-        console.error(
-          `[MCP Manager] MCP handshake failed for "${state.name}":`,
-          (err as Error).message
-        );
-        state.status = "error";
-        state.lastError = `MCP handshake failed: ${(err as Error).message}`;
-        // Kill the process since it can't be used
-        await this.gracefulKill(state);
-      }
-    } catch (err) {
-      state.status = "error";
-      state.lastError = (err as Error).message;
-      console.error(`[MCP Manager] Failed to spawn "${state.name}":`, (err as Error).message);
-    }
-  }
-
-  /**
-   * Gracefully kill a process: SIGTERM first, then SIGKILL after 5 seconds.
-   */
-  private gracefulKill(state: MCPServerState): Promise<void> {
-    return new Promise((resolve) => {
-      const child = state.process;
-      if (!child || child.killed) {
-        state.process = null;
-        resolve();
-        return;
-      }
-
-      let resolved = false;
-      const cleanup = () => {
-        if (!resolved) {
-          resolved = true;
-          state.process = null;
-          resolve();
-        }
-      };
-
-      child.on("exit", cleanup);
-
-      // On Windows, there's no SIGTERM; we use taskkill or just kill the tree
-      if (process.platform === "win32") {
-        try {
-          // child.kill() on Windows sends a terminate signal
-          child.kill();
-        } catch {
-          // Already dead
-        }
-      } else {
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          // Already dead
-        }
-      }
-
-      // Force kill after 5 seconds if still alive
-      const forceKillTimer = setTimeout(() => {
-        if (!child.killed) {
-          console.warn(`[MCP Manager] Force killing "${state.name}" after 5s timeout`);
-          try {
-            child.kill("SIGKILL");
-          } catch {
-            // Already dead
-          }
-        }
-        cleanup();
-      }, 5000);
-
-      // Clean up timer if process exits naturally
-      child.on("exit", () => {
-        clearTimeout(forceKillTimer);
-      });
-    });
+  ): Promise<any> {
+    return this.callTool(serverName, toolName, params as Record<string, any>);
   }
 }

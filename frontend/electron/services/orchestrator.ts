@@ -27,10 +27,6 @@ import {
   saveToolExecution,
   Message,
 } from "./local-store";
-import { GitHubConnector } from './connectors/github';
-import { GmailConnector } from './connectors/gmail';
-import { SlackConnector } from './connectors/slack';
-import { NotionConnector } from './connectors/notion';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -146,65 +142,6 @@ const TOOL_ROUTING: Record<string, { server: string; tool: string }[]> = {
     { server: "filesystem", tool: "list_directory" },
   ],
 };
-
-// ── Real Tool Execution via Direct API Connectors ──────────────────────────────
-
-async function executeRealToolCall(server: string, tool: string, params: Record<string, any>): Promise<any> {
-  switch (server) {
-    case 'github': {
-      const gh = new GitHubConnector();
-      if (!(await gh.init())) return { error: 'GitHub not configured. Add your Personal Access Token in Settings.' };
-      switch (tool) {
-        case 'list_prs': return await gh.listPRs(params.state || 'open');
-        case 'get_pr': return await gh.getPR(params.owner, params.repo, params.number);
-        case 'list_issues': return await gh.listIssues();
-        case 'list_repos': return await gh.listRepos();
-        case 'merge_pr': return await gh.mergePR(params.owner, params.repo, params.number);
-        case 'search_code': return await gh.searchCode(params.query);
-        default: return { error: `Unknown GitHub tool: ${tool}` };
-      }
-    }
-    case 'google_workspace': {
-      const gmail = new GmailConnector();
-      if (!(await gmail.init())) return { error: 'Google Workspace not configured. Complete OAuth in Settings > Test Connection.' };
-      switch (tool) {
-        case 'list_emails':
-        case 'search_emails':
-        case 'read_emails': return await gmail.listEmails(params.maxResults || 10, params.query || '');
-        case 'get_email': return await gmail.getEmail(params.messageId);
-        case 'send_email': return await gmail.sendEmail(params.to, params.subject, params.body);
-        case 'list_calendar':
-        case 'list_events': return await gmail.listCalendarEvents();
-        default: return { error: `Unknown Google tool: ${tool}` };
-      }
-    }
-    case 'slack': {
-      const slack = new SlackConnector();
-      if (!(await slack.init())) return { error: 'Slack not configured. Add your Bot Token in Settings.' };
-      switch (tool) {
-        case 'list_channels': return await slack.listChannels();
-        case 'list_messages': return await slack.listMessages(params.channel, params.limit);
-        case 'list_unread': return await slack.listUnread();
-        case 'post_message': return await slack.postMessage(params.channel, params.text);
-        default: return { error: `Unknown Slack tool: ${tool}` };
-      }
-    }
-    case 'notion': {
-      const notion = new NotionConnector();
-      if (!(await notion.init())) return { error: 'Notion not configured. Add your Integration Token in Settings.' };
-      switch (tool) {
-        case 'search_pages':
-        case 'search': return await notion.searchPages(params.query || '');
-        case 'get_page': return await notion.getPage(params.pageId);
-        case 'list_databases': return await notion.listDatabases();
-        case 'create_page': return await notion.createPage(params.parentId, params.title, params.content);
-        default: return { error: `Unknown Notion tool: ${tool}` };
-      }
-    }
-    default:
-      return { error: `Unknown connector: ${server}` };
-  }
-}
 
 // ── Orchestrator Class ─────────────────────────────────────────────────────────
 
@@ -372,7 +309,7 @@ export class Orchestrator {
       });
 
       try {
-        const result = await executeRealToolCall(
+        const result = await this.mcpManager.callTool(
           tool.server,
           tool.tool,
           tool.params as Record<string, any>
@@ -494,7 +431,7 @@ export class Orchestrator {
       });
 
       try {
-        const result = await executeRealToolCall(
+        const result = await this.mcpManager.callTool(
           tool.server,
           tool.tool,
           tool.params as Record<string, any>
