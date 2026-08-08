@@ -39,6 +39,7 @@ import {
   ProviderCredentials,
 } from "./services/token-store";
 import { startGoogleOAuth } from "./services/google-oauth";
+import * as http from "http";
 
 const isDev = !app.isPackaged;
 const NEXT_URL = "http://localhost:3000";
@@ -116,6 +117,42 @@ app.whenReady().then(async () => {
   // ── Initialize Orchestrator ─────────────────────────────────────────
   orchestrator = new Orchestrator(mcpManager);
   console.log("[Atlas] Orchestrator (local LangGraph engine) initialized");
+
+  // ── OAuth Callback Server ───────────────────────────────────────────
+  // Listens on localhost:19876 for Google OAuth redirect from the system browser
+  const oauthServer = http.createServer((req, res) => {
+    const url = new URL(req.url || "/", "http://localhost:19876");
+    
+    if (url.pathname === "/oauth-callback" || url.pathname === "/oauth/callback") {
+      const accessToken = url.searchParams.get("access_token");
+      const refreshToken = url.searchParams.get("refresh_token");
+      const error = url.searchParams.get("error");
+
+      // Send success HTML to browser
+      res.writeHead(200, { "Content-Type": "text/html" });
+      if (accessToken && refreshToken) {
+        res.end(`<html><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>✓ Signed in successfully</h2><p style="color:#aaa">You can close this tab and return to Atlas.</p></div></body></html>`);
+        
+        // Send tokens to the Electron renderer
+        if (mainWindow) {
+          mainWindow.webContents.send("oauth-callback", { access_token: accessToken, refresh_token: refreshToken });
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      } else {
+        res.end(`<html><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Sign in failed</h2><p style="color:#aaa">${error || "Please close this tab and try again."}</p></div></body></html>`);
+      }
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  oauthServer.listen(19876, "127.0.0.1", () => {
+    console.log("[Atlas] OAuth callback server listening on http://localhost:19876");
+  });
+  oauthServer.on("error", (err) => {
+    console.warn("[Atlas] OAuth callback server failed to start:", err.message);
+  });
 
   // ── Global shortcut: Cmd+Space → Toggle command bar ─────────────────
   // Sent to the renderer via IPC so the React store handles it.

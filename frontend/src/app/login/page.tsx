@@ -395,29 +395,29 @@ export default function LoginPage() {
                 window.open(oauthUrl, '_blank');
               }
               
-              // Poll for OAuth result (browser writes to localStorage on callback)
+              // Listen for OAuth callback via Electron IPC
               setLoading(true);
               setGlobalError(null);
-              const pollInterval = setInterval(async () => {
-                const result = localStorage.getItem('atlas-oauth-result');
-                if (result) {
-                  clearInterval(pollInterval);
-                  localStorage.removeItem('atlas-oauth-result');
+              const electron = (window as any).atlasElectron;
+              if (electron?.onOAuthCallback) {
+                const unsub = electron.onOAuthCallback(async (data: { access_token: string; refresh_token: string }) => {
+                  unsub();
                   try {
-                    const { access_token, refresh_token } = JSON.parse(result);
-                    setTokens(access_token, refresh_token);
+                    setTokens(data.access_token, data.refresh_token);
                     const user = await authAPI.getMe();
                     setUser(user);
-                    setLoading(false);
                     router.push('/dashboard');
                   } catch {
-                    setLoading(false);
                     setGlobalError('Google sign-in failed. Please try again.');
+                  } finally {
+                    setLoading(false);
                   }
-                }
-              }, 1000);
-              // Stop polling after 2 minutes
-              setTimeout(() => { clearInterval(pollInterval); setLoading(false); }, 120000);
+                });
+                // Timeout after 2 minutes
+                setTimeout(() => { unsub(); setLoading(false); }, 120000);
+              } else {
+                setLoading(false);
+              }
             }}
             className="w-full flex items-center justify-center gap-3 py-3 rounded-xl text-sm font-medium transition-all duration-200"
             style={{

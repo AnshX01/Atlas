@@ -38,6 +38,13 @@ contextBridge.exposeInMainWorld("atlasElectron", {
     return () => ipcRenderer.removeListener("toggle-command-bar", handler);
   },
 
+  /** Listen for OAuth callback from system browser */
+  onOAuthCallback: (callback: (data: { access_token: string; refresh_token: string }) => void): (() => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on("oauth-callback", handler);
+    return () => ipcRenderer.removeListener("oauth-callback", handler);
+  },
+
   // ── Ollama AI APIs ──────────────────────────────────────────────────────────
 
   /** Check if Ollama is running and list available models */
