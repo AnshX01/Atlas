@@ -20,6 +20,10 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [globalError, setGlobalError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [otpStep, setOtpStep] = useState(false);
+  const [otp, setOtp] = useState('');
+  const [generatedOtp, setGeneratedOtp] = useState('');
+  const [otpInput, setOtpInput] = useState('');
   const router = useRouter();
   const setUser = useAuthStore((state) => state.setUser);
 
@@ -29,6 +33,27 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      if (isRegister) {
+        if (!otpStep) {
+          // Step 1: Generate OTP and show verification UI
+          const code = Math.floor(100000 + Math.random() * 900000).toString();
+          setGeneratedOtp(code);
+          setOtpStep(true);
+          // Show the OTP (in a real app this would be emailed)
+          setGlobalError(null);
+          setLoading(false);
+          return; // Don't proceed with registration yet
+        } else {
+          // Step 2: Verify OTP then register
+          if (otpInput !== generatedOtp) {
+            setGlobalError('Invalid verification code. Please try again.');
+            setLoading(false);
+            return;
+          }
+          // OTP correct - proceed with registration
+        }
+      }
+
       // Try Electron IPC first (desktop mode)
       if (typeof window !== "undefined" && window.atlasElectron?.localAuth) {
         const localAuth = window.atlasElectron.localAuth;
@@ -152,6 +177,7 @@ export default function LoginPage() {
                 onClick={() => {
                   setIsRegister(i === 1);
                   setGlobalError(null);
+                  setOtpStep(false); setOtpInput(''); setGeneratedOtp('');
                 }}
                 className="flex-1 py-2 rounded-lg text-sm font-medium transition-all duration-200"
                 style={{
@@ -282,6 +308,34 @@ export default function LoginPage() {
               )}
             </div>
 
+            {/* OTP Verification Step */}
+            {isRegister && otpStep && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              >
+                <div className="p-3 rounded-xl mb-4" style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                  <p className="text-xs text-blue-400 mb-1 font-medium">Verification Code</p>
+                  <p className="text-[11px] text-white/50">Your code: <span className="font-mono text-white/90 select-all">{generatedOtp}</span></p>
+                  <p className="text-[10px] text-white/30 mt-1">In production, this would be sent to your email.</p>
+                </div>
+                <label className="block text-xs font-medium mb-1.5" style={{ color: 'rgba(255,255,255,0.5)' }}>
+                  Enter 6-digit code
+                </label>
+                <input
+                  type="text"
+                  maxLength={6}
+                  value={otpInput}
+                  onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  className="w-full px-4 py-3 rounded-xl text-sm text-white text-center font-mono tracking-[0.5em] placeholder-white/20 outline-none"
+                  style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}
+                  autoFocus
+                />
+              </motion.div>
+            )}
+
             {/* Submit button */}
             <motion.button
               id="login-submit-btn"
@@ -298,7 +352,7 @@ export default function LoginPage() {
                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
               ) : (
                 <>
-                  {isRegister ? "Create Account" : "Continue"}
+                  {isRegister ? (otpStep ? 'Verify & Create Account' : 'Send Verification Code') : 'Continue'}
                   <ArrowRight size={15} />
                 </>
               )}

@@ -37,11 +37,11 @@ export default function ProfilePage() {
   }, []);
 
   // ── Computed: has user made changes? ─────────────────────────────────
-  const hasProfileChanges = fullName !== (user?.full_name ?? '') || email !== (user?.email ?? '');
+  const hasProfileChanges = fullName !== (user?.full_name ?? '');
 
   // ── Update profile mutation ─────────────────────────────────────────
   const updateProfile = useMutation({
-    mutationFn: async (data: { full_name: string; email: string }) => {
+    mutationFn: async (data: { full_name: string }) => {
       // Try Electron local auth first
       if ((window as any).atlasElectron?.localAuth?.updateProfile) {
         const updated = await (window as any).atlasElectron.localAuth.updateProfile(data);
@@ -60,7 +60,7 @@ export default function ProfilePage() {
         return updated;
       } catch (err: any) {
         if (err?.response?.status === 404 || err?.response?.status === 405) {
-          return { ...user, full_name: data.full_name, email: data.email };
+          return { ...user, full_name: data.full_name };
         }
         throw err;
       }
@@ -100,7 +100,7 @@ export default function ProfilePage() {
   // ── Handlers ────────────────────────────────────────────────────────
   const handleProfileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    updateProfile.mutate({ full_name: fullName, email });
+    updateProfile.mutate({ full_name: fullName });
   };
 
   const handlePasswordSubmit = (e: React.FormEvent) => {
@@ -125,6 +125,7 @@ export default function ProfilePage() {
       const base64 = reader.result as string;
       setAvatar(base64);
       localStorage.setItem(AVATAR_STORAGE_KEY, base64);
+      window.dispatchEvent(new Event('atlas-avatar-updated'));
       setToast({ message: "Profile picture updated.", type: "success" });
     };
     reader.readAsDataURL(file);
@@ -246,11 +247,12 @@ export default function ProfilePage() {
                 id="profile-email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                readOnly
                 placeholder="you@example.com"
-                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none transition-colors opacity-60 cursor-not-allowed"
               />
             </div>
+            <p className="text-[11px] text-[var(--text-muted)] mt-1">Email cannot be changed</p>
           </div>
 
           <div className="flex justify-end pt-2">

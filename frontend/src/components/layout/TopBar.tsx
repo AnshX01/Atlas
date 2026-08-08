@@ -85,25 +85,7 @@ export function TopBar() {
           {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
         </button>
 
-        {/* User avatar */}
-        <button
-          id="user-avatar-btn"
-          onClick={() => router.push('/profile')}
-          className="w-7 h-7 rounded-full bg-gradient-to-br from-[var(--accent)] to-purple-500 flex items-center justify-center text-white ml-1 overflow-hidden"
-          aria-label="Open profile"
-        >
-          {avatar ? (
-            <img
-              src={avatar}
-              alt="Profile"
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <span className="text-xs font-semibold leading-none">
-              {userInitial}
-            </span>
-          )}
-        </button>
+
       </div>
     </header>
   );

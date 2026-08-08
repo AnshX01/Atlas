@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -88,6 +89,28 @@ function getRelativeTime(dateStr: string): string {
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { user } = useAuthStore();
+
+  // ── Avatar state ──────────────────────────────────────────────────
+  const [avatar, setAvatar] = useState<string | null>(null);
+
+  useEffect(() => {
+    const stored = localStorage.getItem('atlas-profile-avatar');
+    if (stored) setAvatar(stored);
+    const handleFocus = () => {
+      setAvatar(localStorage.getItem('atlas-profile-avatar'));
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
+
+  useEffect(() => {
+    const handleAvatarUpdate = () => {
+      setAvatar(localStorage.getItem('atlas-profile-avatar'));
+    };
+    window.addEventListener('atlas-avatar-updated', handleAvatarUpdate);
+    return () => window.removeEventListener('atlas-avatar-updated', handleAvatarUpdate);
+  }, []);
 
   const { data: connectors = [], isLoading: connectorsLoading } = useQuery({
     queryKey: ["connectors"],
@@ -285,8 +308,30 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* Bottom: Settings */}
+      {/* Bottom: Profile + Settings */}
       <div className="px-2 pt-4 border-t border-[var(--border-subtle)]">
+        {/* Profile card */}
+        <Link href="/profile" className="block mb-2">
+          <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer">
+            <div className="w-8 h-8 rounded-full overflow-hidden bg-[var(--bg-tertiary)] flex items-center justify-center flex-shrink-0">
+              {avatar ? (
+                <img src={avatar} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-xs font-semibold text-[var(--text-secondary)]">
+                  {user?.full_name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
+                </span>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-[var(--text-primary)] truncate">
+                {user?.full_name || 'User'}
+              </p>
+              <p className="text-[10px] text-[var(--text-muted)] truncate">
+                {user?.email || ''}
+              </p>
+            </div>
+          </div>
+        </Link>
         <Link href="/settings" prefetch={true} aria-label="Open settings">
           <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer">
             <Settings size={16} />
