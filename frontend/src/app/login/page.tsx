@@ -119,15 +119,15 @@ export default function LoginPage() {
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div
           className="absolute -top-40 -left-40 w-96 h-96 rounded-full opacity-20"
-          style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)" }}
+          style={{ background: "radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%)" }}
         />
         <div
           className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full opacity-10"
-          style={{ background: "radial-gradient(circle, #6366f1 0%, transparent 70%)" }}
+          style={{ background: "radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%)" }}
         />
         <div
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full opacity-5"
-          style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 60%)" }}
+          style={{ background: "radial-gradient(circle, rgba(255,255,255,0.5) 0%, transparent 60%)" }}
         />
       </div>
 
@@ -184,9 +184,9 @@ export default function LoginPage() {
                 }}
                 className="flex-1 py-2 rounded-lg text-sm font-medium transition-all duration-200"
                 style={{
-                  background: (i === 1) === isRegister ? "rgba(59, 130, 246, 0.15)" : "transparent",
-                  color: (i === 1) === isRegister ? "#60a5fa" : "rgba(255,255,255,0.4)",
-                  boxShadow: (i === 1) === isRegister ? "0 0 12px rgba(59, 130, 246, 0.2)" : "none",
+                  background: (i === 1) === isRegister ? "rgba(255, 255, 255, 0.1)" : "transparent",
+                  color: (i === 1) === isRegister ? "#ffffff" : "rgba(255,255,255,0.4)",
+                  boxShadow: (i === 1) === isRegister ? "0 0 12px rgba(255, 255, 255, 0.05)" : "none",
                 }}
               >
                 {tab}
@@ -239,8 +239,8 @@ export default function LoginPage() {
                         background: "rgba(255,255,255,0.04)",
                         border: fullName.error ? "1px solid rgba(239,68,68,0.5)" : "1px solid rgba(255,255,255,0.08)",
                       }}
-                      onFocus={(e) => { e.target.style.borderColor = "rgba(59, 130, 246, 0.5)"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.08)"; }}
-                      onBlur={(e) => { e.target.style.borderColor = "rgba(255,255,255,0.08)"; e.target.style.boxShadow = "none"; }}
+                      onFocus={(e) => {}}
+                      onBlur={(e) => {}}
                     />
                   </div>
                 </motion.div>
@@ -266,8 +266,8 @@ export default function LoginPage() {
                     background: "rgba(255,255,255,0.04)",
                     border: email.error ? "1px solid rgba(239,68,68,0.5)" : "1px solid rgba(255,255,255,0.08)",
                   }}
-                  onFocus={(e) => { e.target.style.borderColor = "rgba(59, 130, 246, 0.5)"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.08)"; }}
-                  onBlur={(e) => { e.target.style.borderColor = "rgba(255,255,255,0.08)"; e.target.style.boxShadow = "none"; }}
+                  onFocus={(e) => {}}
+                  onBlur={(e) => {}}
                 />
               </div>
             </div>
@@ -291,8 +291,8 @@ export default function LoginPage() {
                     background: "rgba(255,255,255,0.04)",
                     border: password.error ? "1px solid rgba(239,68,68,0.5)" : "1px solid rgba(255,255,255,0.08)",
                   }}
-                  onFocus={(e) => { e.target.style.borderColor = "rgba(59, 130, 246, 0.5)"; e.target.style.boxShadow = "0 0 0 3px rgba(59, 130, 246, 0.08)"; }}
-                  onBlur={(e) => { e.target.style.borderColor = "rgba(255,255,255,0.08)"; e.target.style.boxShadow = "none"; }}
+                  onFocus={(e) => {}}
+                  onBlur={(e) => {}}
                 />
                 <button
                   type="button"
@@ -318,8 +318,8 @@ export default function LoginPage() {
                 animate={{ opacity: 1, height: 'auto' }}
                 transition={{ type: 'spring', stiffness: 400, damping: 30 }}
               >
-                <div className="p-3 rounded-xl mb-4" style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
-                  <p className="text-xs text-blue-400 mb-1 font-medium">Verification Code</p>
+                <div className="p-3 rounded-xl mb-4" style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                  <p className="text-xs text-white/70 mb-1 font-medium">Verification Code</p>
                   {generatedOtp ? (
                     <>
                       <p className="text-[11px] text-white/50">Dev mode code: <span className="font-mono text-white/90 select-all">{generatedOtp}</span></p>
@@ -351,10 +351,10 @@ export default function LoginPage() {
               type="submit"
               disabled={loading}
               whileTap={{ scale: 0.98 }}
-              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white mt-6 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-[#09090b] mt-6 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               style={{
-                background: "linear-gradient(135deg, #3b82f6, #6366f1)",
-                boxShadow: loading ? "none" : "0 0 24px rgba(59, 130, 246, 0.3), 0 4px 16px rgba(0,0,0,0.3)",
+                background: "#e4e4e7",
+                boxShadow: loading ? "none" : "0 0 24px rgba(255, 255, 255, 0.1), 0 4px 16px rgba(0,0,0,0.3)",
               }}
             >
               {loading ? (
@@ -368,11 +368,6 @@ export default function LoginPage() {
             </motion.button>
           </form>
 
-          {/* Footer note */}
-          <p className="mt-6 text-center text-xs" style={{ color: "rgba(255,255,255,0.25)" }}>
-            Your data never leaves your machine.{" "}
-            <span style={{ color: "rgba(59, 130, 246, 0.7)" }}>Privacy-first by design.</span>
-          </p>
         </div>
 
         {/* Version tag */}

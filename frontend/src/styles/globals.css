@@ -131,11 +131,9 @@ p  { color: var(--text-secondary); line-height: 1.7; }
   color: var(--text-primary);
 }
 
-/* ── Focus Ring ─────────────────────────────────────────────── */
+/* ── Focus Ring — disabled for clean UI ──────────────────────── */
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: var(--radius-sm);
+  outline: none;
 }
 
 /* ── App Layout ─────────────────────────────────────────────── */
