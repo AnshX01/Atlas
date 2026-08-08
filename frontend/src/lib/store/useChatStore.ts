@@ -108,10 +108,11 @@ export const useChatStore = create<ChatState>()(
     }),
     {
       name: "atlas-conversations",
-      // Persist conversations list to localStorage; messages are ephemeral
+      // Persist conversations list and messages to localStorage
       partialize: (state) => ({
         conversations: state.conversations,
         activeConversationId: state.activeConversationId,
+        messages: state.messages,
       }),
     }
   )

@@ -402,43 +402,31 @@ export default function SettingsPage() {
   // On mount, check which providers are already configured
   useEffect(() => {
     async function checkConfigured() {
-      try {
-        const electron = (window as any).atlasElectron;
-        if (electron?.tokenStore?.listConfigured) {
-          const configured: string[] = await electron.tokenStore.listConfigured();
-          setStatuses((prev) => {
-            const next = { ...prev };
-            for (const id of Object.keys(next) as ConnectorId[]) {
-              next[id] = {
-                ...next[id],
-                configured: configured.includes(id),
-              };
-            }
-            return next;
-          });
-        } else {
-          // Fallback: check localStorage
-          setStatuses((prev) => {
-            const next = { ...prev };
-            for (const id of Object.keys(next) as ConnectorId[]) {
-              const stored = localStorage.getItem(`atlas_connector_${id}`);
-              if (stored) {
-                try {
-                  const parsed = JSON.parse(stored);
-                  // Check that at least one value is non-empty
-                  const hasValue = Object.values(parsed).some((v) => v && String(v).trim());
-                  next[id] = { ...next[id], configured: hasValue };
-                } catch {
-                  // ignore
-                }
-              }
-            }
-            return next;
-          });
+      // Small delay to ensure Electron IPC bridge is ready
+      await new Promise((r) => setTimeout(r, 100));
+
+      const electron = (window as any).atlasElectron;
+      const configuredFromElectron: string[] = [];
+
+      if (electron?.tokenStore?.listConfigured) {
+        try {
+          const list = await electron.tokenStore.listConfigured();
+          configuredFromElectron.push(...list);
+        } catch {
+          // IPC call failed — fall through to localStorage check
         }
-      } catch {
-        // Not in Electron or API unavailable — leave all as unconfigured
       }
+
+      // Check both Electron token store and localStorage
+      setStatuses((prev) => {
+        const next = { ...prev };
+        for (const id of Object.keys(next) as ConnectorId[]) {
+          const inElectron = configuredFromElectron.includes(id);
+          const inLocalStorage = !!localStorage.getItem(`atlas_connector_${id}`);
+          next[id] = { ...next[id], configured: inElectron || inLocalStorage };
+        }
+        return next;
+      });
     }
     checkConfigured();
   }, []);

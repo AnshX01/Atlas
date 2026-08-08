@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard, Settings,
   FolderOpen, Plus, Home, LogOut,
-  MessageSquare,
+  MessageSquare, X,
 } from "lucide-react";
 import {
   GoogleLogo,
@@ -98,6 +98,7 @@ export function Sidebar() {
   const conversations = useChatStore((s) => s.conversations);
   const activeConversationId = useChatStore((s) => s.activeConversationId);
   const setActiveConversation = useChatStore((s) => s.setActiveConversation);
+  const removeConversation = useChatStore((s) => s.removeConversation);
 
   const recentConversations = conversations.slice(0, 10);
 
@@ -259,18 +260,24 @@ export function Sidebar() {
                   role="listitem"
                   tabIndex={0}
                   className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-xl cursor-pointer transition-colors",
+                    "flex items-center gap-2 px-3 py-1.5 rounded-xl cursor-pointer transition-colors group",
                     isActive
                       ? "bg-[var(--accent)]/10 text-[var(--accent)]"
                       : "text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
                   )}
                   title={conv.title}
                 >
-                  <MessageSquare size={12} className="flex-shrink-0 opacity-60" />
                   <span className="flex-1 truncate text-xs">{conv.title}</span>
                   <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0 opacity-70">
                     {getRelativeTime(conv.createdAt)}
                   </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeConversation(conv.id); }}
+                    className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text-muted)] hover:text-red-400"
+                    aria-label="Delete conversation"
+                  >
+                    <X size={12} />
+                  </button>
                 </div>
               );
             })}

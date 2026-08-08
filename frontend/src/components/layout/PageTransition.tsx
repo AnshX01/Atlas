@@ -33,6 +33,7 @@ export function PageTransition({ children }: { children: React.ReactNode }) {
     <AnimatePresence mode="wait">
       <motion.div
         key={pathname}
+        className="h-full"
         variants={pageVariants}
         initial="initial"
         animate="animate"

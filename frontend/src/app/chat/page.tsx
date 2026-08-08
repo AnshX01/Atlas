@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Send,
@@ -14,7 +15,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/useAuthStore";
-import { useChatStore } from "@/lib/store/useChatStore";
+import { useChatStore, type ChatMessage as StoredChatMessage } from "@/lib/store/useChatStore";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 
@@ -427,18 +428,53 @@ function ChatInput({
 // ── Main Page Component ─────────────────────────────────────────────────────
 
 export default function ChatPage() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const searchParams = useSearchParams();
+  const conversationId = searchParams.get('id');
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    // Initialize from store if loading an existing conversation
+    if (conversationId) {
+      const stored = useChatStore.getState().messages[conversationId];
+      if (stored && stored.length > 0) {
+        return stored.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          timestamp: new Date(m.timestamp),
+        }));
+      }
+    }
+    return [];
+  });
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const isFirstMessageRef = useRef(true);
+  const conversationIdRef = useRef<string | null>(conversationId);
+  const isFirstMessageRef = useRef(!conversationId);
 
   // Load user avatar from localStorage
   useEffect(() => {
     const stored = localStorage.getItem('atlas-profile-avatar');
     if (stored) setUserAvatar(stored);
   }, []);
+
+  // Sync conversationIdRef when URL changes
+  useEffect(() => {
+    conversationIdRef.current = conversationId;
+    if (conversationId) {
+      isFirstMessageRef.current = false;
+      const stored = useChatStore.getState().messages[conversationId];
+      if (stored && stored.length > 0) {
+        setMessages(stored.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          timestamp: new Date(m.timestamp),
+        })));
+      }
+    }
+  }, [conversationId]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -518,8 +554,8 @@ export default function ChatPage() {
 
       unsubEnd = window.atlasElectron!.onWorkflowComplete((data: any) => {
         // Mark all tool executions as done
-        setMessages((prev) =>
-          prev.map((m) =>
+        setMessages((prev) => {
+          const updated = prev.map((m) =>
             m.id === assistantId
               ? {
                   ...m,
@@ -528,16 +564,27 @@ export default function ChatPage() {
                   toolExecutions: m.toolExecutions?.map((t) => ({ ...t, status: "done" as const })),
                 }
               : m
-          )
-        );
-        setStatus("idle");
+          );
 
-        // Create conversation on first message
-        if (isFirstMessageRef.current) {
-          isFirstMessageRef.current = false;
-          const title = text.slice(0, 50);
-          useChatStore.getState().addConversation(title);
-        }
+          // Save messages to store
+          let convId = conversationIdRef.current;
+          if (isFirstMessageRef.current) {
+            isFirstMessageRef.current = false;
+            const title = text.slice(0, 50);
+            convId = useChatStore.getState().addConversation(title);
+            conversationIdRef.current = convId;
+          }
+          if (convId) {
+            const userStoreMsg: StoredChatMessage = { id: userMsg.id, role: "user", content: userMsg.content, timestamp: userMsg.timestamp.toISOString() };
+            const assistantContent = updated.find((m) => m.id === assistantId)?.content ?? "";
+            const assistantStoreMsg: StoredChatMessage = { id: assistantId, role: "assistant", content: assistantContent, timestamp: new Date().toISOString() };
+            useChatStore.getState().addMessage(convId, userStoreMsg);
+            useChatStore.getState().addMessage(convId, assistantStoreMsg);
+          }
+
+          return updated;
+        });
+        setStatus("idle");
 
         // Cleanup all listeners
         unsubStream?.();
@@ -611,11 +658,19 @@ export default function ChatPage() {
           )
         );
 
-        // Create conversation on first message
+        // Save to store
+        let convId = conversationIdRef.current;
         if (isFirstMessageRef.current) {
           isFirstMessageRef.current = false;
           const title = text.slice(0, 50);
-          useChatStore.getState().addConversation(title);
+          convId = useChatStore.getState().addConversation(title);
+          conversationIdRef.current = convId;
+        }
+        if (convId) {
+          const userStoreMsg: StoredChatMessage = { id: userMsg.id, role: "user", content: userMsg.content, timestamp: userMsg.timestamp.toISOString() };
+          const assistantStoreMsg: StoredChatMessage = { id: assistantId, role: "assistant", content: responseText, timestamp: new Date().toISOString() };
+          useChatStore.getState().addMessage(convId, userStoreMsg);
+          useChatStore.getState().addMessage(convId, assistantStoreMsg);
         }
       } catch (err: unknown) {
         if ((err as Error)?.name === "AbortError") return;
@@ -730,8 +785,8 @@ export default function ChatPage() {
         )}
       </div>
 
-      {/* Input Area — sticky at bottom */}
-      <div className="flex-shrink-0 sticky bottom-0 px-4 pb-4 pt-3 bg-[var(--bg-primary)]">
+      {/* Input Area — fixed at bottom */}
+      <div className="flex-shrink-0 px-4 pb-4 pt-3 bg-[var(--bg-primary)]">
         <div className="max-w-2xl mx-auto">
           <ChatInput onSend={sendMessage} disabled={status !== "idle"} />
         </div>
