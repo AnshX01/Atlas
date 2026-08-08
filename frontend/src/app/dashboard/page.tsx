@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { Plug, Search, Zap, Calendar, Activity, ArrowRight, Mail, GitPullRequest, FileText } from "lucide-react";
+import { Plug, Search, Zap, Calendar, Activity, ArrowRight, Mail, GitPullRequest, FileText, LayoutDashboard, Settings, MessageSquare } from "lucide-react";
 import {
   GoogleLogo,
   GitHubLogo,
@@ -40,19 +40,16 @@ function QuickActionCard({
       onClick={onClick}
       onMouseEnter={() => { if (prefetchHref) cardRouter.prefetch(prefetchHref); }}
       className="p-4 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] text-left
-                 hover:border-[var(--accent)] hover:bg-[var(--bg-tertiary)] transition-all duration-150 group flex flex-col gap-2"
+                 hover:border-[var(--accent)] hover:bg-[var(--bg-tertiary)] transition-all duration-150 group flex flex-col gap-3"
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, type: "spring", stiffness: 400, damping: 30 }}
       whileHover={{ y: -1, boxShadow: "0 4px 16px rgba(0,0,0,0.12)" }}
       whileTap={{ scale: 0.98 }}
     >
-      <div className="flex items-center justify-between">
-        <div className="w-8 h-8 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center">
-          {icon}
-        </div>
-        <ArrowRight size={14} className="text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors" />
-      </div>
+      <span className="text-[var(--accent)]">
+        {icon}
+      </span>
       <div>
         <p className="text-sm font-semibold text-[var(--text-primary)]">{label}</p>
         <p className="text-xs text-[var(--text-muted)] mt-0.5">{description}</p>
@@ -63,13 +60,13 @@ function QuickActionCard({
 
 // ── Type Icons for Activity Items ─────────────────────────────────────────────
 const typeIcons: Record<string, React.ReactNode> = {
-  email: <Mail size={13} className="text-blue-400" />,
-  pr: <GitPullRequest size={13} className="text-purple-400" />,
-  issue: <GitPullRequest size={13} className="text-orange-400" />,
-  calendar: <Calendar size={13} className="text-green-400" />,
+  email: <Mail size={13} className="text-white/70" />,
+  pr: <GitPullRequest size={13} className="text-white/70" />,
+  issue: <GitPullRequest size={13} className="text-white/70" />,
+  calendar: <Calendar size={13} className="text-white/70" />,
   document: <FileText size={13} className="text-slate-400" />,
   file: <FileText size={13} className="text-slate-400" />,
-  task: <Zap size={13} className="text-yellow-400" />,
+  task: <Zap size={13} className="text-white/70" />,
 };
 
 // ── Provider Display Names ────────────────────────────────────────────────────
@@ -145,37 +142,9 @@ export default function DashboardPage() {
           {getGreeting()}, {firstName}
         </h1>
         <p className="text-sm text-[var(--text-secondary)] mt-1">
-          Your command center at a glance.
+          Your workspace at a glance.
         </p>
       </motion.div>
-
-      {/* Status Row: Integrations */}
-      {connectorsLoading ? (
-        <div className="mb-6">
-          <DashboardStatusSkeleton />
-        </div>
-      ) : (
-        <motion.div
-          className="p-5 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] mb-6"
-          initial={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.1, type: "spring", stiffness: 400, damping: 30 }}
-        >
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 rounded-xl bg-[var(--accent)]/10 flex items-center justify-center">
-              <Plug size={18} className="text-[var(--accent)]" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-[var(--text-primary)]">
-                {connectedCount} Integration{connectedCount !== 1 ? 's' : ''} Connected
-              </p>
-              <p className="text-xs text-[var(--text-muted)]">
-                {connectedCount === 0 ? 'Connect your first service' : 'All systems operational'}
-              </p>
-            </div>
-          </div>
-        </motion.div>
-      )}
 
       {/* Sync Status */}
       {connectors && connectors.filter((c) => c.status === "active").length > 0 && (
@@ -222,7 +191,7 @@ export default function DashboardPage() {
         </h2>
         <div className="grid grid-cols-3 gap-3">
           <QuickActionCard
-            icon={<Calendar size={16} className="text-[var(--accent)]" />}
+            icon={<LayoutDashboard size={16} className="text-[var(--accent)]" />}
             label="View Briefing"
             description="Today's priorities"
             onClick={() => router.push("/briefing")}
@@ -230,7 +199,7 @@ export default function DashboardPage() {
             prefetchHref="/briefing"
           />
           <QuickActionCard
-            icon={<Search size={16} className="text-[var(--accent)]" />}
+            icon={<MessageSquare size={16} className="text-[var(--accent)]" />}
             label="AI Chat"
             description="Ask anything"
             onClick={() => router.push("/chat")}
@@ -238,7 +207,7 @@ export default function DashboardPage() {
             prefetchHref="/chat"
           />
           <QuickActionCard
-            icon={<Zap size={16} className="text-[var(--accent)]" />}
+            icon={<Settings size={16} className="text-[var(--accent)]" />}
             label="Settings"
             description="Integrations & prefs"
             onClick={() => router.push("/settings")}

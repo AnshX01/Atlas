@@ -1,4 +1,4 @@
-import { BrowserWindow } from 'electron';
+import { shell } from 'electron';
 import { setToken } from './token-store';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -21,9 +21,17 @@ export interface GoogleTokens {
   scope: string;
 }
 
+// Store pending OAuth resolve/reject so the HTTP server callback can complete the flow
+let pendingOAuth: {
+  clientId: string;
+  clientSecret: string;
+  resolve: (tokens: GoogleTokens) => void;
+  reject: (err: Error) => void;
+} | null = null;
+
 /**
- * Start the Google OAuth flow in a popup window.
- * Returns the tokens on success.
+ * Start the Google OAuth flow in the system browser.
+ * The OAuth callback is handled by the HTTP server in main.ts on port 19876.
  */
 export async function startGoogleOAuth(clientId: string, clientSecret: string): Promise<GoogleTokens> {
   return new Promise((resolve, reject) => {
@@ -34,58 +42,37 @@ export async function startGoogleOAuth(clientId: string, clientSecret: string): 
     authUrl.searchParams.set('scope', SCOPES.join(' '));
     authUrl.searchParams.set('access_type', 'offline');
     authUrl.searchParams.set('prompt', 'consent');
+    authUrl.searchParams.set('state', 'connector_oauth');
 
-    const authWindow = new BrowserWindow({
-      width: 500,
-      height: 700,
-      show: true,
-      webPreferences: {
-        nodeIntegration: false,
-        contextIsolation: true,
-      },
-    });
+    // Store the pending promise so the callback handler can resolve it
+    pendingOAuth = { clientId, clientSecret, resolve, reject };
 
-    authWindow.loadURL(authUrl.toString());
+    // Open in system browser
+    shell.openExternal(authUrl.toString());
 
-    // Listen for the redirect
-    authWindow.webContents.on('will-redirect', async (_event, url) => {
-      await handleRedirect(url, clientId, clientSecret, authWindow, resolve, reject);
-    });
-
-    authWindow.webContents.on('will-navigate', async (_event, url) => {
-      await handleRedirect(url, clientId, clientSecret, authWindow, resolve, reject);
-    });
-
-    authWindow.on('closed', () => {
-      reject(new Error('OAuth window was closed by user'));
-    });
+    // Timeout after 3 minutes
+    setTimeout(() => {
+      if (pendingOAuth) {
+        pendingOAuth = null;
+        reject(new Error('OAuth timed out. Please try again.'));
+      }
+    }, 180000);
   });
 }
 
-async function handleRedirect(
-  url: string,
-  clientId: string,
-  clientSecret: string,
-  authWindow: BrowserWindow,
-  resolve: (tokens: GoogleTokens) => void,
-  reject: (err: Error) => void
-) {
-  if (!url.startsWith(REDIRECT_URI)) return;
-
-  const urlObj = new URL(url);
-  const code = urlObj.searchParams.get('code');
-  const error = urlObj.searchParams.get('error');
-
-  if (error) {
-    authWindow.close();
-    reject(new Error(`Google OAuth error: ${error}`));
-    return;
+/**
+ * Called by the OAuth HTTP server in main.ts when it receives the callback.
+ * Exchanges the authorization code for tokens.
+ */
+export async function handleOAuthCallback(code: string): Promise<GoogleTokens> {
+  if (!pendingOAuth) {
+    throw new Error('No pending OAuth flow');
   }
 
-  if (!code) return;
+  const { clientId, clientSecret, resolve, reject } = pendingOAuth;
+  pendingOAuth = null;
 
   try {
-    // Exchange code for tokens
     const response = await fetch(GOOGLE_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -100,12 +87,14 @@ async function handleRedirect(
 
     if (!response.ok) {
       const errData = await response.json();
-      throw new Error(errData.error_description || 'Token exchange failed');
+      const err = new Error(errData.error_description || 'Token exchange failed');
+      reject(err);
+      throw err;
     }
 
     const tokens = await response.json() as GoogleTokens;
 
-    // Store tokens
+    // Store tokens in the Electron token store
     setToken('google_workspace', {
       client_id: clientId,
       client_secret: clientSecret,
@@ -116,11 +105,28 @@ async function handleRedirect(
       scope: tokens.scope,
     });
 
-    authWindow.close();
     resolve(tokens);
+    return tokens;
   } catch (err: any) {
-    authWindow.close();
     reject(err);
+    throw err;
+  }
+}
+
+/**
+ * Check if there's a pending OAuth flow waiting for a callback.
+ */
+export function hasPendingOAuth(): boolean {
+  return pendingOAuth !== null;
+}
+
+/**
+ * Cancel a pending OAuth flow (e.g., if user closed the browser).
+ */
+export function cancelPendingOAuth(): void {
+  if (pendingOAuth) {
+    pendingOAuth.reject(new Error('OAuth cancelled'));
+    pendingOAuth = null;
   }
 }
 

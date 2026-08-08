@@ -7,45 +7,28 @@ import {
   Send,
   Mail,
   GitPullRequest,
+  AlertCircle,
   Calendar,
   FileText,
   Zap,
   Check,
   X,
   Loader2,
+  ExternalLink,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/useAuthStore";
-import { useChatStore, type ChatMessage as StoredChatMessage } from "@/lib/store/useChatStore";
+import {
+  useChatStore,
+  type ChatMessage as StoredChatMessage,
+  type SearchResult,
+  type ActionSuggestion,
+  type ToolExecution,
+  type DraftData,
+} from "@/lib/store/useChatStore";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 
 // ── Types ───────────────────────────────────────────────────────────────────
-
-interface SearchResult {
-  id: string;
-  type: string;
-  title: string;
-  excerpt: string;
-  source: string;
-  score: number;
-  url?: string;
-  timestamp: string;
-}
-
-interface ActionSuggestion {
-  id: string;
-  type: string;
-  label: string;
-  preview: string;
-  status: "pending" | "approved" | "rejected";
-}
-
-interface ToolExecution {
-  id: string;
-  server: string;
-  tool: string;
-  status: "executing" | "done";
-}
 
 interface ChatMessage {
   id: string;
@@ -54,6 +37,7 @@ interface ChatMessage {
   results?: SearchResult[];
   actions?: ActionSuggestion[];
   toolExecutions?: ToolExecution[];
+  draft?: DraftData;
   streaming?: boolean;
   timestamp: Date;
 }
@@ -63,23 +47,13 @@ type ChatStatus = "idle" | "streaming" | "loading";
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const typeIcon: Record<string, React.ReactNode> = {
-  email: <Mail size={14} />,
-  pr: <GitPullRequest size={14} />,
-  issue: <GitPullRequest size={14} />,
-  calendar: <Calendar size={14} />,
-  document: <FileText size={14} />,
-  file: <FileText size={14} />,
-  task: <Zap size={14} />,
-};
-
-const typeColor: Record<string, string> = {
-  email: "text-blue-400 bg-blue-400/10",
-  pr: "text-purple-400 bg-purple-400/10",
-  issue: "text-orange-400 bg-orange-400/10",
-  calendar: "text-green-400 bg-green-400/10",
-  document: "text-slate-400 bg-slate-400/10",
-  file: "text-slate-400 bg-slate-400/10",
-  task: "text-yellow-400 bg-yellow-400/10",
+  email: <Mail size={16} />,
+  pr: <GitPullRequest size={16} />,
+  issue: <AlertCircle size={16} />,
+  calendar: <Calendar size={16} />,
+  document: <FileText size={16} />,
+  file: <FileText size={16} />,
+  task: <Zap size={16} />,
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -90,6 +64,21 @@ const ACTION_LABELS: Record<string, string> = {
   create_issue: "Create Issue",
   schedule_event: "Schedule Event",
   add_comment: "Add Comment",
+  post_message: "Post Message",
+  send_message: "Send Message",
+};
+
+const DRAFT_TYPE_LABELS: Record<string, string> = {
+  reply_email: "Draft Email Reply",
+  send_email: "Draft Email",
+  forward_email: "Draft Forward",
+  merge_pr: "Merge Pull Request",
+  close_pr: "Close Pull Request",
+  post_message: "Draft Slack Message",
+  send_message: "Draft Message",
+  create_issue: "Draft Issue",
+  create_page: "Draft Page",
+  update_page: "Update Page",
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -102,7 +91,10 @@ function getActionLabel(action: string): string {
   return ACTION_LABELS[action] || action.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-/** Detect if running inside Electron with Atlas IPC bridge */
+function getDraftTypeLabel(actionType: string): string {
+  return DRAFT_TYPE_LABELS[actionType] || actionType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function hasElectronIPC(): boolean {
   return typeof window !== "undefined" && !!window.atlasElectron;
 }
@@ -116,74 +108,121 @@ function StreamingIndicator() {
   );
 }
 
+function formatServerName(server: string): string {
+  const names: Record<string, string> = {
+    google_workspace: "Google Workspace",
+    github: "GitHub",
+    slack: "Slack",
+    notion: "Notion",
+    filesystem: "Local Files",
+    local_fs: "Local Files",
+  };
+  return names[server] || server.charAt(0).toUpperCase() + server.slice(1);
+}
+
 function ToolExecutionCard({ tool }: { tool: ToolExecution }) {
   return (
     <motion.div
-      className="flex items-center gap-2.5 p-2.5 rounded-xl border border-[var(--border-default)] bg-[var(--bg-tertiary)]"
+      className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/[0.04] bg-white/[0.02]"
       initial={{ opacity: 0, height: 0 }}
       animate={{ opacity: 1, height: "auto" }}
     >
-      <span className="flex-shrink-0 w-6 h-6 rounded-lg bg-amber-400/10 flex items-center justify-center">
-        {tool.status === "executing" ? (
-          <Loader2 size={12} className="text-amber-400 animate-spin" />
-        ) : (
-          <Check size={12} className="text-green-400" />
-        )}
+      {tool.status === "executing" ? (
+        <Loader2 size={12} className="text-white/40 animate-spin" />
+      ) : (
+        <Check size={12} className="text-white/50" />
+      )}
+      <span className="text-[12px] text-white/50">
+        {formatServerName(tool.server)}
       </span>
-      <div className="min-w-0">
-        <p className="text-[11px] font-medium text-[var(--text-primary)] truncate">
-          {tool.tool}
-        </p>
-        <p className="text-[10px] text-[var(--text-muted)]">
-          {tool.status === "executing" ? `Calling ${tool.server}…` : `Done — ${tool.server}`}
-        </p>
+    </motion.div>
+  );
+}
+
+function formatSourceName(source: string): string {
+  const names: Record<string, string> = {
+    gmail: "Google Workspace",
+    email: "Google Workspace",
+    github: "GitHub",
+    calendar: "Google Workspace",
+    tasks: "Google Workspace",
+    slack: "Slack",
+    notion: "Notion",
+    filesystem: "Local Files",
+    "google workspace": "Google Workspace",
+    "google_workspace": "Google Workspace",
+    "local files": "Local Files",
+    "local_fs": "Local Files",
+  };
+  return names[source?.toLowerCase()] || source?.charAt(0).toUpperCase() + source?.slice(1) || "Source";
+}
+
+function ResultCard({ result }: { result: SearchResult }) {
+  const icon = typeIcon[result.type] ?? <FileText size={15} />;
+
+  const handleClick = () => {
+    if (result.url) {
+      window.open(result.url, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  return (
+    <motion.div
+      className="group cursor-pointer rounded-xl border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/[0.12] transition-all duration-200"
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      whileHover={{ y: -1 }}
+      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+      onClick={handleClick}
+    >
+      <div className="px-4 py-3">
+        {/* Top row: icon + source name + timestamp */}
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-white/50">{icon}</span>
+          <span className="text-[12px] font-medium text-white/50">
+            {formatSourceName(result.source)}
+          </span>
+          {result.timestamp && (
+            <span className="text-[11px] text-white/30 ml-auto">
+              {(() => {
+                try {
+                  return formatDistanceToNow(new Date(result.timestamp), { addSuffix: true });
+                } catch {
+                  return "";
+                }
+              })()}
+            </span>
+          )}
+          {result.url && (
+            <ExternalLink size={11} className="text-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+          )}
+        </div>
+
+        {/* Title */}
+        <h4 className="text-[13px] font-medium text-white/90 leading-snug line-clamp-1 mb-1">
+          {result.title}
+        </h4>
+
+        {/* Excerpt */}
+        {result.excerpt && (
+          <p className="text-[12px] text-white/40 leading-relaxed line-clamp-2">
+            {result.excerpt}
+          </p>
+        )}
       </div>
     </motion.div>
   );
 }
 
-function ResultCard({ result }: { result: SearchResult }) {
-  const color = typeColor[result.type] ?? "text-slate-400 bg-slate-400/10";
-  const icon = typeIcon[result.type] ?? <FileText size={14} />;
 
-  return (
-    <motion.div
-      className="p-2.5 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-tertiary)] hover:border-[var(--accent)]/20 transition-all duration-150 cursor-pointer group"
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -1, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}
-    >
-      <div className="flex items-start gap-2.5">
-        <span className={cn("flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center", color)}>
-          {icon}
-        </span>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wide">
-              {result.source}
-            </span>
-            {result.timestamp && (
-              <span className="text-[10px] text-[var(--text-muted)]">
-                {(() => {
-                  try {
-                    return formatDistanceToNow(new Date(result.timestamp), { addSuffix: true });
-                  } catch {
-                    return "";
-                  }
-                })()}
-              </span>
-            )}
-          </div>
-          <h4 className="text-xs font-semibold text-[var(--text-primary)] leading-snug line-clamp-1">
-            {result.title}
-          </h4>
-          <p className="text-[11px] text-[var(--text-secondary)] leading-relaxed line-clamp-2 mt-0.5">
-            {result.excerpt}
-          </p>
-        </div>
-      </div>
-    </motion.div>
-  );
+function getActionIcon(actionType: string): React.ReactNode {
+  if (actionType.includes("email") || actionType.includes("mail")) return <Mail size={16} />;
+  if (actionType.includes("pr") || actionType.includes("merge") || actionType.includes("branch")) return <GitPullRequest size={16} />;
+  if (actionType.includes("issue")) return <AlertCircle size={16} />;
+  if (actionType.includes("event") || actionType.includes("calendar") || actionType.includes("schedule")) return <Calendar size={16} />;
+  if (actionType.includes("message") || actionType.includes("slack") || actionType.includes("post")) return <Zap size={16} />;
+  if (actionType.includes("page") || actionType.includes("notion") || actionType.includes("doc")) return <FileText size={16} />;
+  return <Zap size={16} />;
 }
 
 function ActionCard({
@@ -212,8 +251,8 @@ function ActionCard({
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
-          <span className="flex-shrink-0 w-7 h-7 rounded-lg bg-[var(--accent)]/10 flex items-center justify-center">
-            <Zap size={13} className="text-[var(--accent)]" />
+          <span className="text-white/50">
+            {getActionIcon(action.type)}
           </span>
           <div className="min-w-0">
             <p className="text-xs font-semibold text-[var(--text-primary)]">
@@ -257,16 +296,138 @@ function ActionCard({
   );
 }
 
+function DraftCard({
+  draft,
+  onApprove,
+  onReject,
+}: {
+  draft: DraftData;
+  onApprove: (executionId: string) => void;
+  onReject: (executionId: string) => void;
+}) {
+  const isPending = draft.status === "pending";
+  const isExecuting = draft.status === "executing";
+  const isDone = draft.status === "done" || draft.status === "approved";
+  const isRejected = draft.status === "rejected";
+
+  // Separate the "body" / "message" / "content" field from meta fields
+  const bodyKey = Object.keys(draft.fields).find((k) =>
+    ["body", "message", "content", "description"].includes(k.toLowerCase())
+  );
+  const bodyContent = bodyKey ? draft.fields[bodyKey] : null;
+  const metaFields = Object.entries(draft.fields).filter(
+    ([k]) => k !== bodyKey && draft.fields[k]
+  );
+
+  return (
+    <motion.div
+      className="relative group"
+      initial={{ opacity: 0, y: 8, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+    >
+      {/* Gradient border */}
+      <div className="absolute -inset-[1px] rounded-2xl bg-gradient-to-b from-white/[0.08] to-white/[0.02]" />
+
+      <div className="relative rounded-2xl bg-[#111113]/90 backdrop-blur-xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06]">
+          <span className="text-white/70">{getActionIcon(draft.actionType)}</span>
+          <span className="text-xs font-semibold text-white/70 uppercase tracking-wide">
+            {getDraftTypeLabel(draft.actionType)}
+          </span>
+        </div>
+
+        {/* Meta fields */}
+        {metaFields.length > 0 && (
+          <div className="px-4 py-2.5 space-y-1.5 border-b border-white/[0.04]">
+            {metaFields.map(([key, value]) => (
+              <div key={key} className="flex items-center gap-2">
+                <span className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wider w-14 flex-shrink-0">
+                  {key}
+                </span>
+                <span className="text-[12px] text-[var(--text-primary)] truncate">
+                  {value}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Body content */}
+        {bodyContent && (
+          <div className="px-4 py-3">
+            <p className="text-[12px] text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap line-clamp-6">
+              {bodyContent}
+            </p>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div className="px-4 py-3 border-t border-white/[0.06]">
+          {isPending && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => onApprove(draft.executionId)}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors"
+              >
+                <Check size={14} />
+                Send
+              </button>
+              <button
+                onClick={() => onReject(draft.executionId)}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+              >
+                <X size={14} />
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {isExecuting && (
+            <div className="flex items-center justify-center gap-2 py-2">
+              <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white/80 animate-spin" />
+              <span className="text-xs text-[var(--text-secondary)]">Executing…</span>
+            </div>
+          )}
+
+          {isDone && (
+            <div className="flex items-center justify-center gap-2 py-2">
+              <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
+                <Check size={12} className="text-green-400" />
+              </div>
+              <span className="text-xs text-green-400 font-medium">Sent successfully</span>
+            </div>
+          )}
+
+          {isRejected && (
+            <div className="flex items-center justify-center gap-2 py-2">
+              <div className="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center">
+                <X size={12} className="text-red-400" />
+              </div>
+              <span className="text-xs text-red-400 font-medium">Cancelled</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 
 function ChatMessageBubble({
   message,
   onApproveAction,
   onRejectAction,
+  onApproveDraft,
+  onRejectDraft,
   userAvatar,
 }: {
   message: ChatMessage;
   onApproveAction: (actionId: string) => void;
   onRejectAction: (actionId: string) => void;
+  onApproveDraft: (executionId: string) => void;
+  onRejectDraft: (executionId: string) => void;
   userAvatar?: string | null;
 }) {
   const isUser = message.role === "user";
@@ -315,7 +476,7 @@ function ChatMessageBubble({
           {message.streaming && <StreamingIndicator />}
         </div>
 
-        {/* Tool Execution Cards (inline) */}
+        {/* Tool Execution Cards */}
         {message.toolExecutions && message.toolExecutions.length > 0 && (
           <div className="flex flex-col gap-1">
             {message.toolExecutions.map((tool) => (
@@ -326,7 +487,7 @@ function ChatMessageBubble({
 
         {/* Result Cards */}
         {message.results && message.results.length > 0 && (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-2">
             {message.results.map((result) => (
               <ResultCard key={result.id} result={result} />
             ))}
@@ -346,6 +507,15 @@ function ChatMessageBubble({
             ))}
           </div>
         )}
+
+        {/* Draft Card */}
+        {message.draft && (
+          <DraftCard
+            draft={message.draft}
+            onApprove={onApproveDraft}
+            onReject={onRejectDraft}
+          />
+        )}
       </div>
     </motion.div>
   );
@@ -353,10 +523,14 @@ function ChatMessageBubble({
 
 function ChatInput({
   onSend,
+  onStop,
   disabled,
+  isStreaming,
 }: {
   onSend: (text: string) => void;
+  onStop?: () => void;
   disabled: boolean;
+  isStreaming?: boolean;
 }) {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -403,23 +577,29 @@ function ChatInput({
         className="flex-1 bg-transparent text-[14px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none resize-none max-h-40 leading-relaxed min-h-[44px] focus-visible:outline-none"
         aria-label="Chat input"
       />
-      <button
-        onClick={handleSend}
-        disabled={disabled || !text.trim()}
-        className={cn(
-          "flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-150",
-          text.trim() && !disabled
-            ? "bg-[var(--accent)] text-[var(--bg-primary)] hover:bg-[var(--accent-hover)] shadow-sm"
-            : "bg-[var(--bg-tertiary)] text-[var(--text-muted)] cursor-not-allowed"
-        )}
-        aria-label="Send message"
-      >
-        {disabled ? (
-          <span className="w-3.5 h-3.5 border-2 border-current/30 border-t-current rounded-full animate-spin" />
-        ) : (
+      {isStreaming ? (
+        <button
+          onClick={onStop}
+          className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all duration-150"
+          aria-label="Stop generating"
+        >
+          <span className="w-3 h-3 rounded-sm bg-current" />
+        </button>
+      ) : (
+        <button
+          onClick={handleSend}
+          disabled={disabled || !text.trim()}
+          className={cn(
+            "flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-150",
+            text.trim() && !disabled
+              ? "bg-[var(--accent)] text-[var(--bg-primary)] hover:bg-[var(--accent-hover)] shadow-sm"
+              : "bg-[var(--bg-tertiary)] text-[var(--text-muted)] cursor-not-allowed"
+          )}
+          aria-label="Send message"
+        >
           <Send size={14} />
-        )}
-      </button>
+        </button>
+      )}
     </div>
   );
 }
@@ -448,7 +628,6 @@ function ChatPageInner() {
   const conversationId = searchParams.get('id');
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
-    // Initialize from store if loading an existing conversation
     if (conversationId) {
       const stored = useChatStore.getState().messages[conversationId];
       if (stored && stored.length > 0) {
@@ -456,6 +635,10 @@ function ChatPageInner() {
           id: m.id,
           role: m.role,
           content: m.content,
+          results: m.results,
+          actions: m.actions,
+          toolExecutions: m.toolExecutions,
+          draft: m.draft,
           timestamp: new Date(m.timestamp),
         }));
       }
@@ -469,13 +652,11 @@ function ChatPageInner() {
   const conversationIdRef = useRef<string | null>(conversationId);
   const isFirstMessageRef = useRef(!conversationId);
 
-  // Load user avatar from localStorage
   useEffect(() => {
     const stored = localStorage.getItem('atlas-profile-avatar');
     if (stored) setUserAvatar(stored);
   }, []);
 
-  // Sync conversationIdRef when URL changes
   useEffect(() => {
     conversationIdRef.current = conversationId;
     if (conversationId) {
@@ -486,13 +667,21 @@ function ChatPageInner() {
           id: m.id,
           role: m.role,
           content: m.content,
+          results: m.results,
+          actions: m.actions,
+          toolExecutions: m.toolExecutions,
+          draft: m.draft,
           timestamp: new Date(m.timestamp),
         })));
       }
+    } else {
+      // New chat — reset everything
+      setMessages([]);
+      setStatus("idle");
+      isFirstMessageRef.current = true;
     }
   }, [conversationId]);
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -521,11 +710,12 @@ function ChatPageInner() {
     setStatus("streaming");
 
     if (hasElectronIPC()) {
-      // ── Electron IPC path — real streaming from Ollama via orchestrator ──
+      // ── Electron IPC path ──
       let unsubStream: (() => void) | null = null;
       let unsubEnd: (() => void) | null = null;
       let unsubTool: (() => void) | null = null;
       let unsubApproval: (() => void) | null = null;
+      let unsubDraft: (() => void) | null = null;
 
       unsubStream = window.atlasElectron!.onWorkflowStream((token: string) => {
         setMessages((prev) =>
@@ -555,8 +745,8 @@ function ChatPageInner() {
         const action: ActionSuggestion = {
           id: data.executionId ?? generateId(),
           type: data.actionType ?? data.tool ?? "action",
-          label: data.label ?? getActionLabel(data.actionType ?? "action"),
-          preview: data.preview ?? data.description ?? "Requires your approval",
+          label: getActionLabel(data.actionType ?? "action"),
+          preview: data.description ?? "Requires your approval",
           status: "pending",
         };
         setMessages((prev) =>
@@ -568,8 +758,22 @@ function ChatPageInner() {
         );
       });
 
+      // Listen for draft-ready events from the orchestrator
+      unsubDraft = window.atlasElectron!.onWorkflowDraftReady((data: any) => {
+        const draft: DraftData = {
+          executionId: data.executionId,
+          actionType: data.actionType,
+          fields: data.fields ?? {},
+          status: "pending",
+        };
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId ? { ...m, draft } : m
+          )
+        );
+      });
+
       unsubEnd = window.atlasElectron!.onWorkflowComplete((data: any) => {
-        // Mark all tool executions as done
         setMessages((prev) => {
           const updated = prev.map((m) =>
             m.id === assistantId
@@ -578,11 +782,12 @@ function ChatPageInner() {
                   streaming: false,
                   results: data?.results ?? m.results,
                   toolExecutions: m.toolExecutions?.map((t) => ({ ...t, status: "done" as const })),
+                  draft: m.draft && m.draft.status !== "rejected" ? { ...m.draft, status: "done" as const } : m.draft,
                 }
               : m
           );
 
-          // Save messages to store
+          // Save messages to store with full card data
           let convId = conversationIdRef.current;
           if (isFirstMessageRef.current) {
             isFirstMessageRef.current = false;
@@ -591,9 +796,23 @@ function ChatPageInner() {
             conversationIdRef.current = convId;
           }
           if (convId) {
-            const userStoreMsg: StoredChatMessage = { id: userMsg.id, role: "user", content: userMsg.content, timestamp: userMsg.timestamp.toISOString() };
-            const assistantContent = updated.find((m) => m.id === assistantId)?.content ?? "";
-            const assistantStoreMsg: StoredChatMessage = { id: assistantId, role: "assistant", content: assistantContent, timestamp: new Date().toISOString() };
+            const finalAssistant = updated.find((m) => m.id === assistantId);
+            const userStoreMsg: StoredChatMessage = {
+              id: userMsg.id,
+              role: "user",
+              content: userMsg.content,
+              timestamp: userMsg.timestamp.toISOString(),
+            };
+            const assistantStoreMsg: StoredChatMessage = {
+              id: assistantId,
+              role: "assistant",
+              content: finalAssistant?.content ?? "",
+              timestamp: new Date().toISOString(),
+              results: finalAssistant?.results,
+              actions: finalAssistant?.actions,
+              toolExecutions: finalAssistant?.toolExecutions,
+              draft: finalAssistant?.draft,
+            };
             useChatStore.getState().addMessage(convId, userStoreMsg);
             useChatStore.getState().addMessage(convId, assistantStoreMsg);
           }
@@ -602,15 +821,36 @@ function ChatPageInner() {
         });
         setStatus("idle");
 
-        // Cleanup all listeners
         unsubStream?.();
         unsubEnd?.();
         unsubTool?.();
         unsubApproval?.();
+        unsubDraft?.();
       });
 
       try {
         await window.atlasElectron!.executeWorkflow(text);
+        // Set a timeout — if workflow-complete doesn't fire within 90s, recover
+        setTimeout(() => {
+          setStatus((currentStatus) => {
+            if (currentStatus !== "idle") {
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId && m.streaming
+                    ? { ...m, streaming: false, content: m.content || "Request timed out. Please try again." }
+                    : m
+                )
+              );
+              unsubStream?.();
+              unsubEnd?.();
+              unsubTool?.();
+              unsubApproval?.();
+              unsubDraft?.();
+              return "idle";
+            }
+            return currentStatus;
+          });
+        }, 90000);
       } catch (err: unknown) {
         setMessages((prev) =>
           prev.map((m) =>
@@ -624,9 +864,10 @@ function ChatPageInner() {
         unsubEnd?.();
         unsubTool?.();
         unsubApproval?.();
+        unsubDraft?.();
       }
     } else {
-      // ── HTTP fallback (dev mode / browser) — existing fetch logic ──────
+      // ── HTTP fallback (dev mode / browser) ──
       abortRef.current?.abort();
       abortRef.current = new AbortController();
 
@@ -664,17 +905,15 @@ function ChatPageInner() {
           responseText = `Found ${resultCount} result${resultCount !== 1 ? "s" : ""} for "${rewrittenQuery}":`;
         }
 
-        const actions = deriveActionsFromResults(results);
-
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
-              ? { ...m, content: responseText, results, actions, streaming: false }
+              ? { ...m, content: responseText, results, streaming: false }
               : m
           )
         );
 
-        // Save to store
+        // Save to store with results
         let convId = conversationIdRef.current;
         if (isFirstMessageRef.current) {
           isFirstMessageRef.current = false;
@@ -683,8 +922,19 @@ function ChatPageInner() {
           conversationIdRef.current = convId;
         }
         if (convId) {
-          const userStoreMsg: StoredChatMessage = { id: userMsg.id, role: "user", content: userMsg.content, timestamp: userMsg.timestamp.toISOString() };
-          const assistantStoreMsg: StoredChatMessage = { id: assistantId, role: "assistant", content: responseText, timestamp: new Date().toISOString() };
+          const userStoreMsg: StoredChatMessage = {
+            id: userMsg.id,
+            role: "user",
+            content: userMsg.content,
+            timestamp: userMsg.timestamp.toISOString(),
+          };
+          const assistantStoreMsg: StoredChatMessage = {
+            id: assistantId,
+            role: "assistant",
+            content: responseText,
+            timestamp: new Date().toISOString(),
+            results,
+          };
           useChatStore.getState().addMessage(convId, userStoreMsg);
           useChatStore.getState().addMessage(convId, assistantStoreMsg);
         }
@@ -704,40 +954,17 @@ function ChatPageInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Derive action suggestions from search results (fallback mode only) */
-  const deriveActionsFromResults = (results: SearchResult[]): ActionSuggestion[] => {
-    const actions: ActionSuggestion[] = [];
+  // ── Stop handler ───────────────────────────────────────────────────────
 
-    for (const result of results.slice(0, 2)) {
-      if (result.type === "email") {
-        actions.push({
-          id: generateId(),
-          type: "reply_email",
-          label: "Reply",
-          preview: `Reply to: ${result.title}`,
-          status: "pending",
-        });
-      } else if (result.type === "pr") {
-        actions.push({
-          id: generateId(),
-          type: "merge_pr",
-          label: "Merge",
-          preview: `Merge: ${result.title}`,
-          status: "pending",
-        });
-      } else if (result.type === "issue") {
-        actions.push({
-          id: generateId(),
-          type: "add_comment",
-          label: "Comment",
-          preview: `Comment on: ${result.title}`,
-          status: "pending",
-        });
-      }
-    }
-
-    return actions;
-  };
+  const handleStop = useCallback(() => {
+    // Abort any HTTP requests
+    abortRef.current?.abort();
+    // Stop streaming — mark all messages as not streaming
+    setMessages((prev) =>
+      prev.map((m) => m.streaming ? { ...m, streaming: false, content: m.content || "Response stopped." } : m)
+    );
+    setStatus("idle");
+  }, []);
 
   // ── Action handlers ────────────────────────────────────────────────────
 
@@ -748,8 +975,6 @@ function ChatPageInner() {
         actions: m.actions?.map((a) => (a.id === actionId ? { ...a, status: "approved" as const } : a)),
       }))
     );
-
-    // If in Electron, call the IPC approve method
     if (hasElectronIPC()) {
       window.atlasElectron!.approveAction(actionId);
     }
@@ -762,14 +987,38 @@ function ChatPageInner() {
         actions: m.actions?.map((a) => (a.id === actionId ? { ...a, status: "rejected" as const } : a)),
       }))
     );
-
-    // If in Electron, call the IPC reject method
     if (hasElectronIPC()) {
       window.atlasElectron!.rejectAction(actionId);
     }
   }, []);
 
-  // ── Suggestion click handler ───────────────────────────────────────────
+  const handleApproveDraft = useCallback((executionId: string) => {
+    setMessages((prev) =>
+      prev.map((m) => ({
+        ...m,
+        draft: m.draft?.executionId === executionId
+          ? { ...m.draft, status: "executing" as const }
+          : m.draft,
+      }))
+    );
+    if (hasElectronIPC()) {
+      window.atlasElectron!.approveAction(executionId);
+    }
+  }, []);
+
+  const handleRejectDraft = useCallback((executionId: string) => {
+    setMessages((prev) =>
+      prev.map((m) => ({
+        ...m,
+        draft: m.draft?.executionId === executionId
+          ? { ...m.draft, status: "rejected" as const }
+          : m.draft,
+      }))
+    );
+    if (hasElectronIPC()) {
+      window.atlasElectron!.rejectAction(executionId);
+    }
+  }, []);
 
   const handleSuggestionClick = useCallback((suggestion: string) => {
     sendMessage(suggestion);
@@ -779,12 +1028,11 @@ function ChatPageInner() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto px-4 py-6">
+      <div className="flex-1 overflow-y-auto px-6 lg:px-12 py-6">
         {messages.length === 0 ? (
           <EmptyState onSuggestionClick={handleSuggestionClick} />
         ) : (
-          <div className="max-w-2xl mx-auto flex flex-col gap-5">
+          <div className="max-w-4xl mx-auto flex flex-col gap-5">
             <AnimatePresence mode="popLayout">
               {messages.map((msg) => (
                 <ChatMessageBubble
@@ -792,6 +1040,8 @@ function ChatPageInner() {
                   message={msg}
                   onApproveAction={handleApproveAction}
                   onRejectAction={handleRejectAction}
+                  onApproveDraft={handleApproveDraft}
+                  onRejectDraft={handleRejectDraft}
                   userAvatar={userAvatar}
                 />
               ))}
@@ -801,10 +1051,9 @@ function ChatPageInner() {
         )}
       </div>
 
-      {/* Input Area — fixed at bottom */}
-      <div className="flex-shrink-0 px-4 pb-4 pt-3 bg-[var(--bg-primary)]">
+      <div className="flex-shrink-0 px-6 lg:px-12 pb-4 pt-3 bg-[var(--bg-primary)]">
         <div className="max-w-2xl mx-auto">
-          <ChatInput onSend={sendMessage} disabled={status !== "idle"} />
+          <ChatInput onSend={sendMessage} onStop={handleStop} disabled={status !== "idle"} isStreaming={status === "streaming"} />
         </div>
       </div>
     </div>
@@ -829,20 +1078,23 @@ function EmptyState({ onSuggestionClick }: { onSuggestionClick: (suggestion: str
       <p className="text-sm text-[var(--text-secondary)] max-w-xs mb-6">
         Ask me anything about your emails, calendar, pull requests, documents, and more.
       </p>
-      <div className="flex flex-wrap justify-center gap-2">
+      <div className="flex flex-wrap justify-center gap-2.5 max-w-md">
         {[
           "Summarize today's emails",
           "Open PRs that need review",
           "What meetings do I have tomorrow?",
           "Find docs about onboarding",
         ].map((suggestion) => (
-          <button
+          <motion.button
             key={suggestion}
             onClick={() => onSuggestionClick(suggestion)}
-            className="px-3 py-1.5 rounded-xl text-xs text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-default)] hover:border-[var(--accent)]/30 hover:text-[var(--text-primary)] transition-all duration-150 cursor-pointer"
+            whileHover={{ scale: 1.03, y: -1 }}
+            whileTap={{ scale: 0.97 }}
+            className="px-4 py-2 rounded-2xl text-[13px] font-medium text-[var(--text-secondary)] border border-white/[0.06] hover:border-white/[0.15] hover:text-[var(--text-primary)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.2)] transition-all duration-200 cursor-pointer"
+            style={{ background: "rgba(255,255,255,0.03)", backdropFilter: "blur(8px)" }}
           >
             {suggestion}
-          </button>
+          </motion.button>
         ))}
       </div>
     </motion.div>

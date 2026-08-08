@@ -322,6 +322,22 @@ export class MCPServerManager {
       if (!started) return { error: `Cannot start ${serverName} server. Check credentials in Settings.` };
     }
 
+    // Auto-fill GitHub owner if missing
+    if (serverName === 'github' && !args.owner) {
+      const creds = getToken('github') as Record<string, string> | null;
+      if (creds?.personal_access_token) {
+        try {
+          const res = await fetch('https://api.github.com/user', {
+            headers: { Authorization: `Bearer ${creds.personal_access_token}` },
+          });
+          if (res.ok) {
+            const user = await res.json();
+            args.owner = user.login;
+          }
+        } catch {}
+      }
+    }
+
     try {
       const result = await this.sendRequest(serverName, 'tools/call', {
         name: toolName,
@@ -340,13 +356,21 @@ export class MCPServerManager {
       return { error: 'Google Workspace not configured. Complete OAuth in Settings > Test Connection.' };
     }
     switch (tool) {
+      // Read operations
       case 'list_emails':
       case 'search_emails':
       case 'read_emails': return await this.gmailConnector.listEmails(params.maxResults || 10, params.query || '');
       case 'get_email': return await this.gmailConnector.getEmail(params.messageId);
-      case 'send_email': return await this.gmailConnector.sendEmail(params.to, params.subject, params.body);
       case 'list_calendar':
-      case 'list_events': return await this.gmailConnector.listCalendarEvents();
+      case 'list_events': return await this.gmailConnector.listCalendarEvents(params.timeMin, params.timeMax);
+      // Write operations
+      case 'send_email': return await this.gmailConnector.sendEmail(params.to, params.subject, params.body);
+      case 'reply_email': return await this.gmailConnector.replyEmail(params.messageId || params.message_id, params.threadId || params.thread_id, params.body);
+      case 'forward_email': return await this.gmailConnector.forwardEmail(params.messageId || params.message_id, params.to, params.body);
+      case 'list_tasks': return await this.gmailConnector.listTasks();
+      case 'create_event':
+      case 'schedule_event': return await this.gmailConnector.createCalendarEvent(params.title || params.summary, params.startTime || params.start, params.endTime || params.end, params.description, params.attendees);
+      case 'delete_event': return await this.gmailConnector.deleteCalendarEvent(params.eventId || params.event_id);
       default: return { error: `Unknown Google tool: ${tool}` };
     }
   }
@@ -356,11 +380,14 @@ export class MCPServerManager {
       return { error: 'Notion not configured. Add your Integration Token in Settings.' };
     }
     switch (tool) {
+      // Read operations
       case 'search_pages':
       case 'search': return await this.notionConnector.searchPages(params.query || '');
       case 'get_page': return await this.notionConnector.getPage(params.pageId);
       case 'list_databases': return await this.notionConnector.listDatabases();
-      case 'create_page': return await this.notionConnector.createPage(params.parentId, params.title, params.content);
+      // Write operations
+      case 'create_page': return await this.notionConnector.createPage(params.parentId || params.parent_id, params.title, params.content || params.body);
+      case 'update_page': return await this.notionConnector.createPage(params.pageId || params.page_id, params.title, params.content || params.body);
       default: return { error: `Unknown Notion tool: ${tool}` };
     }
   }

@@ -48,6 +48,7 @@ interface AtlasElectronAPI {
   onWorkflowApprovalNeeded: (cb: (data: unknown) => void) => () => void;
   onWorkflowToolExecuting: (cb: (data: unknown) => void) => () => void;
   onWorkflowComplete: (cb: (data: unknown) => void) => () => void;
+  onWorkflowDraftReady: (cb: (data: unknown) => void) => () => void;
   listConversations: () => Promise<unknown[]>;
   getConversationHistory: (id: string, limit?: number) => Promise<unknown[]>;
   localAuth: AtlasLocalAuthAPI;

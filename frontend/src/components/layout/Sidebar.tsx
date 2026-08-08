@@ -150,7 +150,7 @@ export function Sidebar() {
 
   return (
     <motion.aside
-      className="app-sidebar flex flex-col py-4"
+      className="app-sidebar flex flex-col py-4 overflow-hidden"
       initial={{ x: -8, opacity: 0 }}
       animate={{ x: 0, opacity: 1 }}
       transition={{ type: "spring", stiffness: 400, damping: 35 }}
@@ -242,36 +242,38 @@ export function Sidebar() {
           ))
         )}
 
-        {/* Add connector prompt */}
-        <button
-          onClick={navigateToIntegrations}
-          className="flex items-center gap-2 px-3 py-2 mt-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors border border-[var(--border-default)] hover:border-[var(--accent)]/30"
-          aria-label="Connect a new integration"
-        >
-          <Plus size={12} />
-          <span>Add Integration</span>
-        </button>
+        {/* Add connector prompt — only show if not all integrations are connected */}
+        {connectorItems.length < 5 && (
+          <button
+            onClick={navigateToIntegrations}
+            className="flex items-center gap-2 px-3 py-2 mt-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors border border-[var(--border-default)] hover:border-[var(--accent)]/30"
+            aria-label="Connect a new integration"
+          >
+            <Plus size={12} />
+            <span>Add Integration</span>
+          </button>
+        )}
       </div>
 
       {/* Conversations */}
-      <div className="px-2 flex flex-col gap-0.5 flex-1">
-        <p className="px-2 mb-1.5 text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-widest">
+      <div className="px-2 flex flex-col gap-0.5 flex-1 min-h-0">
+        <p className="px-2 mb-1.5 text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-widest flex-shrink-0">
           Conversations
         </p>
 
         {/* New Chat Button */}
         <button
           onClick={handleNewChat}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors border border-[var(--border-default)] hover:border-[var(--accent)]/30 w-full"
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors border border-[var(--border-default)] hover:border-[var(--accent)]/30 w-full flex-shrink-0"
           aria-label="Start a new chat conversation"
         >
           <Plus size={12} />
           <span>New Chat</span>
         </button>
 
-        {/* Conversation List */}
+        {/* Conversation List — scrollable */}
         {recentConversations.length > 0 && (
-          <div className="mt-1.5 max-h-[200px] overflow-y-auto scrollbar-thin" role="list" aria-label="Recent conversations">
+          <div className="mt-1.5 flex-1 min-h-0 overflow-y-auto scrollbar-thin" role="list" aria-label="Recent conversations">
             {recentConversations.map((conv) => {
               const isActive = activeConversationId === conv.id && pathname.startsWith("/chat");
               return (

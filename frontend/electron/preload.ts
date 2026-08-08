@@ -159,6 +159,17 @@ contextBridge.exposeInMainWorld("atlasElectron", {
   },
 
   /**
+   * Subscribe to draft-ready events for action drafts.
+   * Returns an unsubscribe function.
+   */
+  onWorkflowDraftReady: (callback: (data: any) => void): (() => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: any) =>
+      callback(data);
+    ipcRenderer.on("workflow-draft-ready", handler);
+    return () => ipcRenderer.removeListener("workflow-draft-ready", handler);
+  },
+
+  /**
    * Subscribe to workflow completion events.
    * Returns an unsubscribe function.
    */
@@ -276,6 +287,7 @@ export type AtlasElectronAPI = {
   onWorkflowStream: (callback: (token: string) => void) => () => void;
   onWorkflowApprovalNeeded: (callback: (data: any) => void) => () => void;
   onWorkflowToolExecuting: (callback: (data: any) => void) => () => void;
+  onWorkflowDraftReady: (callback: (data: any) => void) => () => void;
   onWorkflowComplete: (callback: (data: any) => void) => () => void;
   // Conversation APIs
   listConversations: () => Promise<any[]>;

@@ -12,6 +12,7 @@ import {
   EyeOff,
   CheckCircle2,
   Circle,
+  FolderPlus,
 } from "lucide-react";
 import {
   GoogleLogo,
@@ -25,7 +26,6 @@ import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/ui/Toast";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { cn } from "@/lib/utils";
-import { tokenSyncAPI } from "@/lib/api/token-sync";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -65,7 +65,7 @@ const connectorConfigs: ConnectorConfig[] = [
     description: "Gmail, Calendar & Tasks",
     logo: <GoogleLogo size={18} />,
     helpText:
-      "Create a Google Cloud project, enable Gmail/Calendar APIs, create OAuth credentials.",
+      "Create a Google Cloud project, enable Gmail/Calendar APIs, create OAuth credentials. After entering your Client ID and Secret, click Connect to complete the OAuth flow.",
     fields: [
       {
         key: "client_id",
@@ -135,7 +135,7 @@ const connectorConfigs: ConnectorConfig[] = [
     description: "Documents & Code",
     logo: <LocalFilesLogo size={18} />,
     helpText:
-      "Enter one directory path per line. Atlas will index and monitor these folders.",
+      "Add directory paths that Atlas should index and monitor. Use the Browse button or type paths manually.",
     fields: [
       {
         key: "watch_paths",
@@ -151,6 +151,7 @@ const sections: { id: SettingsSection; label: string; icon: React.ReactNode }[] 
   { id: "general", label: "General", icon: <Settings size={15} /> },
   { id: "integrations", label: "Integrations", icon: <Plug size={15} /> },
 ];
+
 
 // ─── Helper components ────────────────────────────────────────────────────────
 
@@ -218,7 +219,7 @@ function StatusDot({ configured }: { configured: boolean }) {
   return configured ? (
     <span className="flex items-center gap-1.5 text-xs text-green-400 font-medium">
       <CheckCircle2 size={12} className="text-green-400" />
-      Configured
+      Connected
     </span>
   ) : (
     <span className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
@@ -228,18 +229,23 @@ function StatusDot({ configured }: { configured: boolean }) {
   );
 }
 
+
 // ─── Connector Card ───────────────────────────────────────────────────────────
 
 function ConnectorCard({
   config,
   status,
   onSave,
-  onTest,
+  onDisconnect,
+  onGoogleOAuth,
+  onBrowseDirectory,
 }: {
   config: ConnectorConfig;
   status: ConnectorStatus;
   onSave: (values: Record<string, string>) => void;
-  onTest: () => void;
+  onDisconnect: () => void;
+  onGoogleOAuth: (clientId: string, clientSecret: string) => void;
+  onBrowseDirectory: (currentPaths: string, callback: (newPaths: string) => void) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
@@ -251,6 +257,9 @@ function ConnectorCard({
   const hasValues = config.fields.some(
     (f) => (fieldValues[f.key] ?? "").trim().length > 0
   );
+
+  const isGoogle = config.id === "google_workspace";
+  const isLocalFs = config.id === "local_fs";
 
   return (
     <div className="border-b border-[var(--border-subtle)] last:border-0">
@@ -267,6 +276,14 @@ function ConnectorCard({
         </div>
         <div className="flex items-center gap-3">
           <StatusDot configured={status.configured} />
+          {status.configured && (
+            <button
+              onClick={onDisconnect}
+              className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+            >
+              Disconnect
+            </button>
+          )}
           <Button
             size="sm"
             variant={status.configured ? "secondary" : "primary"}
@@ -305,14 +322,32 @@ function ConnectorCard({
                       {field.label}
                     </label>
                     {field.type === "textarea" ? (
-                      <textarea
-                        id={`${config.id}-${field.key}`}
-                        value={fieldValues[field.key] ?? ""}
-                        onChange={(e) => updateField(field.key, e.target.value)}
-                        placeholder={field.placeholder}
-                        rows={3}
-                        className="w-full px-3 py-2 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] resize-none font-mono"
-                      />
+                      <div className="space-y-2">
+                        <textarea
+                          id={`${config.id}-${field.key}`}
+                          value={fieldValues[field.key] ?? ""}
+                          onChange={(e) => updateField(field.key, e.target.value)}
+                          placeholder={field.placeholder}
+                          rows={3}
+                          className="w-full px-3 py-2 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] resize-none font-mono"
+                        />
+                        {isLocalFs && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            id="browse-directory"
+                            onClick={() =>
+                              onBrowseDirectory(
+                                fieldValues[field.key] ?? "",
+                                (newPaths) => updateField(field.key, newPaths)
+                              )
+                            }
+                          >
+                            <FolderPlus size={13} className="mr-1.5" />
+                            Browse…
+                          </Button>
+                        )}
+                      </div>
                     ) : (
                       <PasswordField
                         id={`${config.id}-${field.key}`}
@@ -341,25 +376,36 @@ function ConnectorCard({
 
               {/* Actions */}
               <div className="flex items-center gap-2 mt-4">
-                <Button
-                  size="sm"
-                  variant="primary"
-                  id={`save-${config.id}`}
-                  disabled={!hasValues}
-                  onClick={() => onSave(fieldValues)}
-                >
-                  Save
-                </Button>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  id={`test-${config.id}`}
-                  disabled={!hasValues && !status.configured}
-                  isLoading={status.testing}
-                  onClick={onTest}
-                >
-                  {status.testing ? "Testing…" : "Test Connection"}
-                </Button>
+                {isGoogle ? (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    id={`connect-${config.id}`}
+                    disabled={
+                      !(fieldValues["client_id"] ?? "").trim() ||
+                      !(fieldValues["client_secret"] ?? "").trim()
+                    }
+                    isLoading={status.testing}
+                    onClick={() =>
+                      onGoogleOAuth(
+                        fieldValues["client_id"] ?? "",
+                        fieldValues["client_secret"] ?? ""
+                      )
+                    }
+                  >
+                    {status.testing ? "Connecting…" : "Connect with Google"}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    id={`save-${config.id}`}
+                    disabled={!hasValues}
+                    onClick={() => onSave(fieldValues)}
+                  >
+                    Save
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"
@@ -377,6 +423,7 @@ function ConnectorCard({
   );
 }
 
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -390,63 +437,51 @@ export default function SettingsPage() {
   } | null>(null);
 
   // Track configuration status per connector
-  // Initialize synchronously from localStorage so the first render shows correct status
   const [statuses, setStatuses] = useState<Record<ConnectorId, ConnectorStatus>>(
     () => {
       const initial: Record<string, ConnectorStatus> = {};
       for (const c of connectorConfigs) {
-        const stored = typeof window !== 'undefined' ? localStorage.getItem(`atlas_connector_${c.id}`) : null;
-        let configured = false;
-        if (stored) {
-          try { configured = Object.values(JSON.parse(stored)).some((v: any) => v && String(v).trim()); } catch {}
-        }
-        initial[c.id] = { configured, testing: false, testResult: null };
+        initial[c.id] = { configured: false, testing: false, testResult: null };
       }
       return initial as Record<ConnectorId, ConnectorStatus>;
     }
   );
 
-  // On mount, check which providers are already configured
+  // On mount, check which providers are already configured via Electron token store
   useEffect(() => {
     async function checkConfigured() {
       // Small delay to ensure Electron IPC bridge is ready
       await new Promise((r) => setTimeout(r, 100));
 
       const electron = (window as any).atlasElectron;
-      const configuredFromElectron: string[] = [];
+      if (!electron?.tokenStore?.listConfigured) return;
 
-      if (electron?.tokenStore?.listConfigured) {
-        try {
-          const list = await electron.tokenStore.listConfigured();
-          configuredFromElectron.push(...list);
-        } catch {
-          // IPC call failed — fall through to localStorage check
-        }
+      try {
+        const configured: string[] = await electron.tokenStore.listConfigured();
+        setStatuses((prev) => {
+          const next = { ...prev };
+          for (const id of Object.keys(next) as ConnectorId[]) {
+            next[id] = { ...next[id], configured: configured.includes(id) };
+          }
+          return next;
+        });
+      } catch (err) {
+        console.warn("[Settings] Failed to check configured providers:", err);
       }
-
-      // Check both Electron token store and localStorage
-      setStatuses((prev) => {
-        const next = { ...prev };
-        for (const id of Object.keys(next) as ConnectorId[]) {
-          const inElectron = configuredFromElectron.includes(id);
-          const inLocalStorage = !!localStorage.getItem(`atlas_connector_${id}`);
-          next[id] = { ...next[id], configured: inElectron || inLocalStorage };
-        }
-        return next;
-      });
     }
     checkConfigured();
   }, []);
 
-  // Save credentials for a connector
+  // Save credentials for a connector (GitHub, Slack, Notion, Local Files)
   const handleSave = useCallback(
     async (connectorId: ConnectorId, values: Record<string, string>) => {
       try {
         const electron = (window as any).atlasElectron;
-        if (electron?.tokenStore?.save) {
+
+        if (electron?.tokenStore?.set) {
           await electron.tokenStore.set(connectorId, values);
         } else {
-          // Fallback: store in localStorage (less secure, for dev)
+          // Fallback: store in localStorage (for dev outside Electron)
           localStorage.setItem(
             `atlas_connector_${connectorId}`,
             JSON.stringify(values)
@@ -455,16 +490,25 @@ export default function SettingsPage() {
 
         setStatuses((prev) => ({
           ...prev,
-          [connectorId]: { ...prev[connectorId], configured: true },
+          [connectorId]: {
+            ...prev[connectorId],
+            configured: true,
+            testResult: "success",
+            testMessage: "Credentials saved successfully.",
+          },
         }));
 
-        // Upload to cloud for cross-device sync
-        tokenSyncAPI.uploadToken(connectorId, values).catch(() => {});
+        // Sync credentials to cloud for cross-device access (best-effort)
+        try {
+          const { tokenSyncAPI } = await import("@/lib/api/token-sync");
+          await tokenSyncAPI.uploadToken(connectorId, values);
+        } catch {
+          // Silent — cloud sync is best-effort, local still works
+        }
 
-        // Invalidate React Query cache so the sidebar updates immediately
         queryClient.invalidateQueries({ queryKey: ["connectors"] });
 
-        setToast({ message: `${connectorId} configured successfully.`, type: "success" });
+        setToast({ message: `${connectorId.replace("_", " ")} configured successfully.`, type: "success" });
       } catch (err: any) {
         setToast({
           message: `Failed to save: ${err?.message || "Unknown error"}`,
@@ -475,120 +519,149 @@ export default function SettingsPage() {
     [queryClient]
   );
 
-  // Test connection for a connector
-  const handleTest = useCallback(
+  // Disconnect/remove a connector
+  const handleDisconnect = useCallback(
     async (connectorId: ConnectorId) => {
+      try {
+        const electron = (window as any).atlasElectron;
+        if (electron?.tokenStore?.remove) {
+          await electron.tokenStore.remove(connectorId);
+        }
+        // Also clear localStorage
+        localStorage.removeItem(`atlas_connector_${connectorId}`);
+
+        setStatuses((prev) => ({
+          ...prev,
+          [connectorId]: { configured: false, testing: false, testResult: null },
+        }));
+
+        // Invalidate all queries so sidebar, dashboard, briefing all update
+        queryClient.invalidateQueries({ queryKey: ["connectors"] });
+        queryClient.invalidateQueries({ queryKey: ["briefing"] });
+
+        // Sync removal to cloud
+        try {
+          const { tokenSyncAPI } = await import("@/lib/api/token-sync");
+          await tokenSyncAPI.uploadToken(connectorId, {});
+        } catch {}
+
+        setToast({ message: `${connectorId.replace("_", " ")} disconnected.`, type: "success" });
+      } catch (err: any) {
+        setToast({ message: `Failed to disconnect: ${err?.message || "Unknown error"}`, type: "error" });
+      }
+    },
+    [queryClient]
+  );
+
+  // Google OAuth flow — opens popup, completes OAuth, stores tokens automatically
+  const handleGoogleOAuth = useCallback(
+    async (clientId: string, clientSecret: string) => {
       setStatuses((prev) => ({
         ...prev,
-        [connectorId]: { ...prev[connectorId], testing: true, testResult: null, testMessage: undefined },
+        google_workspace: { ...prev.google_workspace, testing: true, testResult: null, testMessage: undefined },
       }));
 
       try {
-        // Get stored credentials
-        let credentials: Record<string, string> = {};
         const electron = (window as any).atlasElectron;
-        if (electron?.tokenStore?.get) {
-          credentials = await electron.tokenStore.get(connectorId) || {};
-        } else {
-          const stored = localStorage.getItem(`atlas_connector_${connectorId}`);
-          if (stored) credentials = JSON.parse(stored);
-        }
 
-        if (!credentials || !Object.values(credentials).some((v) => v && String(v).trim())) {
-          throw new Error('No credentials configured');
-        }
-
-        // Test based on provider
-        let testUrl = '';
-        let headers: Record<string, string> = {};
-
-        switch (connectorId) {
-          case 'google_workspace':
-            if (credentials.client_id && credentials.client_secret) {
-              if (credentials.access_token) {
-                // Already authenticated - test with a real API call
-                const testRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-                  headers: { Authorization: `Bearer ${credentials.access_token}` },
-                });
-                if (testRes.ok) {
-                  const userData = await testRes.json();
-                  setStatuses((prev) => ({ ...prev, [connectorId]: { ...prev[connectorId], testing: false, testResult: 'success', testMessage: `Connected as ${userData.email}` } }));
-                  return;
-                }
-                // Token expired, need to re-auth
-              }
-              // Start OAuth flow
-              const electron = (window as any).atlasElectron;
-              if (electron?.startGoogleOAuth) {
-                const result = await electron.startGoogleOAuth(credentials.client_id, credentials.client_secret);
-                if (result.success) {
-                  setStatuses((prev) => ({ ...prev, [connectorId]: { ...prev[connectorId], testing: false, testResult: 'success', testMessage: 'Google OAuth successful! Connected.' } }));
-                  // Re-check configured status
-                  queryClient.invalidateQueries({ queryKey: ['connectors'] });
-                  return;
-                }
-                throw new Error(result.error || 'OAuth flow failed');
-              }
-              // Not in Electron - just validate credentials exist
-              setStatuses((prev) => ({ ...prev, [connectorId]: { ...prev[connectorId], testing: false, testResult: 'success', testMessage: 'Credentials saved. Use desktop app for OAuth.' } }));
-              return;
-            }
-            throw new Error('Client ID and Secret required');
-
-          case 'github':
-            testUrl = 'https://api.github.com/user';
-            headers = { Authorization: `Bearer ${credentials.personal_access_token}`, Accept: 'application/vnd.github.v3+json' };
-            break;
-
-          case 'slack':
-            testUrl = 'https://slack.com/api/auth.test';
-            headers = { Authorization: `Bearer ${credentials.bot_token}` };
-            break;
-
-          case 'notion':
-            testUrl = 'https://api.notion.com/v1/users/me';
-            headers = { Authorization: `Bearer ${credentials.integration_token}`, 'Notion-Version': '2022-06-28' };
-            break;
-
-          case 'local_fs':
-            // Just check paths are provided
-            const paths = credentials.watch_paths || credentials.paths || '';
-            if (paths.trim()) {
-              setStatuses((prev) => ({
-                ...prev,
-                [connectorId]: { ...prev[connectorId], testing: false, testResult: 'success', testMessage: 'Paths configured successfully.' },
-              }));
-              return;
-            }
-            throw new Error('No directory paths specified');
-        }
-
-        if (testUrl) {
-          const res = await fetch(testUrl, { headers, signal: AbortSignal.timeout(10000) });
-          if (res.ok) {
-            const data = await res.json();
-            let successMsg = 'Connection successful!';
-            if (connectorId === 'github' && data.login) successMsg = `Connected as @${data.login}`;
-            if (connectorId === 'slack' && data.ok) successMsg = `Connected to ${data.team || 'workspace'}`;
-            if (connectorId === 'notion' && data.name) successMsg = `Connected as ${data.name}`;
-            
-            setStatuses((prev) => ({
-              ...prev,
-              [connectorId]: { ...prev[connectorId], testing: false, testResult: 'success', testMessage: successMsg },
-            }));
+        if (!electron?.startGoogleOAuth) {
+          // Not in Electron — save credentials only
+          if (electron?.tokenStore?.set) {
+            await electron.tokenStore.set("google_workspace", {
+              client_id: clientId,
+              client_secret: clientSecret,
+            });
           } else {
-            const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.message || errData.error || `HTTP ${res.status}`);
+            localStorage.setItem(
+              "atlas_connector_google_workspace",
+              JSON.stringify({ client_id: clientId, client_secret: clientSecret })
+            );
           }
+          setStatuses((prev) => ({
+            ...prev,
+            google_workspace: {
+              configured: true,
+              testing: false,
+              testResult: "success",
+              testMessage: "Credentials saved. Run in desktop app to complete OAuth.",
+            },
+          }));
+          setToast({ message: "Google credentials saved.", type: "success" });
+          return;
+        }
+
+        // Start the OAuth flow — this opens a popup and handles everything
+        const result = await electron.startGoogleOAuth(clientId, clientSecret);
+
+        if (result.success) {
+          setStatuses((prev) => ({
+            ...prev,
+            google_workspace: {
+              configured: true,
+              testing: false,
+              testResult: "success",
+              testMessage: "Google OAuth successful! Connected.",
+            },
+          }));
+          queryClient.invalidateQueries({ queryKey: ["connectors"] });
+          setToast({ message: "Google Workspace connected successfully!", type: "success" });
+
+          // Sync to cloud for cross-device access (best-effort)
+          try {
+            const creds = await electron.tokenStore.get("google_workspace");
+            if (creds) {
+              const { tokenSyncAPI } = await import("@/lib/api/token-sync");
+              await tokenSyncAPI.uploadToken("google_workspace", creds);
+            }
+          } catch {}
+        } else {
+          throw new Error(result.error || "OAuth flow failed");
         }
       } catch (err: any) {
         setStatuses((prev) => ({
           ...prev,
-          [connectorId]: { ...prev[connectorId], testing: false, testResult: 'error', testMessage: err.message || 'Connection test failed' },
+          google_workspace: {
+            ...prev.google_workspace,
+            testing: false,
+            testResult: "error",
+            testMessage: err.message || "Google OAuth failed",
+          },
         }));
+        setToast({
+          message: `Google OAuth failed: ${err.message || "Unknown error"}`,
+          type: "error",
+        });
       }
     },
     [queryClient]
+  );
+
+  // Browse for directories (Local Files connector)
+  const handleBrowseDirectory = useCallback(
+    async (currentPaths: string, callback: (newPaths: string) => void) => {
+      const electron = (window as any).atlasElectron;
+      if (!electron?.selectDirectory) {
+        setToast({ message: "Directory picker not available outside desktop app.", type: "error" });
+        return;
+      }
+
+      try {
+        const selected: string[] = await electron.selectDirectory();
+        if (selected && selected.length > 0) {
+          const existing = currentPaths.trim();
+          const newPaths = existing
+            ? existing + "\n" + selected.join("\n")
+            : selected.join("\n");
+          callback(newPaths);
+        }
+      } catch (err: any) {
+        setToast({
+          message: `Failed to open directory picker: ${err.message || "Unknown error"}`,
+          type: "error",
+        });
+      }
+    },
+    []
   );
 
   return (
@@ -700,7 +773,9 @@ export default function SettingsPage() {
                   config={connector}
                   status={statuses[connector.id]}
                   onSave={(values) => handleSave(connector.id, values)}
-                  onTest={() => handleTest(connector.id)}
+                  onDisconnect={() => handleDisconnect(connector.id)}
+                  onGoogleOAuth={handleGoogleOAuth}
+                  onBrowseDirectory={handleBrowseDirectory}
                 />
               ))}
             </>

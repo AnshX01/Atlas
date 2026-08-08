@@ -137,6 +137,15 @@ export async function* streamChat(
   messages: OllamaMessage[],
   model: string = DEFAULT_MODEL
 ): AsyncGenerator<string, void, unknown> {
+  const controller = new AbortController();
+  // Inactivity timeout — aborts if no data received for 120s (accounts for model cold start)
+  let inactivityTimer = setTimeout(() => controller.abort(), 120000);
+
+  const resetInactivityTimer = () => {
+    clearTimeout(inactivityTimer);
+    inactivityTimer = setTimeout(() => controller.abort(), 120000);
+  };
+
   const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -145,6 +154,7 @@ export async function* streamChat(
       messages,
       stream: true,
     }),
+    signal: controller.signal,
   });
 
   if (!response.ok) {
@@ -165,6 +175,7 @@ export async function* streamChat(
   try {
     while (true) {
       const { done, value } = await reader.read();
+      resetInactivityTimer();
 
       if (done) {
         // Process any remaining buffer content
@@ -203,6 +214,7 @@ export async function* streamChat(
       }
     }
   } finally {
+    clearTimeout(inactivityTimer);
     reader.releaseLock();
   }
 }

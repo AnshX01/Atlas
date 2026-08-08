@@ -38,7 +38,7 @@ import {
   ProviderName,
   ProviderCredentials,
 } from "./services/token-store";
-import { startGoogleOAuth } from "./services/google-oauth";
+import { startGoogleOAuth, handleOAuthCallback, hasPendingOAuth } from "./services/google-oauth";
 import * as http from "http";
 
 const isDev = !app.isPackaged;
@@ -119,28 +119,58 @@ app.whenReady().then(async () => {
   console.log("[Atlas] Orchestrator (local LangGraph engine) initialized");
 
   // ── OAuth Callback Server ───────────────────────────────────────────
-  // Listens on localhost:19876 for Google OAuth redirect from the system browser
-  const oauthServer = http.createServer((req, res) => {
+  // Listens on localhost:19876 for OAuth redirects from the system browser
+  const oauthServer = http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://localhost:19876");
     
     if (url.pathname === "/oauth-callback" || url.pathname === "/oauth/callback") {
       const accessToken = url.searchParams.get("access_token");
       const refreshToken = url.searchParams.get("refresh_token");
+      const code = url.searchParams.get("code");
+      const state = url.searchParams.get("state");
       const error = url.searchParams.get("error");
 
-      // Send success HTML to browser
-      res.writeHead(200, { "Content-Type": "text/html" });
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+
+      // ── Connector OAuth callback (has authorization code + state=connector_oauth) ──
+      if (code && state === "connector_oauth" && hasPendingOAuth()) {
+        try {
+          await handleOAuthCallback(code);
+          res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Connected successfully</h2><p style="color:#aaa">You can close this tab and return to Atlas.</p></div></body></html>`);
+          if (mainWindow) {
+            mainWindow.webContents.send("connector-oauth-success", { provider: "google_workspace" });
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        } catch (err: any) {
+          const errorMsg = err?.message || "OAuth failed";
+          res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Connection failed</h2><p style="color:#aaa">${errorMsg}</p><p style="color:#666;font-size:12px;margin-top:16px">Close this tab and try again in Atlas.</p></div></body></html>`);
+          if (mainWindow) {
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        }
+        return;
+      }
+
+      // ── Login OAuth callback (has access_token + refresh_token from backend) ──
       if (accessToken && refreshToken) {
-        res.end(`<html><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>✓ Signed in successfully</h2><p style="color:#aaa">You can close this tab and return to Atlas.</p></div></body></html>`);
-        
-        // Send tokens to the Electron renderer
+        res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Signed in successfully</h2><p style="color:#aaa">You can close this tab and return to Atlas.</p></div></body></html>`);
         if (mainWindow) {
           mainWindow.webContents.send("oauth-callback", { access_token: accessToken, refresh_token: refreshToken });
           mainWindow.show();
           mainWindow.focus();
         }
       } else {
-        res.end(`<html><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Sign in failed</h2><p style="color:#aaa">${error || "Please close this tab and try again."}</p></div></body></html>`);
+        // Error case
+        const errorMsg = error || "Unknown error";
+        console.error("[Atlas OAuth] Failed:", errorMsg);
+        res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Sign in failed</h2><p style="color:#aaa">${errorMsg}</p><p style="color:#666;font-size:12px;margin-top:16px">Close this tab and try again in Atlas.</p></div></body></html>`);
+        if (mainWindow) {
+          mainWindow.webContents.send("oauth-callback", { error: errorMsg });
+          mainWindow.show();
+          mainWindow.focus();
+        }
       }
     } else {
       res.writeHead(404);

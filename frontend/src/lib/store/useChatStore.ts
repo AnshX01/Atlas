@@ -2,11 +2,50 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { conversationSyncAPI } from "../api/conversation-sync";
 
+// ── Shared Types (exported for use in chat page) ────────────────────────────
+
+export interface SearchResult {
+  id: string;
+  type: string;
+  title: string;
+  excerpt: string;
+  source: string;
+  score: number;
+  url?: string;
+  timestamp: string;
+}
+
+export interface ActionSuggestion {
+  id: string;
+  type: string;
+  label: string;
+  preview: string;
+  status: "pending" | "approved" | "rejected";
+}
+
+export interface ToolExecution {
+  id: string;
+  server: string;
+  tool: string;
+  status: "executing" | "done";
+}
+
+export interface DraftData {
+  executionId: string;
+  actionType: string;
+  fields: Record<string, string>;
+  status: "pending" | "approved" | "rejected" | "executing" | "done";
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  results?: SearchResult[];
+  actions?: ActionSuggestion[];
+  toolExecutions?: ToolExecution[];
+  draft?: DraftData;
 }
 
 export interface Conversation {
@@ -113,6 +152,10 @@ export const useChatStore = create<ChatState>()(
       addMessage: (conversationId: string, message: ChatMessage) => {
         set((state) => {
           const existing = state.messages[conversationId] || [];
+          // Deduplicate — don't add if message with same ID already exists
+          if (existing.some((m) => m.id === message.id)) {
+            return state;
+          }
           const updatedConversations = state.conversations.map((c) =>
             c.id === conversationId
               ? { ...c, lastMessage: message.content.slice(0, 100) }
@@ -134,7 +177,7 @@ export const useChatStore = create<ChatState>()(
     }),
     {
       name: "atlas-conversations",
-      // Persist conversations list and messages to localStorage
+      // Persist conversations list and messages (including card data) to localStorage
       partialize: (state) => ({
         conversations: state.conversations,
         activeConversationId: state.activeConversationId,

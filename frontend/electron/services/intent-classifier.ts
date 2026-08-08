@@ -74,17 +74,42 @@ const SEARCH_KEYWORDS = [
   "unread",
   "upcoming",
   "calendar",
-  "schedule",
   "emails from",
   "emails about",
   "messages from",
   "notifications",
+  "summarize",
+  "summary",
+  "brief",
+  "overview",
+  "digest",
+  "today",
+  "yesterday",
+  "emails",
+  "inbox",
+  "meetings",
+  "prs",
+  "pull requests",
+  "issues",
+  "repos",
+  "files",
+  "documents",
+  "tell me",
+  "give me",
+  "how many",
+  "task",
+  "tasks",
+  "to do",
+  "pending",
+  "due",
 ];
 
 const ACTION_KEYWORDS = [
   "send",
   "reply",
   "respond",
+  "mail",
+  "email",
   "merge",
   "close",
   "open",
@@ -111,6 +136,8 @@ const ACTION_KEYWORDS = [
   "schedule",
   "book",
   "cancel",
+  "notify",
+  "message",
 ];
 
 /**
@@ -139,9 +166,9 @@ function classifyWithKeywords(input: string): ClassificationResult {
       actionScore += 1;
     }
   }
-  // Boost if input starts with an imperative verb
-  if (/^(send|reply|merge|close|create|delete|post|write|forward|approve|reject|update|edit|move|add|push)\b/.test(lower)) {
-    actionScore += 2;
+  // Boost if input starts with an imperative verb — strong action signal
+  if (/^(send|reply|mail|email|merge|close|create|delete|post|write|forward|approve|reject|update|edit|move|add|push|schedule|book|notify|message)\b/.test(lower)) {
+    actionScore += 3;
   }
 
   // Determine winner
@@ -167,7 +194,15 @@ function classifyWithKeywords(input: string): ClassificationResult {
     };
   }
 
-  // Tie — default to chat
+  // Tie — favor action (it's more specific/intentional than search)
+  if (actionScore === searchScore && actionScore > 0) {
+    return {
+      intent: "action",
+      confidence: Math.min(0.4 + actionScore * 0.15, 0.85),
+      extractedParams: { action: input },
+    };
+  }
+
   return { intent: "chat", confidence: 0.4, extractedParams: {} };
 }
 
@@ -228,27 +263,30 @@ const HEALTH_CHECK_INTERVAL_MS = 30_000; // Re-check every 30 seconds
 /**
  * Classify user input into an intent.
  *
- * Uses Ollama when available for high-accuracy classification.
- * Falls back to keyword-based classification when Ollama is unavailable.
+ * Uses Ollama for intelligent context-aware classification.
+ * Falls back to keyword-based if Ollama is unavailable.
  */
 export async function classifyIntent(input: string): Promise<ClassificationResult> {
   if (!input.trim()) {
     return { intent: "unknown", confidence: 0, extractedParams: {} };
   }
 
-  // Check Ollama availability (with caching)
-  const now = Date.now();
-  if (ollamaAvailableCache === null || now - lastHealthCheck > HEALTH_CHECK_INTERVAL_MS) {
-    ollamaAvailableCache = await checkOllamaHealth();
-    lastHealthCheck = now;
+  // First try keyword classification — if it's very confident (high score), use it directly
+  const keywordResult = classifyWithKeywords(input);
+  if (keywordResult.confidence >= 0.75) {
+    return keywordResult;
   }
 
-  if (ollamaAvailableCache) {
-    return classifyWithOllama(input);
-  }
+  // For ambiguous cases, use Ollama for smarter classification
+  try {
+    const ollamaAvailable = await checkOllamaHealth();
+    if (ollamaAvailable) {
+      return await classifyWithOllama(input);
+    }
+  } catch {}
 
-  // Fallback to keyword-based classification
-  return classifyWithKeywords(input);
+  // Fallback to keyword result
+  return keywordResult;
 }
 
 /**

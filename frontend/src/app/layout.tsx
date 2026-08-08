@@ -13,13 +13,13 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Atlas — Personal Command Center",
+  title: "Atlas",
   description:
     "Atlas is the world's first AI Chief of Staff for knowledge workers. Connect Gmail, GitHub, Slack, and more into a single unified briefing.",
   keywords: ["AI", "productivity", "knowledge management", "personal assistant"],
   authors: [{ name: "Atlas" }],
   openGraph: {
-    title: "Atlas — Personal Command Center",
+    title: "Atlas",
     description: "Your AI Chief of Staff — unified, prioritized, proactive.",
     type: "website",
   },

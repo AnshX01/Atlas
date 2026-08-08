@@ -20,7 +20,7 @@ export const connectorsAPI = {
   async listConnectors(): Promise<ConnectorResponse[]> {
     const configuredSet = new Set<ConnectorProvider>();
 
-    // Check Electron token store
+    // In Electron: use ONLY the token store (source of truth)
     if (typeof window !== "undefined" && window.atlasElectron?.tokenStore) {
       try {
         const configured = await window.atlasElectron.tokenStore.listConfigured();
@@ -32,12 +32,22 @@ export const connectorsAPI = {
       } catch {
         // Fall through to localStorage check
       }
+
+      // If we successfully checked the token store, return immediately
+      // Don't mix in stale localStorage data
+      return Array.from(configuredSet).map((id) => ({
+        id,
+        provider: id,
+        status: "active",
+        display_name: null,
+        external_account_id: null,
+        created_at: new Date().toISOString(),
+      }));
     }
 
-    // Also check localStorage (merges with token store results)
+    // Browser-only fallback: check localStorage
     if (typeof window !== "undefined") {
       for (const id of CONNECTOR_IDS) {
-        if (configuredSet.has(id)) continue;
         const stored = localStorage.getItem(`atlas_connector_${id}`);
         if (stored) {
           try {
@@ -46,9 +56,7 @@ export const connectorsAPI = {
             if (hasValue) {
               configuredSet.add(id);
             }
-          } catch {
-            // ignore
-          }
+          } catch {}
         }
       }
     }

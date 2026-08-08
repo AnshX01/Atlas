@@ -7,7 +7,6 @@ import {
   Mail, GitPullRequest, AlertCircle, Calendar, FileText, Zap,
   ChevronDown, ChevronUp, Check, ExternalLink,
 } from "lucide-react";
-import { SourceBadge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
 
@@ -35,12 +34,12 @@ const typeConfig: Record<
   BriefingItemData["type"],
   { icon: React.ReactNode; color: string; bgColor: string }
 > = {
-  email:    { icon: <Mail size={16} />,           color: "text-blue-400",   bgColor: "bg-blue-400/10" },
-  pr:       { icon: <GitPullRequest size={16} />, color: "text-purple-400", bgColor: "bg-purple-400/10" },
-  issue:    { icon: <AlertCircle size={16} />,    color: "text-orange-400", bgColor: "bg-orange-400/10" },
-  calendar: { icon: <Calendar size={16} />,       color: "text-green-400",  bgColor: "bg-green-400/10" },
-  document: { icon: <FileText size={16} />,       color: "text-slate-400",  bgColor: "bg-slate-400/10" },
-  task:     { icon: <Zap size={16} />,            color: "text-yellow-400", bgColor: "bg-yellow-400/10" },
+  email:    { icon: <Mail size={16} />,           color: "text-white/70",   bgColor: "bg-white/[0.06]" },
+  pr:       { icon: <GitPullRequest size={16} />, color: "text-white/70", bgColor: "bg-white/[0.06]" },
+  issue:    { icon: <AlertCircle size={16} />,    color: "text-white/70", bgColor: "bg-white/[0.06]" },
+  calendar: { icon: <Calendar size={16} />,       color: "text-white/70",  bgColor: "bg-white/[0.06]" },
+  document: { icon: <FileText size={16} />,       color: "text-white/70",  bgColor: "bg-white/[0.06]" },
+  task:     { icon: <Zap size={16} />,            color: "text-white/70", bgColor: "bg-white/[0.06]" },
 };
 
 function getActionUrl(item: BriefingItemData): string | null {
@@ -113,8 +112,8 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
         transition={{ duration: 0.3 }}
       >
         <div className="flex items-center gap-3">
-          <div className="w-5 h-5 rounded-full bg-green-500/20 border-2 border-green-500 flex items-center justify-center">
-            <Check size={10} className="text-green-500" />
+          <div className="w-5 h-5 rounded-full bg-white/10 border-2 border-white/40 flex items-center justify-center">
+            <Check size={10} className="text-white/70" />
           </div>
           <span className="text-sm text-[var(--text-muted)] line-through">{item.title}</span>
         </div>
@@ -136,42 +135,37 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
       role="article"
       aria-label={`${item.type} from ${item.source}: ${item.title}`}
     >
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <span className={cn(
-            "flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-xl",
-            config.bgColor,
-            config.color
-          )}>
-            {config.icon}
-          </span>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <SourceBadge source={item.source} />
-              <span className="text-[11px] text-[var(--text-muted)]">
-                {timeAgo}
-              </span>
-            </div>
-            {item.type === "email" && !!item.metadata?.sender && (
-              <span className="text-[11px] font-medium text-[var(--text-secondary)]">
-                from {String(item.metadata.sender)}
-              </span>
-            )}
-            {(item.type === "pr" || item.type === "issue") && !!item.metadata?.repo && (
-              <span className="text-[11px] text-[var(--text-muted)]">
-                {String(item.metadata.repo)}
-              </span>
-            )}
-          </div>
-        </div>
+      {/* Header: icon + source + time */}
+      <div className="flex items-center gap-2 mb-2.5">
+        <span className="text-white/40">
+          {config.icon}
+        </span>
+        <span className="text-[12px] font-medium text-white/50">
+          {item.source === "gmail" ? "Google Workspace" : item.source === "github" ? "GitHub" : item.source === "calendar" ? "Google Workspace" : item.source === "tasks" ? "Google Workspace" : item.source === "slack" ? "Slack" : item.source === "notion" ? "Notion" : item.source === "filesystem" ? "Local Files" : item.source?.charAt(0).toUpperCase() + item.source?.slice(1)}
+        </span>
+        {item.type === "email" && !!item.metadata?.sender && (
+          <>
+            <span className="text-white/20">·</span>
+            <span className="text-[12px] text-white/40">{String(item.metadata.sender).split('<')[0].trim()}</span>
+          </>
+        )}
+        {(item.type === "pr" || item.type === "issue") && !!item.metadata?.repo && (
+          <>
+            <span className="text-white/20">·</span>
+            <span className="text-[12px] text-white/40">{String(item.metadata.repo)}</span>
+          </>
+        )}
+        <span className="text-[11px] text-white/25 ml-auto">{timeAgo}</span>
       </div>
 
-      <h3 className="text-sm font-semibold text-[var(--text-primary)] leading-snug mb-1.5 line-clamp-2">
+      {/* Title */}
+      <h3 className="text-[14px] font-medium text-white/90 leading-snug mb-1.5 line-clamp-2">
         {item.title}
       </h3>
 
+      {/* Summary */}
       <p className={cn(
-        "text-xs text-[var(--text-secondary)] leading-relaxed mb-3",
+        "text-[12px] text-white/45 leading-relaxed mb-3",
         !expanded && "line-clamp-2"
       )}>
         {item.summary}
@@ -285,8 +279,8 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
             onAction?.(item);
           }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium
-                     text-[var(--text-secondary)] hover:text-green-400 hover:bg-green-400/10
-                     border border-[var(--border-default)] hover:border-green-400/30
+                     text-[var(--text-secondary)] hover:text-white hover:bg-white/10
+                     border border-[var(--border-default)] hover:border-white/30
                      transition-all duration-150"
           aria-label={`Mark "${item.title}" as completed`}
         >
