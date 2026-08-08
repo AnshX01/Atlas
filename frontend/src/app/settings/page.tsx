@@ -386,7 +386,7 @@ export default function SettingsPage() {
 
   const [toast, setToast] = useState<{
     message: string;
-    type: "success" | "error" | "info";
+    type: "success" | "error";
   } | null>(null);
 
   // Track configuration status per connector
@@ -480,58 +480,94 @@ export default function SettingsPage() {
     async (connectorId: ConnectorId) => {
       setStatuses((prev) => ({
         ...prev,
-        [connectorId]: {
-          ...prev[connectorId],
-          testing: true,
-          testResult: null,
-          testMessage: undefined,
-        },
+        [connectorId]: { ...prev[connectorId], testing: true, testResult: null, testMessage: undefined },
       }));
 
       try {
+        // Get stored credentials
+        let credentials: Record<string, string> = {};
         const electron = (window as any).atlasElectron;
-        if (electron?.tokenStore?.testConnection) {
-          const result = await electron.tokenStore.testConnection(connectorId);
-          setStatuses((prev) => ({
-            ...prev,
-            [connectorId]: {
-              ...prev[connectorId],
-              testing: false,
-              testResult: result.success ? "success" : "error",
-              testMessage: result.success
-                ? "Connection successful!"
-                : result.error || "Connection failed.",
-            },
-          }));
+        if (electron?.tokenStore?.get) {
+          credentials = await electron.tokenStore.get(connectorId) || {};
         } else {
-          // Simulate test when not in Electron
-          await new Promise((r) => setTimeout(r, 1000));
-          const isConfigured = statuses[connectorId].configured;
-          setStatuses((prev) => ({
-            ...prev,
-            [connectorId]: {
-              ...prev[connectorId],
-              testing: false,
-              testResult: isConfigured ? "success" : "error",
-              testMessage: isConfigured
-                ? "Connection successful!"
-                : "No credentials configured.",
-            },
-          }));
+          const stored = localStorage.getItem(`atlas_connector_${connectorId}`);
+          if (stored) credentials = JSON.parse(stored);
+        }
+
+        if (!credentials || !Object.values(credentials).some((v) => v && String(v).trim())) {
+          throw new Error('No credentials configured');
+        }
+
+        // Test based on provider
+        let testUrl = '';
+        let headers: Record<string, string> = {};
+
+        switch (connectorId) {
+          case 'google_workspace':
+            // Can't test OAuth client credentials directly - just verify they exist
+            if (credentials.client_id && credentials.client_secret) {
+              setStatuses((prev) => ({
+                ...prev,
+                [connectorId]: { ...prev[connectorId], testing: false, testResult: 'success', testMessage: 'Credentials saved. OAuth flow will be used to connect.' },
+              }));
+              return;
+            }
+            throw new Error('Client ID and Secret required');
+
+          case 'github':
+            testUrl = 'https://api.github.com/user';
+            headers = { Authorization: `Bearer ${credentials.personal_access_token}`, Accept: 'application/vnd.github.v3+json' };
+            break;
+
+          case 'slack':
+            testUrl = 'https://slack.com/api/auth.test';
+            headers = { Authorization: `Bearer ${credentials.bot_token}` };
+            break;
+
+          case 'notion':
+            testUrl = 'https://api.notion.com/v1/users/me';
+            headers = { Authorization: `Bearer ${credentials.integration_token}`, 'Notion-Version': '2022-06-28' };
+            break;
+
+          case 'local_fs':
+            // Just check paths are provided
+            const paths = credentials.watch_paths || credentials.paths || '';
+            if (paths.trim()) {
+              setStatuses((prev) => ({
+                ...prev,
+                [connectorId]: { ...prev[connectorId], testing: false, testResult: 'success', testMessage: 'Paths configured successfully.' },
+              }));
+              return;
+            }
+            throw new Error('No directory paths specified');
+        }
+
+        if (testUrl) {
+          const res = await fetch(testUrl, { headers, signal: AbortSignal.timeout(10000) });
+          if (res.ok) {
+            const data = await res.json();
+            let successMsg = 'Connection successful!';
+            if (connectorId === 'github' && data.login) successMsg = `Connected as @${data.login}`;
+            if (connectorId === 'slack' && data.ok) successMsg = `Connected to ${data.team || 'workspace'}`;
+            if (connectorId === 'notion' && data.name) successMsg = `Connected as ${data.name}`;
+            
+            setStatuses((prev) => ({
+              ...prev,
+              [connectorId]: { ...prev[connectorId], testing: false, testResult: 'success', testMessage: successMsg },
+            }));
+          } else {
+            const errData = await res.json().catch(() => ({}));
+            throw new Error(errData.message || errData.error || `HTTP ${res.status}`);
+          }
         }
       } catch (err: any) {
         setStatuses((prev) => ({
           ...prev,
-          [connectorId]: {
-            ...prev[connectorId],
-            testing: false,
-            testResult: "error",
-            testMessage: err?.message || "Test failed unexpectedly.",
-          },
+          [connectorId]: { ...prev[connectorId], testing: false, testResult: 'error', testMessage: err.message || 'Connection test failed' },
         }));
       }
     },
-    [statuses]
+    []
   );
 
   return (

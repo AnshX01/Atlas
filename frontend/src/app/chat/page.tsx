@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, type KeyboardEvent } from "react";
+import { useState, useRef, useCallback, useEffect, Suspense, type KeyboardEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -112,7 +112,7 @@ function hasElectronIPC(): boolean {
 
 function StreamingIndicator() {
   return (
-    <span className="inline-block w-0.5 h-4 bg-[var(--text-muted)] animate-pulse ml-0.5" />
+    <span className="inline-block w-0.5 h-[1em] bg-[var(--text-muted)] animate-pulse ml-0.5 align-middle" />
   );
 }
 
@@ -428,6 +428,22 @@ function ChatInput({
 // ── Main Page Component ─────────────────────────────────────────────────────
 
 export default function ChatPage() {
+  return (
+    <Suspense fallback={<ChatLoadingFallback />}>
+      <ChatPageInner />
+    </Suspense>
+  );
+}
+
+function ChatLoadingFallback() {
+  return (
+    <div className="flex flex-col h-full items-center justify-center">
+      <div className="w-5 h-5 border-2 border-[var(--text-muted)]/30 border-t-[var(--text-muted)] rounded-full animate-spin" />
+    </div>
+  );
+}
+
+function ChatPageInner() {
   const searchParams = useSearchParams();
   const conversationId = searchParams.get('id');
 
