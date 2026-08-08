@@ -26,6 +26,7 @@ export default function LoginPage() {
   const [otpInput, setOtpInput] = useState('');
   const router = useRouter();
   const setUser = useAuthStore((state) => state.setUser);
+  const setTokens = useAuthStore((state) => state.setTokens);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,10 +40,9 @@ export default function LoginPage() {
           const code = Math.floor(100000 + Math.random() * 900000).toString();
           setGeneratedOtp(code);
           setOtpStep(true);
-          // Show the OTP (in a real app this would be emailed)
           setGlobalError(null);
           setLoading(false);
-          return; // Don't proceed with registration yet
+          return;
         } else {
           // Step 2: Verify OTP then register
           if (otpInput !== generatedOtp) {
@@ -50,61 +50,34 @@ export default function LoginPage() {
             setLoading(false);
             return;
           }
-          // OTP correct - proceed with registration
         }
-      }
-
-      // Try Electron IPC first (desktop mode)
-      if (typeof window !== "undefined" && window.atlasElectron?.localAuth) {
-        const localAuth = window.atlasElectron.localAuth;
-        let user;
-
-        if (isRegister) {
-          user = await localAuth.register(email.value, password.value, fullName.value || undefined);
-        } else {
-          user = await localAuth.login(email.value, password.value);
-        }
-
-        setUser({
-          id: user.id,
-          email: user.email,
-          full_name: user.full_name,
-          avatar_url: user.avatar_url,
-          is_active: user.is_active,
-          created_at: user.created_at,
-        });
-        router.push("/dashboard");
+        // Register via backend API
+        const data = await authAPI.register(email.value, password.value, fullName.value || undefined);
+        setTokens(data.tokens.access_token, data.tokens.refresh_token);
+        setUser(data.user);
       } else {
-        // Fallback to API calls (dev mode without Electron)
-        if (isRegister) {
-          const data = await authAPI.register(email.value, password.value, fullName.value || undefined);
-          setUser({
-            id: data.user.id,
-            email: data.user.email,
-            full_name: data.user.full_name,
-            avatar_url: data.user.avatar_url,
-            is_active: data.user.is_active,
-            created_at: data.user.created_at,
-          });
-        } else {
-          const data = await authAPI.login(email.value, password.value);
-          setUser({
-            id: data.user.id,
-            email: data.user.email,
-            full_name: data.user.full_name,
-            avatar_url: data.user.avatar_url,
-            is_active: data.user.is_active,
-            created_at: data.user.created_at,
-          });
-        }
-        router.push("/dashboard");
+        // Login via backend API
+        const data = await authAPI.login(email.value, password.value);
+        setTokens(data.tokens.access_token, data.tokens.refresh_token);
+        setUser(data.user);
       }
-    } catch (err: unknown) {
-      const message =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
-        (err as Error)?.message ||
-        "Authentication failed. Please try again.";
-      setGlobalError(message);
+      router.push('/dashboard');
+    } catch (err: any) {
+      // If backend unreachable, try local auth as fallback
+      if (!err?.response && window.atlasElectron?.localAuth) {
+        try {
+          const localUser = isRegister
+            ? await window.atlasElectron.localAuth.register(email.value, password.value, fullName.value)
+            : await window.atlasElectron.localAuth.login(email.value, password.value);
+          setUser({ ...localUser, is_active: true, avatar_url: null } as any);
+          router.push('/dashboard');
+          return;
+        } catch (localErr: any) {
+          setGlobalError(localErr.message || 'Authentication failed');
+          return;
+        }
+      }
+      setGlobalError(err?.response?.data?.detail || 'Authentication failed. Please try again.');
     } finally {
       setLoading(false);
     }

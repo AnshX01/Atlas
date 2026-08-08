@@ -25,12 +25,12 @@ function sleep(ms: number): Promise<void> {
  * - Injects JWT Bearer token from Zustand store.
  * - On 401, attempts token refresh before logging out.
  * - Retries network errors up to 2 times with exponential backoff.
- * - Timeout: 15s for snappy UX.
+ * - Timeout: 10s (reduced for desktop app connecting to potentially-down backend).
  */
 export const apiClient: AxiosInstance = axios.create({
   baseURL: `${BASE_URL}/v1`,
   headers: { "Content-Type": "application/json" },
-  timeout: 15_000,
+  timeout: 10_000,
 });
 
 // ── Token Refresh Queue ─────────────────────────────────────────────────────
@@ -68,6 +68,19 @@ apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+
+    // ── Network error (backend unreachable): don't logout, just reject ──
+    if (!error.response && originalRequest) {
+      // Retry network errors with backoff before giving up
+      if (shouldRetry(error) && (originalRequest.__retryCount ?? 0) < MAX_RETRIES) {
+        originalRequest.__retryCount = (originalRequest.__retryCount ?? 0) + 1;
+        const delay = RETRY_BASE_DELAY * Math.pow(2, originalRequest.__retryCount - 1);
+        await sleep(delay);
+        return apiClient(originalRequest);
+      }
+      // After retries exhausted, reject without logging out so caller can handle
+      return Promise.reject(error);
+    }
 
     // ── Handle 401: attempt token refresh ───────────────────────────
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
@@ -120,14 +133,6 @@ apiClient.interceptors.response.use(
         useAuthStore.getState().logout();
         return Promise.reject(refreshError);
       }
-    }
-
-    // ── Network error retry with exponential backoff ────────────────
-    if (originalRequest && shouldRetry(error) && (originalRequest.__retryCount ?? 0) < MAX_RETRIES) {
-      originalRequest.__retryCount = (originalRequest.__retryCount ?? 0) + 1;
-      const delay = RETRY_BASE_DELAY * Math.pow(2, originalRequest.__retryCount - 1);
-      await sleep(delay);
-      return apiClient(originalRequest);
     }
 
     return Promise.reject(error);

@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
-import { TopBar } from "@/components/layout/TopBar";
 import { PageTransition } from "@/components/layout/PageTransition";
 import { ErrorBoundary } from "@/components/layout/ErrorBoundary";
 import { OfflineBanner } from "@/components/layout/OfflineBanner";
@@ -63,7 +62,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <>
       <OfflineBanner />
       <div className="app-layout">
-        <TopBar />
         <Sidebar />
         <main id="main-content" className="app-main" role="main">
           <ErrorBoundary>
