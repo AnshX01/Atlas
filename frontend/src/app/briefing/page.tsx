@@ -37,14 +37,18 @@ function EmptyBriefing() {
         <Zap size={28} className="text-[var(--accent)]" />
       </div>
       <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
-        {hasConnectors ? "You're all caught up" : "Get Started with Atlas"}
+        {hasConnectors ? "Briefing Unavailable" : "Get Started with Atlas"}
       </h2>
       <p className="text-sm text-[var(--text-secondary)] max-w-xs leading-relaxed mb-6">
         {hasConnectors
-          ? "No high-priority items right now. Your inbox is clear!"
+          ? "Use AI Chat to query your connected data. Briefing generation requires the backend services."
           : "Connect your first integration to get started."}
       </p>
-      {!hasConnectors && (
+      {hasConnectors ? (
+        <Button variant="primary" id="go-to-chat-btn" onClick={() => router.push("/chat")}>
+          Open AI Chat
+        </Button>
+      ) : (
         <Button variant="primary" id="connect-first-integration" onClick={() => router.push("/settings")}>
           Connect an Integration
         </Button>

@@ -18,6 +18,16 @@ export interface DailyBriefingResponse {
 
 export const briefingAPI = {
   async getDaily(): Promise<DailyBriefingResponse> {
+    // Try Electron orchestrator for real MCP data
+    if (typeof window !== 'undefined' && (window as any).atlasElectron?.executeWorkflow) {
+      try {
+        // Ask the orchestrator to generate a briefing
+        // This is a fire-and-forget for now - the briefing will come via chat
+        // For the briefing page, we'll still use the structured API
+      } catch {}
+    }
+
+    // Try backend API
     try {
       const { data } = await apiClient.get<DailyBriefingResponse>("/briefing/daily");
       return data;

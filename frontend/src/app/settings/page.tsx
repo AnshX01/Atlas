@@ -389,12 +389,18 @@ export default function SettingsPage() {
   } | null>(null);
 
   // Track configuration status per connector
+  // Initialize synchronously from localStorage so the first render shows correct status
   const [statuses, setStatuses] = useState<Record<ConnectorId, ConnectorStatus>>(
     () => {
       const initial: Record<string, ConnectorStatus> = {};
-      connectorConfigs.forEach((c) => {
-        initial[c.id] = { configured: false };
-      });
+      for (const c of connectorConfigs) {
+        const stored = typeof window !== 'undefined' ? localStorage.getItem(`atlas_connector_${c.id}`) : null;
+        let configured = false;
+        if (stored) {
+          try { configured = Object.values(JSON.parse(stored)).some((v: any) => v && String(v).trim()); } catch {}
+        }
+        initial[c.id] = { configured, testing: false, testResult: null };
+      }
       return initial as Record<ConnectorId, ConnectorStatus>;
     }
   );

@@ -36,20 +36,32 @@ export default function ProfilePage() {
     if (stored) setAvatar(stored);
   }, []);
 
+  // ── Computed: has user made changes? ─────────────────────────────────
+  const hasProfileChanges = fullName !== (user?.full_name ?? '') || email !== (user?.email ?? '');
+
   // ── Update profile mutation ─────────────────────────────────────────
   const updateProfile = useMutation({
     mutationFn: async (data: { full_name: string; email: string }) => {
+      // Try Electron local auth first
+      if ((window as any).atlasElectron?.localAuth?.updateProfile) {
+        const updated = await (window as any).atlasElectron.localAuth.updateProfile(data);
+        return {
+          id: updated.id,
+          email: updated.email,
+          full_name: updated.full_name,
+          avatar_url: null,
+          is_active: true,
+          created_at: updated.created_at,
+        };
+      }
+      // Fallback to API
       try {
         const { data: updated } = await apiClient.patch("/users/me/profile", data);
         return updated;
       } catch (err: any) {
-        const status = err?.response?.status;
-        // If endpoint doesn't exist (404) or method not allowed (405),
-        // fall back to local-only update
-        if (status === 404 || status === 405) {
+        if (err?.response?.status === 404 || err?.response?.status === 405) {
           return { ...user, full_name: data.full_name, email: data.email };
         }
-        // Re-throw real errors
         throw err;
       }
     },
@@ -66,6 +78,10 @@ export default function ProfilePage() {
   // ── Change password mutation ────────────────────────────────────────
   const changePassword = useMutation({
     mutationFn: async (data: { current_password: string; new_password: string }) => {
+      if ((window as any).atlasElectron?.localAuth?.updateProfile) {
+        await (window as any).atlasElectron.localAuth.updateProfile({ password: data.new_password });
+        return { success: true };
+      }
       const { data: result } = await apiClient.patch("/users/me/password", data);
       return result;
     },
@@ -242,6 +258,7 @@ export default function ProfilePage() {
               type="submit"
               variant="primary"
               size="md"
+              disabled={!hasProfileChanges || updateProfile.isPending}
               isLoading={updateProfile.isPending}
               leftIcon={<Save size={14} />}
             >

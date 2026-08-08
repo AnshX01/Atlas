@@ -297,7 +297,7 @@ function ChatMessageBubble({
             </span>
           )
         ) : (
-          <img src="/logo.png" alt="Atlas" className="w-4 h-4" />
+          <img src="/logo.png" alt="Atlas" className="w-5 h-5" />
         )}
       </div>
 
@@ -807,7 +807,7 @@ function EmptyState({ onSuggestionClick }: { onSuggestionClick: (suggestion: str
       transition={{ type: "spring", stiffness: 300, damping: 30 }}
     >
       <div className="w-16 h-16 rounded-2xl bg-white flex items-center justify-center mb-5">
-        <img src="/logo.png" alt="Atlas" className="w-8 h-8" />
+        <img src="/logo.png" alt="Atlas" className="w-9 h-9" />
       </div>
       <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-2">Atlas AI</h2>
       <p className="text-sm text-[var(--text-secondary)] max-w-xs mb-6">
