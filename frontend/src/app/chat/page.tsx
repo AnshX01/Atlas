@@ -409,7 +409,7 @@ function ChatInput({
         className={cn(
           "flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-150",
           text.trim() && !disabled
-            ? "bg-[var(--accent)] text-white hover:bg-[var(--accent-hover)] shadow-sm"
+            ? "bg-[var(--accent)] text-[var(--bg-primary)] hover:bg-[var(--accent-hover)] shadow-sm"
             : "bg-[var(--bg-tertiary)] text-[var(--text-muted)] cursor-not-allowed"
         )}
         aria-label="Send message"

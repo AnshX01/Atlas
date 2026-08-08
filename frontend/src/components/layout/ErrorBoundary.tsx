@@ -69,7 +69,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
           <button
             onClick={this.handleRetry}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium
-                       bg-[var(--accent)] text-white hover:bg-[var(--accent)]/90
+                       bg-[var(--accent)] text-[var(--bg-primary)] hover:bg-[var(--accent)]/90
                        transition-colors duration-150 shadow-[var(--shadow-glow)]"
           >
             <RefreshCw size={14} />
