@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Eye, EyeOff, ArrowRight, Mail, Lock, User } from "lucide-react";
 import { useAuthStore } from "../../lib/store/useAuthStore";
 import { authAPI } from "../../lib/api/auth";
@@ -14,7 +14,7 @@ interface FormField {
   error: string;
 }
 
-function LoginPageInner() {
+export default function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState<FormField>({ value: "", error: "" });
   const [password, setPassword] = useState<FormField>({ value: "", error: "" });
@@ -27,29 +27,8 @@ function LoginPageInner() {
   const [generatedOtp, setGeneratedOtp] = useState('');
   const [otpInput, setOtpInput] = useState('');
   const router = useRouter();
-  const searchParams = useSearchParams();
   const setUser = useAuthStore((state) => state.setUser);
   const setTokens = useAuthStore((state) => state.setTokens);
-
-  // Handle OAuth callback tokens from URL
-  useEffect(() => {
-    const accessToken = searchParams.get("access_token");
-    const refreshToken = searchParams.get("refresh_token");
-    const errorMsg = searchParams.get("error");
-
-    if (errorMsg) {
-      setGlobalError("Google sign-in failed. Please try again.");
-    } else if (accessToken && refreshToken) {
-      setTokens(accessToken, refreshToken);
-      // Fetch user profile
-      authAPI.getMe().then(user => {
-        setUser(user);
-        router.push("/dashboard");
-      }).catch(() => {
-        setGlobalError("Signed in but failed to load profile.");
-      });
-    }
-  }, [searchParams, setTokens, setUser, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -407,9 +386,38 @@ function LoginPageInner() {
           {/* Google Login Button */}
           <button
             type="button"
-            onClick={() => {
-              // Redirect to backend Google OAuth (works when backend is running)
-              window.location.href = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/v1/auth/oauth/google/login/initiate`;
+            onClick={async () => {
+              // Open Google OAuth in the system browser
+              const oauthUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/v1/auth/oauth/google/login/initiate`;
+              if ((window as any).atlasElectron?.openExternal) {
+                (window as any).atlasElectron.openExternal(oauthUrl);
+              } else {
+                window.open(oauthUrl, '_blank');
+              }
+              
+              // Poll for OAuth result (browser writes to localStorage on callback)
+              setLoading(true);
+              setGlobalError(null);
+              const pollInterval = setInterval(async () => {
+                const result = localStorage.getItem('atlas-oauth-result');
+                if (result) {
+                  clearInterval(pollInterval);
+                  localStorage.removeItem('atlas-oauth-result');
+                  try {
+                    const { access_token, refresh_token } = JSON.parse(result);
+                    setTokens(access_token, refresh_token);
+                    const user = await authAPI.getMe();
+                    setUser(user);
+                    setLoading(false);
+                    router.push('/dashboard');
+                  } catch {
+                    setLoading(false);
+                    setGlobalError('Google sign-in failed. Please try again.');
+                  }
+                }
+              }, 1000);
+              // Stop polling after 2 minutes
+              setTimeout(() => { clearInterval(pollInterval); setLoading(false); }, 120000);
             }}
             className="w-full flex items-center justify-center gap-3 py-3 rounded-xl text-sm font-medium transition-all duration-200"
             style={{
@@ -437,14 +445,5 @@ function LoginPageInner() {
         </p>
       </motion.div>
     </div>
-  );
-}
-
-
-export default function LoginPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[#09090b]"><div className="w-5 h-5 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" /></div>}>
-      <LoginPageInner />
-    </Suspense>
   );
 }

@@ -394,7 +394,7 @@ async def google_login_callback(
     jwt_refresh = create_refresh_token(str(user.id))
     
     return RedirectResponse(
-        f"http://localhost:3000/login?access_token={jwt_access}&refresh_token={jwt_refresh}",
+        f"http://localhost:3000/oauth-callback?access_token={jwt_access}&refresh_token={jwt_refresh}",
         status_code=302,
     )
 
