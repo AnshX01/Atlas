@@ -108,3 +108,41 @@ async def change_password(
         session.add(current_user)
         await session.commit()
     return {"message": "Password changed successfully"}
+
+
+@users_router.get("/me/avatar", summary="Get user's profile picture")
+async def get_avatar(
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    from sqlalchemy import text
+    factory = get_session_factory()
+    async with factory() as session:
+        result = await session.execute(
+            text("SELECT image_data FROM user_profile_pictures WHERE user_id = :uid"),
+            {"uid": str(current_user.id)}
+        )
+        row = result.fetchone()
+    if row:
+        return {"image_data": row[0]}
+    return {"image_data": None}
+
+
+@users_router.put("/me/avatar", summary="Upload profile picture")
+async def upload_avatar(
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    from sqlalchemy import text
+    image_data = payload.get("image_data", "")
+    if not image_data:
+        raise HTTPException(status_code=422, detail="image_data required")
+    factory = get_session_factory()
+    async with factory() as session:
+        await session.execute(
+            text("""INSERT INTO user_profile_pictures (user_id, image_data, updated_at)
+                    VALUES (:uid, :img, NOW())
+                    ON CONFLICT (user_id) DO UPDATE SET image_data = :img, updated_at = NOW()"""),
+            {"uid": str(current_user.id), "img": image_data}
+        )
+        await session.commit()
+    return {"message": "Avatar uploaded"}

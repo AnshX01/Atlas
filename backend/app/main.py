@@ -25,6 +25,7 @@ from app.api.v1 import (
     actions_router,
     briefing_router,
     connectors_router,
+    conversations_router,
     search_router,
     users_router,
 )
@@ -50,6 +51,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # ── Startup ───────────────────────────────────────────────────────────────
     configure_logging()
     logger.info("Atlas Backend starting", env=settings.APP_ENV)
+
+    # Initialize conversation sync tables (idempotent)
+    try:
+        from app.infrastructure.init_tables import ensure_conversation_tables
+
+        await ensure_conversation_tables()
+    except Exception as e:
+        logger.warning("Could not ensure conversation tables", error=str(e))
 
     # Initialize Neo4j schema constraints (idempotent)
     try:
@@ -102,6 +111,7 @@ def create_app() -> FastAPI:
     app.include_router(connectors_router, prefix=api_prefix)
     app.include_router(actions_router, prefix=api_prefix)
     app.include_router(users_router, prefix=api_prefix)
+    app.include_router(conversations_router, prefix=api_prefix)
 
     # ── Health & Metrics ──────────────────────────────────────────────────────
     @app.get("/health", tags=["System"], summary="Health check")

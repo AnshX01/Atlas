@@ -526,7 +526,86 @@ async def execute_action(
         executed_at=datetime.now(UTC),
     )
 
+# ── Conversations Router ───────────────────────────────────────────────────────
+conversations_router = APIRouter(prefix="/conversations", tags=["Conversations"])
+
+
+@conversations_router.get("", summary="List user's conversations")
+async def list_conversations(
+    current_user: User = Depends(get_current_user),
+) -> list[dict]:
+    from app.infrastructure.database import get_session_factory
+    from sqlalchemy import text
+
+    factory = get_session_factory()
+    async with factory() as session:
+        result = await session.execute(
+            text("SELECT id, title, created_at, last_message FROM user_conversations WHERE user_id = :uid ORDER BY created_at DESC LIMIT 50"),
+            {"uid": str(current_user.id)},
+        )
+        rows = result.fetchall()
+    return [{"id": r[0], "title": r[1], "created_at": r[2], "last_message": r[3]} for r in rows]
+
+
+@conversations_router.post("", summary="Create or sync a conversation")
+async def upsert_conversation(
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    from app.infrastructure.database import get_session_factory
+    from sqlalchemy import text
+
+    conv_id = payload.get("id", str(uuid.uuid4()))
+    title = payload.get("title", "New Conversation")
+    last_message = payload.get("last_message", "")
+    messages = payload.get("messages", [])
+
+    factory = get_session_factory()
+    async with factory() as session:
+        await session.execute(
+            text("""INSERT INTO user_conversations (id, user_id, title, last_message, created_at)
+                    VALUES (:id, :uid, :title, :last_msg, NOW())
+                    ON CONFLICT (id) DO UPDATE SET title = :title, last_message = :last_msg"""),
+            {"id": conv_id, "uid": str(current_user.id), "title": title, "last_msg": last_message},
+        )
+        # Store messages
+        if messages:
+            for msg in messages:
+                await session.execute(
+                    text("""INSERT INTO conversation_messages (id, conversation_id, role, content, timestamp)
+                            VALUES (:id, :conv_id, :role, :content, :ts)
+                            ON CONFLICT (id) DO NOTHING"""),
+                    {
+                        "id": msg.get("id", str(uuid.uuid4())),
+                        "conv_id": conv_id,
+                        "role": msg.get("role", "user"),
+                        "content": msg.get("content", ""),
+                        "ts": msg.get("timestamp", datetime.now(UTC).isoformat()),
+                    },
+                )
+        await session.commit()
+    return {"id": conv_id, "synced": True}
+
+
+@conversations_router.get("/{conversation_id}/messages", summary="Get conversation messages")
+async def get_conversation_messages(
+    conversation_id: str,
+    current_user: User = Depends(get_current_user),
+) -> list[dict]:
+    from app.infrastructure.database import get_session_factory
+    from sqlalchemy import text
+
+    factory = get_session_factory()
+    async with factory() as session:
+        result = await session.execute(
+            text("SELECT id, role, content, timestamp FROM conversation_messages WHERE conversation_id = :cid ORDER BY timestamp ASC"),
+            {"cid": conversation_id},
+        )
+        rows = result.fetchall()
+    return [{"id": r[0], "role": r[1], "content": r[2], "timestamp": r[3]} for r in rows]
+
+
 # ── Re-export Routers ────────────────────────────────────────────────────────
 from app.api.v1.users import users_router  # noqa: E402
 
-__all__ = ["briefing_router", "search_router", "connectors_router", "actions_router", "users_router"]
+__all__ = ["briefing_router", "search_router", "connectors_router", "actions_router", "conversations_router", "users_router"]

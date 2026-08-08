@@ -52,6 +52,7 @@ interface AtlasElectronAPI {
   getConversationHistory: (id: string, limit?: number) => Promise<unknown[]>;
   localAuth: AtlasLocalAuthAPI;
   tokenStore: AtlasTokenStoreAPI;
+  startGoogleOAuth: (clientId: string, clientSecret: string) => Promise<{ success: boolean; tokens?: any; error?: string }>;
 }
 
 declare global {

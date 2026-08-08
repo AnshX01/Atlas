@@ -7,6 +7,7 @@ import { Eye, EyeOff, ArrowRight, Mail, Lock, User } from "lucide-react";
 import { useAuthStore } from "../../lib/store/useAuthStore";
 import { authAPI } from "../../lib/api/auth";
 import { tokenSyncAPI } from "../../lib/api/token-sync";
+import { apiClient } from "../../lib/api/client";
 
 interface FormField {
   value: string;
@@ -84,6 +85,13 @@ export default function LoginPage() {
           (window as any).atlasElectron?.tokenStore?.set(provider, creds);
         }
       });
+      // Sync profile picture from cloud
+      apiClient.get('/users/me/avatar').then(({ data }) => {
+        if (data.image_data) {
+          localStorage.setItem('atlas-profile-avatar', data.image_data);
+          window.dispatchEvent(new Event('atlas-avatar-updated'));
+        }
+      }).catch(() => {});
     } catch (err: any) {
       // If backend unreachable, try local auth as fallback
       if (!err?.response && window.atlasElectron?.localAuth) {

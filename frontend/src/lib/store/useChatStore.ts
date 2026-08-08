@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { conversationSyncAPI } from "../api/conversation-sync";
 
 export interface ChatMessage {
   id: string;
@@ -36,9 +37,32 @@ function generateId(): string {
   return `conv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+/** Fire-and-forget background sync to cloud backend */
+function backgroundSync(conversationId: string, getState: () => ChatState): void {
+  // Debounce: wait 1s after last change before syncing
+  if ((backgroundSync as any)._timer) clearTimeout((backgroundSync as any)._timer);
+  (backgroundSync as any)._timer = setTimeout(() => {
+    const state = getState();
+    const conv = state.conversations.find((c) => c.id === conversationId);
+    if (!conv) return;
+    const messages = (state.messages[conversationId] || []).map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      timestamp: m.timestamp,
+    }));
+    conversationSyncAPI.syncConversation({
+      id: conv.id,
+      title: conv.title,
+      last_message: conv.lastMessage,
+      messages,
+    });
+  }, 1000);
+}
+
 export const useChatStore = create<ChatState>()(
   persist(
-    (set, _get) => ({
+    (set, get) => ({
       // ── State ───────────────────────────────────────────────────────
       conversations: [],
       activeConversationId: null,
@@ -58,6 +82,7 @@ export const useChatStore = create<ChatState>()(
           activeConversationId: id,
           messages: { ...state.messages, [id]: [] },
         }));
+        backgroundSync(id, get);
         return id;
       },
 
@@ -98,6 +123,7 @@ export const useChatStore = create<ChatState>()(
             conversations: updatedConversations,
           };
         });
+        backgroundSync(conversationId, get);
       },
 
       clearMessages: (conversationId: string) => {

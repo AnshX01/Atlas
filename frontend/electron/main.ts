@@ -38,6 +38,7 @@ import {
   ProviderName,
   ProviderCredentials,
 } from "./services/token-store";
+import { startGoogleOAuth } from "./services/google-oauth";
 
 const isDev = !app.isPackaged;
 const NEXT_URL = "http://localhost:3000";
@@ -396,4 +397,15 @@ ipcMain.handle("token-remove", async (_event, provider: ProviderName) => {
 
 ipcMain.handle("token-list-configured", async () => {
   return listConfigured();
+});
+
+// ── Google OAuth IPC Handler ──────────────────────────────────────────────────
+
+ipcMain.handle('google-oauth-start', async (_event, { clientId, clientSecret }: { clientId: string; clientSecret: string }) => {
+  try {
+    const tokens = await startGoogleOAuth(clientId, clientSecret);
+    return { success: true, tokens };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
 });

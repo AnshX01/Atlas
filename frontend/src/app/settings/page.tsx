@@ -504,12 +504,33 @@ export default function SettingsPage() {
 
         switch (connectorId) {
           case 'google_workspace':
-            // Can't test OAuth client credentials directly - just verify they exist
             if (credentials.client_id && credentials.client_secret) {
-              setStatuses((prev) => ({
-                ...prev,
-                [connectorId]: { ...prev[connectorId], testing: false, testResult: 'success', testMessage: 'Credentials saved. OAuth flow will be used to connect.' },
-              }));
+              if (credentials.access_token) {
+                // Already authenticated - test with a real API call
+                const testRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+                  headers: { Authorization: `Bearer ${credentials.access_token}` },
+                });
+                if (testRes.ok) {
+                  const userData = await testRes.json();
+                  setStatuses((prev) => ({ ...prev, [connectorId]: { ...prev[connectorId], testing: false, testResult: 'success', testMessage: `Connected as ${userData.email}` } }));
+                  return;
+                }
+                // Token expired, need to re-auth
+              }
+              // Start OAuth flow
+              const electron = (window as any).atlasElectron;
+              if (electron?.startGoogleOAuth) {
+                const result = await electron.startGoogleOAuth(credentials.client_id, credentials.client_secret);
+                if (result.success) {
+                  setStatuses((prev) => ({ ...prev, [connectorId]: { ...prev[connectorId], testing: false, testResult: 'success', testMessage: 'Google OAuth successful! Connected.' } }));
+                  // Re-check configured status
+                  queryClient.invalidateQueries({ queryKey: ['connectors'] });
+                  return;
+                }
+                throw new Error(result.error || 'OAuth flow failed');
+              }
+              // Not in Electron - just validate credentials exist
+              setStatuses((prev) => ({ ...prev, [connectorId]: { ...prev[connectorId], testing: false, testResult: 'success', testMessage: 'Credentials saved. Use desktop app for OAuth.' } }));
               return;
             }
             throw new Error('Client ID and Secret required');
@@ -567,7 +588,7 @@ export default function SettingsPage() {
         }));
       }
     },
-    []
+    [queryClient]
   );
 
   return (
