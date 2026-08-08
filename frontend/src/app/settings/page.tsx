@@ -20,6 +20,7 @@ import {
   NotionLogo,
   LocalFilesLogo,
 } from "@/components/icons/ProviderLogos";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/ui/Toast";
 import { useAppStore } from "@/lib/store/useAppStore";
@@ -380,6 +381,7 @@ function ConnectorCard({
 export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
   const { theme, toggleTheme } = useAppStore();
+  const queryClient = useQueryClient();
 
   const [toast, setToast] = useState<{
     message: string;
@@ -401,7 +403,6 @@ export default function SettingsPage() {
   useEffect(() => {
     async function checkConfigured() {
       try {
-        // In Electron, query the secure token store
         const electron = (window as any).atlasElectron;
         if (electron?.tokenStore?.listConfigured) {
           const configured: string[] = await electron.tokenStore.listConfigured();
@@ -412,6 +413,25 @@ export default function SettingsPage() {
                 ...next[id],
                 configured: configured.includes(id),
               };
+            }
+            return next;
+          });
+        } else {
+          // Fallback: check localStorage
+          setStatuses((prev) => {
+            const next = { ...prev };
+            for (const id of Object.keys(next) as ConnectorId[]) {
+              const stored = localStorage.getItem(`atlas_connector_${id}`);
+              if (stored) {
+                try {
+                  const parsed = JSON.parse(stored);
+                  // Check that at least one value is non-empty
+                  const hasValue = Object.values(parsed).some((v) => v && String(v).trim());
+                  next[id] = { ...next[id], configured: hasValue };
+                } catch {
+                  // ignore
+                }
+              }
             }
             return next;
           });
@@ -429,7 +449,7 @@ export default function SettingsPage() {
       try {
         const electron = (window as any).atlasElectron;
         if (electron?.tokenStore?.save) {
-          await electron.tokenStore.save(connectorId, values);
+          await electron.tokenStore.set(connectorId, values);
         } else {
           // Fallback: store in localStorage (less secure, for dev)
           localStorage.setItem(
@@ -443,6 +463,9 @@ export default function SettingsPage() {
           [connectorId]: { ...prev[connectorId], configured: true },
         }));
 
+        // Invalidate React Query cache so the sidebar updates immediately
+        queryClient.invalidateQueries({ queryKey: ["connectors"] });
+
         setToast({ message: `${connectorId} configured successfully.`, type: "success" });
       } catch (err: any) {
         setToast({
@@ -451,7 +474,7 @@ export default function SettingsPage() {
         });
       }
     },
-    []
+    [queryClient]
   );
 
   // Test connection for a connector

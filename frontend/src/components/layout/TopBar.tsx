@@ -2,11 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Moon, Sun, RefreshCw } from "lucide-react";
+import { Moon, Sun, RefreshCw } from "lucide-react";
 import { useAppStore } from "@/lib/store/useAppStore";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 import { useRouter } from "next/navigation";
-import { cn } from "@/lib/utils";
 
 const AVATAR_STORAGE_KEY = "atlas-profile-avatar";
 
@@ -52,25 +51,6 @@ export function TopBar() {
     >
       {/* Left: breadcrumb / page title */}
       <div id="topbar-title" className="text-sm font-medium text-[var(--text-secondary)]" />
-
-      {/* Center: AI Chat trigger */}
-      <button
-        id="global-search-trigger"
-        onClick={() => router.push('/chat')}
-        className={cn(
-          "hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl",
-          "border border-[var(--border-default)] bg-[var(--bg-tertiary)]",
-          "text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)]",
-          "hover:border-[var(--accent)]/40 hover:bg-[var(--bg-secondary)]",
-          "transition-all duration-150 cursor-pointer select-none",
-          "w-64"
-        )}
-        aria-label="Open AI Chat"
-        style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-      >
-        <Search size={13} />
-        <span className="flex-1 text-left text-xs">Ask Atlas anything...</span>
-      </button>
 
       {/* Right: Actions */}
       <div

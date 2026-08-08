@@ -33,7 +33,6 @@ interface NavItem {
 const navItems: NavItem[] = [
   { id: "dashboard", label: "Dashboard",      href: "/dashboard", icon: <Home size={16} /> },
   { id: "briefing",  label: "Daily Briefing", href: "/briefing",  icon: <LayoutDashboard size={16} /> },
-  { id: "chat",      label: "AI Chat",        href: "/chat",      icon: <MessageSquare size={16} /> },
 ];
 
 const providerMeta: Record<ConnectorProvider, { label: string; icon: React.ReactNode }> = {
@@ -154,10 +153,7 @@ export function Sidebar() {
           Workspace
         </p>
         {navItems.map((item) => {
-          const isActive =
-            item.id === "chat"
-              ? pathname === item.href || pathname.startsWith(item.href + "?") || pathname.startsWith(item.href + "/")
-              : pathname === item.href || pathname.startsWith(item.href + "/");
+          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           return (
             <Link key={item.id} href={item.href} prefetch={true} aria-current={isActive ? "page" : undefined}>
               <motion.div
@@ -187,58 +183,8 @@ export function Sidebar() {
         })}
       </div>
 
-      {/* Conversations */}
-      <div className="px-2 flex flex-col gap-0.5 mb-4">
-        <p className="px-2 mb-1.5 text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-widest">
-          Conversations
-        </p>
-
-        {/* New Chat Button */}
-        <button
-          onClick={handleNewChat}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium text-[var(--accent)] hover:bg-[var(--accent)]/10 transition-colors border border-[var(--accent)]/30 hover:border-[var(--accent)]/50 w-full"
-          aria-label="Start a new chat conversation"
-        >
-          <Plus size={12} />
-          <span>New Chat</span>
-        </button>
-
-        {/* Conversation List */}
-        {recentConversations.length > 0 && (
-          <div className="mt-1.5 max-h-[200px] overflow-y-auto scrollbar-thin" role="list" aria-label="Recent conversations">
-            {recentConversations.map((conv) => {
-              const isActive = activeConversationId === conv.id && pathname.startsWith("/chat");
-              return (
-                <div
-                  key={conv.id}
-                  onClick={() => handleConversationClick(conv.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") handleConversationClick(conv.id);
-                  }}
-                  role="listitem"
-                  tabIndex={0}
-                  className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-xl cursor-pointer transition-colors",
-                    isActive
-                      ? "bg-[var(--accent)]/10 text-[var(--accent)]"
-                      : "text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                  )}
-                  title={conv.title}
-                >
-                  <MessageSquare size={12} className="flex-shrink-0 opacity-60" />
-                  <span className="flex-1 truncate text-xs">{conv.title}</span>
-                  <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0 opacity-70">
-                    {getRelativeTime(conv.createdAt)}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
       {/* Connectors */}
-      <div className="px-2 flex flex-col gap-0.5 flex-1">
+      <div className="px-2 flex flex-col gap-0.5 mb-4">
         <div className="px-2 mb-1.5">
           <p className="text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-widest">
             Connectors
@@ -280,6 +226,56 @@ export function Sidebar() {
           <Plus size={12} />
           <span>Add Integration</span>
         </button>
+      </div>
+
+      {/* Conversations */}
+      <div className="px-2 flex flex-col gap-0.5 flex-1">
+        <p className="px-2 mb-1.5 text-[10px] font-semibold text-[var(--text-muted)] uppercase tracking-widest">
+          Conversations
+        </p>
+
+        {/* New Chat Button */}
+        <button
+          onClick={handleNewChat}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors border border-[var(--border-default)] hover:border-[var(--accent)]/30 w-full"
+          aria-label="Start a new chat conversation"
+        >
+          <Plus size={12} />
+          <span>New Chat</span>
+        </button>
+
+        {/* Conversation List */}
+        {recentConversations.length > 0 && (
+          <div className="mt-1.5 max-h-[200px] overflow-y-auto scrollbar-thin" role="list" aria-label="Recent conversations">
+            {recentConversations.map((conv) => {
+              const isActive = activeConversationId === conv.id && pathname.startsWith("/chat");
+              return (
+                <div
+                  key={conv.id}
+                  onClick={() => handleConversationClick(conv.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") handleConversationClick(conv.id);
+                  }}
+                  role="listitem"
+                  tabIndex={0}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-xl cursor-pointer transition-colors",
+                    isActive
+                      ? "bg-[var(--accent)]/10 text-[var(--accent)]"
+                      : "text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                  )}
+                  title={conv.title}
+                >
+                  <MessageSquare size={12} className="flex-shrink-0 opacity-60" />
+                  <span className="flex-1 truncate text-xs">{conv.title}</span>
+                  <span className="text-[10px] text-[var(--text-muted)] flex-shrink-0 opacity-70">
+                    {getRelativeTime(conv.createdAt)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Bottom: Settings */}

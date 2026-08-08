@@ -10,11 +10,11 @@
  *   Linux:   ~/.config/Atlas/token-store.json
  *
  * Supported providers:
- *   - google: OAuth credentials (client_id, client_secret, access_token, refresh_token)
+ *   - google_workspace: OAuth credentials (client_id, client_secret, access_token, refresh_token)
  *   - github: Personal access token
  *   - slack:  Bot token
  *   - notion: Integration token
- *   - filesystem: Watch paths configuration
+ *   - local_fs: Watch paths configuration
  */
 
 import { app } from "electron";
@@ -23,45 +23,16 @@ import * as path from "path";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-export interface GoogleCredentials {
-  client_id?: string;
-  client_secret?: string;
-  access_token?: string;
-  refresh_token?: string;
-  token_expiry?: string;
-}
+export type ProviderName = "google_workspace" | "github" | "slack" | "notion" | "local_fs";
 
-export interface GitHubCredentials {
-  personal_access_token: string;
-}
-
-export interface SlackCredentials {
-  bot_token: string;
-}
-
-export interface NotionCredentials {
-  integration_token: string;
-}
-
-export interface FilesystemCredentials {
-  watch_paths: string[];
-}
-
-export type ProviderName = "google" | "github" | "slack" | "notion" | "filesystem";
-
-export type ProviderCredentials =
-  | GoogleCredentials
-  | GitHubCredentials
-  | SlackCredentials
-  | NotionCredentials
-  | FilesystemCredentials;
+export type ProviderCredentials = Record<string, any>;
 
 interface TokenStoreData {
-  google?: GoogleCredentials;
-  github?: GitHubCredentials;
-  slack?: SlackCredentials;
-  notion?: NotionCredentials;
-  filesystem?: FilesystemCredentials;
+  google_workspace?: Record<string, any>;
+  github?: Record<string, any>;
+  slack?: Record<string, any>;
+  notion?: Record<string, any>;
+  local_fs?: Record<string, any>;
 }
 
 // ── File Path ──────────────────────────────────────────────────────────────────
@@ -139,7 +110,7 @@ export function setToken(provider: ProviderName, credentials: ProviderCredential
     throw new Error("Provider name is required");
   }
 
-  const validProviders: ProviderName[] = ["google", "github", "slack", "notion", "filesystem"];
+  const validProviders: ProviderName[] = ["google_workspace", "github", "slack", "notion", "local_fs"];
   if (!validProviders.includes(provider)) {
     throw new Error(`Invalid provider: ${provider}. Must be one of: ${validProviders.join(", ")}`);
   }
@@ -177,7 +148,7 @@ export function listConfigured(): ProviderName[] {
   const store = readStore();
   const configured: ProviderName[] = [];
 
-  const providers: ProviderName[] = ["google", "github", "slack", "notion", "filesystem"];
+  const providers: ProviderName[] = ["google_workspace", "github", "slack", "notion", "local_fs"];
 
   for (const provider of providers) {
     if (store[provider] && Object.keys(store[provider]!).length > 0) {

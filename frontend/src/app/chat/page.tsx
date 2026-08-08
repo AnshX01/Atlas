@@ -11,12 +11,10 @@ import {
   Zap,
   Check,
   X,
-  Bot,
-  User,
-  Sparkles,
   Loader2,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/useAuthStore";
+import { useChatStore } from "@/lib/store/useChatStore";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
 
@@ -113,11 +111,7 @@ function hasElectronIPC(): boolean {
 
 function StreamingIndicator() {
   return (
-    <span className="inline-flex items-center gap-1 ml-1">
-      <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
-      <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse [animation-delay:150ms]" />
-      <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse [animation-delay:300ms]" />
-    </span>
+    <span className="inline-block w-0.5 h-4 bg-[var(--text-muted)] animate-pulse ml-0.5" />
   );
 }
 
@@ -153,7 +147,7 @@ function ResultCard({ result }: { result: SearchResult }) {
 
   return (
     <motion.div
-      className="p-3 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-tertiary)] hover:border-[var(--accent)]/20 transition-all duration-150 cursor-pointer group"
+      className="p-2.5 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-tertiary)] hover:border-[var(--accent)]/20 transition-all duration-150 cursor-pointer group"
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ y: -1, boxShadow: "0 4px 12px rgba(0,0,0,0.08)" }}
@@ -205,7 +199,7 @@ function ActionCard({
   return (
     <motion.div
       className={cn(
-        "p-3 rounded-2xl border bg-[var(--bg-tertiary)] transition-all duration-200",
+        "p-2.5 rounded-2xl border bg-[var(--bg-tertiary)] transition-all duration-200",
         action.status === "approved"
           ? "border-green-500/30 bg-green-500/5"
           : action.status === "rejected"
@@ -267,10 +261,12 @@ function ChatMessageBubble({
   message,
   onApproveAction,
   onRejectAction,
+  userAvatar,
 }: {
   message: ChatMessage;
   onApproveAction: (actionId: string) => void;
   onRejectAction: (actionId: string) => void;
+  userAvatar?: string | null;
 }) {
   const isUser = message.role === "user";
 
@@ -285,13 +281,22 @@ function ChatMessageBubble({
       <div
         className={cn(
           "flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-1",
-          isUser ? "bg-[var(--accent)]/15" : "bg-[var(--bg-tertiary)] border border-[var(--border-default)]"
+          isUser ? "bg-[var(--accent)]/15" : "bg-white"
         )}
       >
         {isUser ? (
-          <User size={13} className="text-[var(--accent)]" />
+          userAvatar ? (
+            <img src={userAvatar} alt="You" className="w-full h-full object-cover rounded-full" />
+          ) : (
+            <span className="text-[10px] font-semibold text-[var(--accent)]">
+              {(() => {
+                const { user } = useAuthStore.getState();
+                return user?.full_name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U';
+              })()}
+            </span>
+          )
         ) : (
-          <Bot size={13} className="text-[var(--text-secondary)]" />
+          <img src="/logo.png" alt="Atlas" className="w-4 h-4" />
         )}
       </div>
 
@@ -299,10 +304,10 @@ function ChatMessageBubble({
       <div className="flex flex-col gap-2 min-w-0">
         <div
           className={cn(
-            "px-4 py-2.5 rounded-2xl text-sm leading-relaxed",
+            "px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed",
             isUser
-              ? "bg-[var(--accent)]/10 text-[var(--text-primary)] rounded-tr-md"
-              : "bg-[var(--bg-secondary)] border border-[var(--border-default)] text-[var(--text-primary)] rounded-tl-md"
+              ? "bg-[var(--accent)]/10 text-[var(--text-primary)]"
+              : "bg-[var(--bg-secondary)] text-[var(--text-primary)]"
           )}
         >
           <span className="whitespace-pre-wrap">{message.content}</span>
@@ -311,7 +316,7 @@ function ChatMessageBubble({
 
         {/* Tool Execution Cards (inline) */}
         {message.toolExecutions && message.toolExecutions.length > 0 && (
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-1">
             {message.toolExecutions.map((tool) => (
               <ToolExecutionCard key={tool.id} tool={tool} />
             ))}
@@ -320,7 +325,7 @@ function ChatMessageBubble({
 
         {/* Result Cards */}
         {message.results && message.results.length > 0 && (
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-1">
             {message.results.map((result) => (
               <ResultCard key={result.id} result={result} />
             ))}
@@ -329,7 +334,7 @@ function ChatMessageBubble({
 
         {/* Action Cards */}
         {message.actions && message.actions.length > 0 && (
-          <div className="flex flex-col gap-1.5">
+          <div className="flex flex-col gap-1">
             {message.actions.map((action) => (
               <ActionCard
                 key={action.id}
@@ -385,7 +390,7 @@ function ChatInput({
   }, [text, autoResize]);
 
   return (
-    <div className="flex items-end gap-2 p-3 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] transition-all duration-200 focus-within:border-[var(--accent)]/30 focus-within:shadow-[0_0_0_3px_rgba(59,130,246,0.08)]">
+    <div className="flex items-end gap-2 p-3 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] transition-all duration-200">
       <textarea
         ref={textareaRef}
         value={text}
@@ -394,7 +399,7 @@ function ChatInput({
         placeholder="Ask anything..."
         rows={1}
         disabled={disabled}
-        className="flex-1 bg-transparent text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none resize-none max-h-40 leading-relaxed"
+        className="flex-1 bg-transparent text-[14px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none resize-none max-h-40 leading-relaxed min-h-[44px] focus-visible:outline-none"
         aria-label="Chat input"
       />
       <button
@@ -424,8 +429,16 @@ function ChatInput({
 export default function ChatPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [status, setStatus] = useState<ChatStatus>("idle");
+  const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const isFirstMessageRef = useRef(true);
+
+  // Load user avatar from localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem('atlas-profile-avatar');
+    if (stored) setUserAvatar(stored);
+  }, []);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -519,6 +532,13 @@ export default function ChatPage() {
         );
         setStatus("idle");
 
+        // Create conversation on first message
+        if (isFirstMessageRef.current) {
+          isFirstMessageRef.current = false;
+          const title = text.slice(0, 50);
+          useChatStore.getState().addConversation(title);
+        }
+
         // Cleanup all listeners
         unsubStream?.();
         unsubEnd?.();
@@ -590,6 +610,13 @@ export default function ChatPage() {
               : m
           )
         );
+
+        // Create conversation on first message
+        if (isFirstMessageRef.current) {
+          isFirstMessageRef.current = false;
+          const title = text.slice(0, 50);
+          useChatStore.getState().addConversation(title);
+        }
       } catch (err: unknown) {
         if ((err as Error)?.name === "AbortError") return;
         setMessages((prev) =>
@@ -671,6 +698,12 @@ export default function ChatPage() {
     }
   }, []);
 
+  // ── Suggestion click handler ───────────────────────────────────────────
+
+  const handleSuggestionClick = useCallback((suggestion: string) => {
+    sendMessage(suggestion);
+  }, [sendMessage]);
+
   // ── Render ─────────────────────────────────────────────────────────────
 
   return (
@@ -678,9 +711,9 @@ export default function ChatPage() {
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-4 py-6">
         {messages.length === 0 ? (
-          <EmptyState />
+          <EmptyState onSuggestionClick={handleSuggestionClick} />
         ) : (
-          <div className="max-w-2xl mx-auto flex flex-col gap-4">
+          <div className="max-w-2xl mx-auto flex flex-col gap-5">
             <AnimatePresence mode="popLayout">
               {messages.map((msg) => (
                 <ChatMessageBubble
@@ -688,6 +721,7 @@ export default function ChatPage() {
                   message={msg}
                   onApproveAction={handleApproveAction}
                   onRejectAction={handleRejectAction}
+                  userAvatar={userAvatar}
                 />
               ))}
             </AnimatePresence>
@@ -696,13 +730,10 @@ export default function ChatPage() {
         )}
       </div>
 
-      {/* Input Area — fixed at bottom */}
-      <div className="flex-shrink-0 px-4 pb-4 pt-2">
+      {/* Input Area — sticky at bottom */}
+      <div className="flex-shrink-0 sticky bottom-0 px-4 pb-4 pt-3 bg-[var(--bg-primary)]">
         <div className="max-w-2xl mx-auto">
           <ChatInput onSend={sendMessage} disabled={status !== "idle"} />
-          <p className="text-center text-[10px] text-[var(--text-muted)] mt-2">
-            Atlas AI • {hasElectronIPC() ? "Local Ollama" : "Backend API"} • May make mistakes
-          </p>
         </div>
       </div>
     </div>
@@ -712,7 +743,7 @@ export default function ChatPage() {
 
 // ── Empty State ─────────────────────────────────────────────────────────────
 
-function EmptyState() {
+function EmptyState({ onSuggestionClick }: { onSuggestionClick: (suggestion: string) => void }) {
   return (
     <motion.div
       className="flex flex-col items-center justify-center h-full text-center px-4"
@@ -720,8 +751,8 @@ function EmptyState() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 300, damping: 30 }}
     >
-      <div className="w-16 h-16 rounded-2xl bg-[var(--accent)]/10 border border-[var(--accent)]/20 flex items-center justify-center mb-5">
-        <Sparkles size={28} className="text-[var(--accent)]" />
+      <div className="w-16 h-16 rounded-2xl bg-white flex items-center justify-center mb-5">
+        <img src="/logo.png" alt="Atlas" className="w-8 h-8" />
       </div>
       <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-2">Atlas AI</h2>
       <p className="text-sm text-[var(--text-secondary)] max-w-xs mb-6">
@@ -734,12 +765,13 @@ function EmptyState() {
           "What meetings do I have tomorrow?",
           "Find docs about onboarding",
         ].map((suggestion) => (
-          <span
+          <button
             key={suggestion}
-            className="px-3 py-1.5 rounded-xl text-xs text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-default)] cursor-default"
+            onClick={() => onSuggestionClick(suggestion)}
+            className="px-3 py-1.5 rounded-xl text-xs text-[var(--text-secondary)] bg-[var(--bg-secondary)] border border-[var(--border-default)] hover:border-[var(--accent)]/30 hover:text-[var(--text-primary)] transition-all duration-150 cursor-pointer"
           >
             {suggestion}
-          </span>
+          </button>
         ))}
       </div>
     </motion.div>

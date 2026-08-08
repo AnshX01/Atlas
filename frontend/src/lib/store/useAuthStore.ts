@@ -10,19 +10,16 @@ export interface AuthUser {
   created_at: string;
 }
 
-// Re-export as UserResponse for backward compatibility with existing imports
 export type UserResponse = AuthUser;
 
 interface AuthState {
-  /** @deprecated Kept for API client fallback in dev mode. Null in Electron. */
   accessToken: string | null;
-  /** @deprecated Kept for API client fallback in dev mode. Null in Electron. */
   refreshToken: string | null;
   user: AuthUser | null;
   isHydrated: boolean;
-  /** @deprecated Use setUser directly. Kept for API client compatibility. */
   setTokens: (access: string, refresh: string) => void;
   setUser: (user: AuthUser) => void;
+  setHydrated: () => void;
   logout: () => void;
 }
 
@@ -40,6 +37,8 @@ export const useAuthStore = create<AuthState>()(
 
       setUser: (user) => set({ user }),
 
+      setHydrated: () => set({ isHydrated: true }),
+
       logout: () => {
         set({ accessToken: null, refreshToken: null, user: null });
         if (typeof window !== "undefined") {
@@ -50,10 +49,12 @@ export const useAuthStore = create<AuthState>()(
     {
       name: "atlas-auth-storage",
       onRehydrateStorage: () => {
-        return (state) => {
-          if (state) {
-            state.isHydrated = true;
-          }
+        return () => {
+          // This fires after rehydration completes
+          // We use setTimeout to ensure it runs after the store is fully initialized
+          setTimeout(() => {
+            useAuthStore.getState().setHydrated();
+          }, 0);
         };
       },
     }

@@ -39,7 +39,7 @@ import {
   ProviderCredentials,
 } from "./services/token-store";
 
-const isDev = process.env.NODE_ENV === "development";
+const isDev = !app.isPackaged;
 const NEXT_URL = "http://localhost:3000";
 const PROD_INDEX = path.join(__dirname, "../out/index.html");
 

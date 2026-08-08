@@ -30,13 +30,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isMounted || !isHydrated) return;
 
+    const isLogin = pathname === "/login" || pathname === "/login/";
+
     // Redirect unauthenticated users away from protected routes
-    if (!user && pathname !== "/login") {
+    if (!user && !isLogin) {
       router.replace("/login");
     }
 
     // Redirect authenticated users away from login
-    if (user && pathname === "/login") {
+    if (user && isLogin) {
       router.replace("/dashboard");
     }
   }, [user, pathname, router, isMounted, isHydrated]);
@@ -47,7 +49,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return <HydrationSpinner />;
   }
 
-  if (pathname === "/login") {
+  const isLoginPage = pathname === "/login" || pathname === "/login/";
+
+  if (isLoginPage) {
     return (
       <main id="main-content" className="min-h-screen bg-[#09090b]" role="main">
         {children}

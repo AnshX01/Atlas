@@ -1,10 +1,7 @@
 /**
  * Atlas — Connectors API (local-first).
- * In desktop mode, reads configured status from local token store.
- * Falls back to backend API in dev mode.
+ * In desktop mode, reads configured status from local token store or localStorage.
  */
-
-import { apiClient } from "./client";
 
 export type ConnectorProvider = "google_workspace" | "github" | "local_fs" | "slack" | "notion" | "jira" | "linear";
 
@@ -17,31 +14,52 @@ export interface ConnectorResponse {
   created_at: string;
 }
 
+const CONNECTOR_IDS: ConnectorProvider[] = ["google_workspace", "github", "slack", "notion", "local_fs"];
+
 export const connectorsAPI = {
   async listConnectors(): Promise<ConnectorResponse[]> {
-    // Try local Electron token store first
+    const configuredSet = new Set<ConnectorProvider>();
+
+    // Check Electron token store
     if (typeof window !== "undefined" && window.atlasElectron?.tokenStore) {
       try {
         const configured = await window.atlasElectron.tokenStore.listConfigured();
-        return configured.map((provider) => ({
-          id: provider,
-          provider: provider as ConnectorProvider,
-          status: "active",
-          display_name: null,
-          external_account_id: null,
-          created_at: new Date().toISOString(),
-        }));
+        for (const provider of configured) {
+          if (CONNECTOR_IDS.includes(provider as ConnectorProvider)) {
+            configuredSet.add(provider as ConnectorProvider);
+          }
+        }
       } catch {
-        // Fall through to API
+        // Fall through to localStorage check
       }
     }
 
-    // Fallback: try backend API (dev mode)
-    try {
-      const { data } = await apiClient.get<ConnectorResponse[]>("/connectors");
-      return data;
-    } catch {
-      return [];
+    // Also check localStorage (merges with token store results)
+    if (typeof window !== "undefined") {
+      for (const id of CONNECTOR_IDS) {
+        if (configuredSet.has(id)) continue;
+        const stored = localStorage.getItem(`atlas_connector_${id}`);
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            const hasValue = Object.values(parsed).some((v) => v && String(v).trim());
+            if (hasValue) {
+              configuredSet.add(id);
+            }
+          } catch {
+            // ignore
+          }
+        }
+      }
     }
+
+    return Array.from(configuredSet).map((id) => ({
+      id,
+      provider: id,
+      status: "active",
+      display_name: null,
+      external_account_id: null,
+      created_at: new Date().toISOString(),
+    }));
   },
 };
