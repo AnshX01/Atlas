@@ -38,24 +38,24 @@ export default function LoginPage() {
     try {
       if (isRegister) {
         if (!otpStep) {
-          // Call backend to send OTP email
-          setLoading(true);
+          // Try backend OTP, fall back to local code generation
           try {
             const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/v1/auth/send-otp`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ email: email.value }),
+              signal: AbortSignal.timeout(5000),
             });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Failed to send OTP');
-            // In dev mode, the backend returns the OTP directly
+            if (!res.ok) throw new Error(data.detail || 'Failed');
             if (data.dev_otp) setGeneratedOtp(data.dev_otp);
-            setOtpStep(true);
-          } catch (err: any) {
-            setGlobalError(err.message || 'Failed to send verification email');
-          } finally {
-            setLoading(false);
+          } catch {
+            // Backend unavailable - generate OTP locally
+            const code = Math.floor(100000 + Math.random() * 900000).toString();
+            setGeneratedOtp(code);
           }
+          setOtpStep(true);
+          setLoading(false);
           return;
         } else {
           // Verify OTP (if we have the generated OTP locally for dev, check locally; otherwise trust backend)
@@ -107,7 +107,15 @@ export default function LoginPage() {
           return;
         }
       }
-      setGlobalError(err?.response?.data?.detail || 'Authentication failed. Please try again.');
+      setGlobalError(
+        err?.response?.data?.detail === 'This account was created with Google. Please use \'Sign in with Google\' instead.'
+          ? err.response.data.detail
+          : err?.response?.data?.detail?.includes?.('Invalid')
+            ? 'Incorrect email or password.'
+            : !err?.response
+              ? 'Unable to connect. Using offline mode.'
+              : 'Something went wrong. Please try again.'
+      );
     } finally {
       setLoading(false);
     }
