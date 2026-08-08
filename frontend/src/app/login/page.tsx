@@ -358,7 +358,7 @@ export default function LoginPage() {
               }}
             >
               {loading ? (
-                <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span className="w-4 h-4 border-2 border-[#09090b]/30 border-t-[#09090b] rounded-full animate-spin" />
               ) : (
                 <>
                   {isRegister ? (otpStep ? 'Verify & Create Account' : 'Send Verification Code') : 'Continue'}
