@@ -6,9 +6,12 @@ import {
   nativeTheme,
   shell,
   session,
+  Tray,
+  Menu,
 } from "electron";
 import * as path from "path";
 import { MCPServerManager } from "./services/mcp-manager";
+import { CronEngine } from "./services/background-cron";
 import {
   checkOllamaHealth,
   getHealthStatus,
@@ -23,6 +26,7 @@ import {
   listConversations,
   getConversationHistory,
 } from "./services/local-store";
+import { parseFile } from "./services/file-parser";
 import {
   initAuthTables,
   register as authRegister,
@@ -47,12 +51,21 @@ const NEXT_URL = "http://localhost:3000";
 const PROD_INDEX = path.join(__dirname, "../out/index.html");
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
+
+app.on("before-quit", () => {
+  isQuitting = true;
+});
 
 // ── MCP Server Manager ─────────────────────────────────────────────────────────
 let mcpManager: MCPServerManager | null = null;
 
 // ── Orchestrator (LangGraph-style local state machine) ─────────────────────────
 let orchestrator: Orchestrator | null = null;
+
+// ── Background Cron Trigger ────────────────────────────────────────────────────
+let cronEngine: CronEngine | null = null;
 
 // ── Window factory ─────────────────────────────────────────────────────────────
 function createWindow(): BrowserWindow {
@@ -87,6 +100,15 @@ function createWindow(): BrowserWindow {
     return { action: "deny" };
   });
 
+  win.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      win.hide();
+      return false;
+    }
+    return true;
+  });
+
   return win;
 }
 
@@ -104,6 +126,33 @@ app.whenReady().then(async () => {
 
   mainWindow = createWindow();
 
+  const iconPath = path.join(__dirname, "../public/icon.png");
+  tray = new Tray(iconPath);
+  tray.setToolTip("Atlas");
+  
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: "Show Atlas",
+      click: () => {
+        mainWindow?.show();
+        mainWindow?.focus();
+      },
+    },
+    { type: "separator" },
+    {
+      label: "Quit",
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ]);
+  tray.setContextMenu(contextMenu);
+  tray.on('click', () => {
+    mainWindow?.show();
+    mainWindow?.focus();
+  });
+
   // ── Ollama health check on startup ──────────────────────────────────
   const ollamaRunning = await checkOllamaHealth();
   if (ollamaRunning) {
@@ -117,12 +166,9 @@ app.whenReady().then(async () => {
   // Pre-warm configured servers in the background
   mcpManager.startAll().catch(console.error);
 
-  // Background Pre-fetch (e.g. Gmail top 10) every 5 minutes
-  setInterval(() => {
-    if (mcpManager) {
-      mcpManager.callTool('google_workspace', 'list_emails', { maxResults: 10, query: '', skipCache: true }).catch(() => {});
-    }
-  }, 5 * 60 * 1000);
+  // ── Background Cron Trigger ─────────────────────────────────────────
+  cronEngine = new CronEngine(mcpManager);
+  cronEngine.start();
 
   // ── Initialize Local Store (SQLite) ─────────────────────────────────
   await initDB();
@@ -220,24 +266,15 @@ app.whenReady().then(async () => {
   }
   tryListenOAuth(0);
 
-  // ── Global shortcut: Cmd+Space → Toggle command bar ─────────────────
-  // Sent to the renderer via IPC so the React store handles it.
-  const registered = globalShortcut.register("CommandOrControl+Space", () => {
+  // ── Global shortcut: Alt+Space → Show and focus app ─────────────────
+  const registered = globalShortcut.register("Alt+Space", () => {
     if (!mainWindow) return;
-
-    if (mainWindow.isVisible() && mainWindow.isFocused()) {
-      // Window is focused — toggle command bar inside the app
-      mainWindow.webContents.send("toggle-command-bar");
-    } else {
-      // Window not visible — bring it to front
-      mainWindow.show();
-      mainWindow.focus();
-      mainWindow.webContents.send("toggle-command-bar");
-    }
+    mainWindow.show();
+    mainWindow.focus();
   });
 
   if (!registered) {
-    console.warn("Could not register global shortcut Cmd+Space — may be taken by another app.");
+    console.warn("Could not register global shortcut Alt+Space — may be taken by another app.");
   }
 
   app.on("activate", () => {
@@ -249,9 +286,9 @@ app.whenReady().then(async () => {
   });
 });
 
-// macOS: keep app running when all windows are closed
+// keep app running when all windows are closed
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
+  // Prevent default quit, we have a tray icon
 });
 
 app.on("will-quit", () => {
@@ -289,6 +326,11 @@ ipcMain.handle("select-directory", async () => {
     title: "Select directories for Atlas to watch",
   });
   return result.filePaths;
+});
+
+// Parse local file (extract text or base64 image)
+ipcMain.handle("parse-file", async (_event, filePath: string) => {
+  return parseFile(filePath);
 });
 
 // ── Ollama AI IPC Handlers ────────────────────────────────────────────────────

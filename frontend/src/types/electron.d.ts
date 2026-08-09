@@ -35,6 +35,7 @@ interface AtlasElectronAPI {
   openExternal: (url: string) => Promise<void>;
   setTheme: (theme: "dark" | "light") => Promise<void>;
   selectDirectory: () => Promise<string[]>;
+  parseFile: (filePath: string) => Promise<{ type: 'text' | 'image', content: string, mimeType?: string, filename: string }>;
   onToggleCommandBar: (callback: () => void) => () => void;
   checkOllamaHealth: () => Promise<{ available: boolean; models?: string[] }>;
   sendChatMessage: (messages: Array<{ role: string; content: string }>, model?: string) => Promise<void>;

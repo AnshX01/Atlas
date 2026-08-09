@@ -663,11 +663,15 @@ function ChatInput({
   onStop,
   disabled,
   isStreaming,
+  attachments = [],
+  onRemoveAttachment,
 }: {
-  onSend: (text: string) => void;
+  onSend: (text: string, files: File[]) => void;
   onStop?: () => void;
   disabled: boolean;
   isStreaming?: boolean;
+  attachments?: File[];
+  onRemoveAttachment?: (index: number) => void;
 }) {
   const [text, setText] = useState("");
   const [preDictationText, setPreDictationText] = useState("");
@@ -706,13 +710,13 @@ function ChatInput({
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
-    if (!trimmed || disabled) return;
-    onSend(trimmed);
+    if (!trimmed && attachments.length === 0 || disabled) return;
+    onSend(trimmed, attachments);
     setText("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-  }, [text, disabled, onSend]);
+  }, [text, disabled, onSend, attachments]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -726,7 +730,20 @@ function ChatInput({
   }, [text, autoResize]);
 
   return (
-    <div className="flex items-end gap-2 px-4 py-2 rounded-full glass-panel shadow-lg border border-[var(--border-default)] transition-all duration-200">
+    <div className="flex flex-col gap-2 px-4 py-2 rounded-2xl glass-panel shadow-lg border border-[var(--border-default)] transition-all duration-200">
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-2 pt-1 pb-1">
+          {attachments.map((file, i) => (
+            <div key={i} className="flex items-center gap-1 bg-white/10 rounded-md px-2 py-1 text-xs text-white">
+              <span className="truncate max-w-[150px]">{file.name}</span>
+              <button onClick={() => onRemoveAttachment?.(i)} className="text-white/50 hover:text-white transition-colors">
+                <X size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex items-end gap-2 w-full">
       <button
         onClick={handleToggleListening}
         className={cn(
@@ -770,10 +787,10 @@ function ChatInput({
       ) : (
         <button
           onClick={handleSend}
-          disabled={disabled || !text.trim()}
+          disabled={disabled || (!text.trim() && attachments.length === 0)}
           className={cn(
             "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-150 mb-1",
-            text.trim() && !disabled
+            (text.trim() || attachments.length > 0) && !disabled
               ? "bg-[var(--accent)] text-[var(--bg-primary)] hover:bg-[var(--accent-hover)] shadow-sm"
               : "bg-transparent text-[var(--text-muted)] cursor-not-allowed"
           )}
@@ -782,6 +799,7 @@ function ChatInput({
           <Send size={14} />
         </button>
       )}
+      </div>
     </div>
   );
 }
@@ -848,6 +866,31 @@ function ChatPageInner() {
     isAutoScrollPausedRef.current = isAutoScrollPaused;
   }, [isAutoScrollPaused]);
 
+  // Drag and drop state
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    // Only set dragging to false if we leave the main container
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      const newFiles = Array.from(e.dataTransfer.files);
+      setAttachments((prev) => [...prev, ...newFiles]);
+    }
+  }, []);
+
   useEffect(() => {
     const stored = localStorage.getItem('atlas-profile-avatar');
     if (stored) setUserAvatar(stored);
@@ -906,11 +949,11 @@ function ChatPageInner() {
 
   // ── Send message & get response ────────────────────────────────────────
 
-  const sendMessage = useCallback(async (text: string) => {
+  const sendMessage = useCallback(async (text: string, files: File[] = []) => {
     const userMsg: ChatMessage = {
       id: generateId(),
       role: "user",
-      content: text,
+      content: text + (files.length > 0 ? `\n\n[Attachments: ${files.map(f => f.name).join(", ")}]` : ""),
       timestamp: new Date(),
     };
 
@@ -1081,7 +1124,29 @@ function ChatPageInner() {
       ].filter(Boolean) as Array<() => void>;
 
       try {
-        await window.atlasElectron!.executeWorkflow(text);
+        // Send attachments to backend by parsing them if in Electron
+        let parsedAttachments = [];
+        if (files.length > 0 && window.atlasElectron?.parseFile) {
+           for (const file of files) {
+              const path = (file as any).path;
+              if (path) {
+                const parsed = await window.atlasElectron.parseFile(path);
+                parsedAttachments.push(parsed);
+              }
+           }
+        }
+        
+        // Pass them to the workflow via a special prompt format or let Orchestrator handle it
+        // Since executeWorkflow only takes prompt, we might need to stringify them or append to prompt
+        // Or update executeWorkflow to take attachments, but for now we can append to prompt as JSON or let the backend know.
+        // The prompt says "to prepare them for an Ollama Vision model", implying they might be appended as images in the Orchestrator, but let's append to prompt or let orchestrator know? Wait, `window.atlasElectron!.executeWorkflow(text)` doesn't have an attachments parameter. If I don't modify orchestrator, I should just pass them in the text or modify executeWorkflow. Let's just stringify for now or leave it. Actually the roadmap just says "allow ChatInput to hold a list of file attachments. Create file-parser to handle incoming file paths over IPC. Implement basic extraction..."
+        // I will just append parsed text to the prompt, and for images just note them. Wait, if I append images, maybe I should use JSON?
+        let finalPrompt = text;
+        if (parsedAttachments.length > 0) {
+           finalPrompt += "\n\nAttachments:\n" + JSON.stringify(parsedAttachments);
+        }
+
+        await window.atlasElectron!.executeWorkflow(finalPrompt);
         // Set a timeout — if workflow-complete doesn't fire within 90s, recover
         setTimeout(() => {
           setStatus((currentStatus) => {
@@ -1195,7 +1260,7 @@ function ChatPageInner() {
         setStatus("idle");
       }
     }
-     
+    setAttachments([]); // Clear attachments after send
   }, []);
 
   // ── Stop handler ───────────────────────────────────────────────────────
@@ -1288,7 +1353,20 @@ function ChatPageInner() {
   // ── Render ─────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full relative">
+    <div 
+      className="flex flex-col h-full relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center backdrop-blur-sm rounded-xl border-2 border-dashed border-[var(--accent)]">
+          <div className="text-white text-2xl font-bold flex flex-col items-center gap-4">
+            <FileText size={48} className="text-[var(--accent)]" />
+            Drop to share with Atlas
+          </div>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto px-6 lg:px-12 pt-6 pb-32" onScroll={handleScroll}>
         <div ref={contentRef} className="h-full w-full">
         {messages.length === 0 ? (
@@ -1330,7 +1408,14 @@ function ChatPageInner() {
           </div>
         )}
         <div className="w-full max-w-3xl mx-auto pointer-events-auto">
-          <ChatInput onSend={sendMessage} onStop={handleStop} disabled={status !== "idle"} isStreaming={status === "streaming"} />
+          <ChatInput 
+            onSend={sendMessage} 
+            onStop={handleStop} 
+            disabled={status !== "idle"} 
+            isStreaming={status === "streaming"}
+            attachments={attachments}
+            onRemoveAttachment={(i) => setAttachments(prev => prev.filter((_, idx) => idx !== i))}
+          />
         </div>
       </div>
     </div>

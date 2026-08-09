@@ -28,6 +28,7 @@ import {
   saveToolExecution,
   Message,
 } from "./local-store";
+import { initRAGStore, searchContext, storeContext } from "./memory-rag";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -378,6 +379,7 @@ export class Orchestrator {
     conversationId?: string
   ): Promise<void> {
     initDB();
+    initRAGStore();
 
     if (prompt.length > 2000) {
       prompt = prompt.substring(0, 2000);
@@ -505,6 +507,7 @@ export class Orchestrator {
 
     if (combinedResponse) {
       saveMessage(conversationId, "assistant", combinedResponse);
+      storeContext(`User: ${prompt}\nAtlas: ${combinedResponse}`);
     }
 
     this.safeSend(mainWindow, "workflow-complete", {
@@ -1161,7 +1164,7 @@ Rules:
     }
 
     const history = getConversationHistory(state.conversationId, 10);
-    const messages = this.buildResponseMessages(state, history);
+    const messages = await this.buildResponseMessages(state, history);
 
     let fullResponse = "";
     const abortController = new AbortController();
@@ -1380,10 +1383,10 @@ Rules:
     }
   }
 
-  private buildResponseMessages(
+  private async buildResponseMessages(
     state: WorkflowState,
     history: Message[]
-  ): Array<{ role: "system" | "user" | "assistant"; content: string }> {
+  ): Promise<Array<{ role: "system" | "user" | "assistant"; content: string }>> {
     const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
 
     // Add tool context FIRST if available — so it's prominent for the model
@@ -1435,6 +1438,18 @@ Rules:
         if (msg.role === "user" || msg.role === "assistant") {
           messages.push({ role: msg.role as "user" | "assistant", content: msg.content });
         }
+      }
+
+      try {
+        const ragContext = await searchContext(state.input, 3);
+        if (ragContext.length > 0) {
+          messages.push({
+            role: "system",
+            content: `Relevant past context (use if helpful):\n${ragContext.join("\n\n")}`,
+          });
+        }
+      } catch (err) {
+        console.warn("[Orchestrator] Failed to get RAG context:", err);
       }
 
       messages.push({ role: "user", content: state.input });

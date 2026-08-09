@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld("atlasElectron", {
   selectDirectory: (): Promise<string[]> =>
     ipcRenderer.invoke("select-directory"),
 
+  /** Parse a local file to extract text or get base64 image */
+  parseFile: (filePath: string): Promise<{ type: 'text' | 'image', content: string, mimeType?: string, filename: string }> =>
+    ipcRenderer.invoke("parse-file", filePath),
+
   /**
    * Subscribe to the global Cmd+Space command bar toggle event.
    * Returns an unsubscribe function.
@@ -274,6 +278,7 @@ export type AtlasElectronAPI = {
   openExternal: (url: string) => Promise<void>;
   setTheme: (theme: "dark" | "light") => Promise<void>;
   selectDirectory: () => Promise<string[]>;
+  parseFile: (filePath: string) => Promise<{ type: 'text' | 'image', content: string, mimeType?: string, filename: string }>;
   onToggleCommandBar: (callback: () => void) => () => void;
   checkOllamaHealth: () => Promise<{ available: boolean; models?: string[] }>;
   sendChatMessage: (
