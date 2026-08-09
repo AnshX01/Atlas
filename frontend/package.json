@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "repository": "https://github.com/AnshX01/Atlas",
+  "author": "AnshX01",
+  "description": "Your True AI Chief of Staff",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
