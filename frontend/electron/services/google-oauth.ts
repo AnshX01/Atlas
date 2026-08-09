@@ -3,7 +3,8 @@ import { setToken } from './token-store';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const REDIRECT_URI = 'http://localhost:19876/oauth/callback';
+const DEFAULT_OAUTH_PORT = 19876;
+let oauthPort = DEFAULT_OAUTH_PORT;
 const SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.send',
@@ -12,6 +13,17 @@ const SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email',
   'https://www.googleapis.com/auth/userinfo.profile',
 ];
+
+/**
+ * Set the OAuth redirect port dynamically (called from main.ts once server binds).
+ */
+export function setOAuthRedirectPort(port: number): void {
+  oauthPort = port;
+}
+
+function getRedirectUri(): string {
+  return `http://localhost:${oauthPort}/oauth/callback`;
+}
 
 export interface GoogleTokens {
   access_token: string;
@@ -37,7 +49,7 @@ export async function startGoogleOAuth(clientId: string, clientSecret: string): 
   return new Promise((resolve, reject) => {
     const authUrl = new URL(GOOGLE_AUTH_URL);
     authUrl.searchParams.set('client_id', clientId);
-    authUrl.searchParams.set('redirect_uri', REDIRECT_URI);
+    authUrl.searchParams.set('redirect_uri', getRedirectUri());
     authUrl.searchParams.set('response_type', 'code');
     authUrl.searchParams.set('scope', SCOPES.join(' '));
     authUrl.searchParams.set('access_type', 'offline');
@@ -80,7 +92,7 @@ export async function handleOAuthCallback(code: string): Promise<GoogleTokens> {
         code,
         client_id: clientId,
         client_secret: clientSecret,
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: getRedirectUri(),
         grant_type: 'authorization_code',
       }),
     });

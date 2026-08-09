@@ -27,6 +27,7 @@ interface MCPServerConfig {
   args: string[];
   env: Record<string, string>;
   getEnv: () => Record<string, string> | null; // Dynamic env based on stored tokens
+  getArgs?: () => string[] | null; // Dynamic args resolution (e.g. filesystem paths as CLI args)
 }
 
 interface MCPServer {
@@ -34,6 +35,7 @@ interface MCPServer {
   process: ChildProcess | null;
   status: 'stopped' | 'starting' | 'running' | 'error';
   restartCount: number;
+  lastError?: string;
   config: MCPServerConfig;
 }
 
@@ -111,12 +113,20 @@ export class MCPServerManager {
       args: ['-y', '@modelcontextprotocol/server-filesystem'],
       env: {},
       getEnv: () => {
+        // We only need getEnv to signal "configured" — actual paths are passed via getArgs
         const creds = getToken('local_fs') as Record<string, string> | null;
         if (!creds?.watch_paths && !creds?.paths) return null;
         const paths = (creds.watch_paths || creds.paths || '').split('\n').filter(Boolean);
         if (paths.length === 0) return null;
-        // Filesystem server takes paths as additional args
-        return { FS_PATHS: paths.join(',') };
+        return {}; // No env vars needed — paths go as CLI args
+      },
+      getArgs: () => {
+        const creds = getToken('local_fs') as Record<string, string> | null;
+        if (!creds?.watch_paths && !creds?.paths) return null;
+        const paths = (creds.watch_paths || creds.paths || '').split('\n').filter(Boolean);
+        if (paths.length === 0) return null;
+        // @modelcontextprotocol/server-filesystem takes directory paths as CLI arguments
+        return ['-y', '@modelcontextprotocol/server-filesystem', ...paths];
       },
     });
 
@@ -146,14 +156,24 @@ export class MCPServerManager {
 
     const env = server.config.getEnv();
     if (!env) {
-      console.warn(`[MCP Manager] Cannot start ${name} - no credentials configured`);
+      if (name === 'filesystem') {
+        console.warn(`[MCP Manager] Cannot start ${name} - no folders configured`);
+        server.lastError = 'Local Files connector has no folders configured. Add folder paths in Settings > Integrations > Local Files.';
+      } else {
+        console.warn(`[MCP Manager] Cannot start ${name} - no credentials configured`);
+        server.lastError = `No credentials configured for ${name}. Check Settings > Integrations.`;
+      }
       return false;
     }
 
     server.status = 'starting';
+    server.lastError = undefined;
 
     try {
-      const proc = spawn(server.config.command, server.config.args, {
+      // Resolve args: use dynamic getArgs() if defined (e.g. filesystem paths as CLI args)
+      const args = server.config.getArgs ? (server.config.getArgs() || server.config.args) : server.config.args;
+
+      const proc = spawn(server.config.command, args, {
         env: { ...process.env, ...env },
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: true,
@@ -201,18 +221,42 @@ export class MCPServerManager {
       proc.on('error', (err: Error) => {
         console.error(`[MCP Manager] Process error for "${name}":`, err.message);
         server.status = 'error';
+        server.lastError = err.message;
         server.process = null;
       });
 
-      // Wait a moment for startup
-      await new Promise(r => setTimeout(r, 2000));
+      // Adaptive startup: poll for readiness with retries instead of blind sleep
+      const MAX_RETRIES = 5;
+      const RETRY_DELAY_MS = 1500;
+      let initialized = false;
 
-      // Initialize the MCP server with handshake
-      await this.sendRequest(name, 'initialize', {
-        protocolVersion: '2024-11-05',
-        capabilities: {},
-        clientInfo: { name: 'atlas', version: '1.0.0' },
-      });
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        await new Promise(r => setTimeout(r, RETRY_DELAY_MS));
+
+        // Check if process died during startup
+        if (!server.process || server.status === 'error') {
+          throw new Error(server.lastError || `Process exited during startup (attempt ${attempt})`);
+        }
+
+        try {
+          await this.sendRequest(name, 'initialize', {
+            protocolVersion: '2024-11-05',
+            capabilities: {},
+            clientInfo: { name: 'atlas', version: '1.0.0' },
+          });
+          initialized = true;
+          break;
+        } catch (err: any) {
+          console.warn(`[MCP ${name}] Initialize attempt ${attempt}/${MAX_RETRIES} failed: ${err.message}`);
+          if (attempt === MAX_RETRIES) {
+            throw new Error(`Server ${name} failed to initialize after ${MAX_RETRIES} attempts: ${err.message}`);
+          }
+        }
+      }
+
+      if (!initialized) {
+        throw new Error(`Server ${name} did not respond to initialize handshake`);
+      }
 
       // Send initialized notification (no id = notification)
       if (server.process?.stdin) {
@@ -226,6 +270,7 @@ export class MCPServerManager {
     } catch (err: any) {
       console.error(`[MCP Manager] Failed to start ${name}:`, err.message);
       server.status = 'error';
+      server.lastError = err.message;
       return false;
     }
   }
@@ -319,7 +364,12 @@ export class MCPServerManager {
     const server = this.servers.get(serverName);
     if (!server || server.status !== 'running') {
       const started = await this.startServer(serverName);
-      if (!started) return { error: `Cannot start ${serverName} server. Check credentials in Settings.` };
+      if (!started) {
+        if (serverName === 'filesystem') {
+          return { error: server?.lastError || 'Local Files connector has no folders configured. Add folder paths in Settings > Integrations > Local Files.' };
+        }
+        return { error: server?.lastError || `Cannot start ${serverName} server. Check credentials in Settings.` };
+      }
     }
 
     // Auto-fill GitHub owner if missing
@@ -368,6 +418,9 @@ export class MCPServerManager {
       case 'reply_email': return await this.gmailConnector.replyEmail(params.messageId || params.message_id, params.threadId || params.thread_id, params.body);
       case 'forward_email': return await this.gmailConnector.forwardEmail(params.messageId || params.message_id, params.to, params.body);
       case 'list_tasks': return await this.gmailConnector.listTasks();
+      case 'create_task': return await this.gmailConnector.createTask(params.listId || params.list_id || '@default', params.title, params.notes, params.due);
+      case 'update_task': return await this.gmailConnector.updateTask(params.listId || params.list_id || '@default', params.taskId || params.task_id, params);
+      case 'complete_task': return await this.gmailConnector.completeTask(params.listId || params.list_id || '@default', params.taskId || params.task_id);
       case 'create_event':
       case 'schedule_event': return await this.gmailConnector.createCalendarEvent(params.title || params.summary, params.startTime || params.start, params.endTime || params.end, params.description, params.attendees);
       case 'delete_event': return await this.gmailConnector.deleteCalendarEvent(params.eventId || params.event_id);
@@ -386,8 +439,19 @@ export class MCPServerManager {
       case 'get_page': return await this.notionConnector.getPage(params.pageId);
       case 'list_databases': return await this.notionConnector.listDatabases();
       // Write operations
-      case 'create_page': return await this.notionConnector.createPage(params.parentId || params.parent_id, params.title, params.content || params.body);
-      case 'update_page': return await this.notionConnector.createPage(params.pageId || params.page_id, params.title, params.content || params.body);
+      case 'create_page':
+      case 'update_page': {
+        let parentId = params.parentId || params.parent_id || (tool === 'update_page' ? params.pageId || params.page_id : '');
+        if (!parentId) {
+          // Attempt to resolve a default parent page
+          const defaultParent = await this.notionConnector.getDefaultParent();
+          if (!defaultParent) {
+            return { error: 'No Notion page found to use as parent. Please share at least one page with your integration in Notion settings.' };
+          }
+          parentId = defaultParent;
+        }
+        return await this.notionConnector.createPage(parentId, params.title, params.content || params.body);
+      }
       default: return { error: `Unknown Notion tool: ${tool}` };
     }
   }
@@ -418,7 +482,7 @@ export class MCPServerManager {
   getStatus(): MCPServerStatusInfo[] {
     const statuses: MCPServerStatusInfo[] = [];
     for (const [name, server] of this.servers) {
-      statuses.push({ name, status: server.status, restartCount: server.restartCount });
+      statuses.push({ name, status: server.status, restartCount: server.restartCount, lastError: server.lastError });
     }
     // Add direct connector statuses
     statuses.push({ name: 'google_workspace', status: 'direct_api' });

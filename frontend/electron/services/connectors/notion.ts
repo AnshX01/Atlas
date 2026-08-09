@@ -60,4 +60,35 @@ export class NotionConnector {
       }),
     });
   }
+
+  /**
+   * Get a default parent page ID by searching for any accessible page.
+   * Checks cached value in token-store first, then falls back to Notion search.
+   */
+  async getDefaultParent(): Promise<string | null> {
+    // Check if a default parent is cached in token-store credentials
+    const creds = getToken('notion') as Record<string, string> | null;
+    if (creds?.default_parent_page_id) {
+      return creds.default_parent_page_id;
+    }
+
+    // Search for any accessible page
+    try {
+      const data = await this.api('/search', {
+        method: 'POST',
+        body: JSON.stringify({
+          filter: { property: 'object', value: 'page' },
+          page_size: 1,
+        }),
+      });
+      const results = data.results || [];
+      if (results.length > 0) {
+        return results[0].id;
+      }
+    } catch (err: any) {
+      console.error('[Notion] Failed to search for default parent:', err.message);
+    }
+
+    return null;
+  }
 }

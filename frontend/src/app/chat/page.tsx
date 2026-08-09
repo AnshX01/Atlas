@@ -10,7 +10,7 @@ import {
   AlertCircle,
   Calendar,
   FileText,
-  Zap,
+  CheckSquare,
   Check,
   X,
   Loader2,
@@ -53,7 +53,7 @@ const typeIcon: Record<string, React.ReactNode> = {
   calendar: <Calendar size={16} />,
   document: <FileText size={16} />,
   file: <FileText size={16} />,
-  task: <Zap size={16} />,
+  task: <CheckSquare size={16} />,
 };
 
 const ACTION_LABELS: Record<string, string> = {
@@ -85,6 +85,47 @@ const DRAFT_TYPE_LABELS: Record<string, string> = {
 
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/**
+ * Strip common markdown artifacts from assistant messages.
+ * Applied only to final (non-streaming) assistant content.
+ */
+function stripMarkdown(text: string): string {
+  let result = text;
+  // Remove heading markers at line start: "# ", "## ", "### ", etc.
+  result = result.replace(/^#{1,6}\s+/gm, "");
+  // Remove bold: **text** or __text__
+  result = result.replace(/\*\*(.+?)\*\*/g, "$1");
+  result = result.replace(/__(.+?)__/g, "$1");
+  // Remove italic: *text* or _text_ (single)
+  result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "$1");
+  result = result.replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, "$1");
+  // Remove inline code: `code`
+  result = result.replace(/`([^`]+)`/g, "$1");
+  // Replace bullet markers at line start: "* " or "- " → "– "
+  result = result.replace(/^[\*\-]\s+/gm, "– ");
+  return result;
+}
+
+/**
+ * Filter results to only include those relevant to the response text.
+ * Heuristic: keep a result if its title (or a significant token from it) appears
+ * as a substring in the response, OR if there are ≤3 total results.
+ */
+function filterRelevantResults(responseText: string, results: SearchResult[]): SearchResult[] {
+  if (results.length <= 3) return results;
+
+  const lowerResponse = responseText.toLowerCase();
+
+  return results.filter((result) => {
+    const title = result.title?.toLowerCase() ?? "";
+    // Check if full title appears in response
+    if (title && lowerResponse.includes(title)) return true;
+    // Check significant tokens (words with 4+ chars) from title
+    const tokens = title.split(/\s+/).filter((t) => t.length >= 4);
+    return tokens.some((token) => lowerResponse.includes(token));
+  });
 }
 
 function getActionLabel(action: string): string {
@@ -220,9 +261,9 @@ function getActionIcon(actionType: string): React.ReactNode {
   if (actionType.includes("pr") || actionType.includes("merge") || actionType.includes("branch")) return <GitPullRequest size={16} />;
   if (actionType.includes("issue")) return <AlertCircle size={16} />;
   if (actionType.includes("event") || actionType.includes("calendar") || actionType.includes("schedule")) return <Calendar size={16} />;
-  if (actionType.includes("message") || actionType.includes("slack") || actionType.includes("post")) return <Zap size={16} />;
+  if (actionType.includes("message") || actionType.includes("slack") || actionType.includes("post")) return <Send size={16} />;
   if (actionType.includes("page") || actionType.includes("notion") || actionType.includes("doc")) return <FileText size={16} />;
-  return <Zap size={16} />;
+  return <CheckSquare size={16} />;
 }
 
 function ActionCard({
@@ -309,6 +350,7 @@ function DraftCard({
   const isExecuting = draft.status === "executing";
   const isDone = draft.status === "done" || draft.status === "approved";
   const isRejected = draft.status === "rejected";
+  const isFailed = draft.status === "failed";
 
   // Separate the "body" / "message" / "content" field from meta fields
   const bodyKey = Object.keys(draft.fields).find((k) =>
@@ -408,6 +450,17 @@ function DraftCard({
               <span className="text-xs text-red-400 font-medium">Cancelled</span>
             </div>
           )}
+
+          {isFailed && (
+            <div className="flex items-center justify-center gap-2 py-2">
+              <div className="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center">
+                <X size={12} className="text-red-400" />
+              </div>
+              <span className="text-xs text-red-400 font-medium">
+                Failed{draft.errorMessage ? `: ${draft.errorMessage}` : ""}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </motion.div>
@@ -472,7 +525,10 @@ function ChatMessageBubble({
               : "bg-[var(--bg-secondary)] text-[var(--text-primary)]"
           )}
         >
-          <span className="whitespace-pre-wrap">{message.content}</span>
+          <span className="whitespace-pre-wrap">
+            {/* Strip markdown from final assistant messages; leave streaming/user messages untouched */}
+            {!isUser && !message.streaming ? stripMarkdown(message.content) : message.content}
+          </span>
           {message.streaming && <StreamingIndicator />}
         </div>
 
@@ -649,6 +705,13 @@ function ChatPageInner() {
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  /**
+   * Holds unsubscribe functions for all active workflow IPC listeners.
+   * Populated in sendMessage, drained in handleStop.
+   * This fixes the bug where handleStop couldn't access the local unsub variables
+   * inside sendMessage's closure.
+   */
+  const unsubscribersRef = useRef<Array<() => void>>([]);
   const conversationIdRef = useRef<string | null>(conversationId);
   const isFirstMessageRef = useRef(!conversationId);
 
@@ -711,11 +774,24 @@ function ChatPageInner() {
 
     if (hasElectronIPC()) {
       // ── Electron IPC path ──
+      // Clear previous unsubscribers (shouldn't be any, but defensive)
+      unsubscribersRef.current.forEach((fn) => fn());
+      unsubscribersRef.current = [];
+
       let unsubStream: (() => void) | null = null;
       let unsubEnd: (() => void) | null = null;
       let unsubTool: (() => void) | null = null;
       let unsubApproval: (() => void) | null = null;
       let unsubDraft: (() => void) | null = null;
+
+      const cleanupAll = () => {
+        unsubStream?.();
+        unsubEnd?.();
+        unsubTool?.();
+        unsubApproval?.();
+        unsubDraft?.();
+        unsubscribersRef.current = [];
+      };
 
       unsubStream = window.atlasElectron!.onWorkflowStream((token: string) => {
         setMessages((prev) =>
@@ -775,17 +851,30 @@ function ChatPageInner() {
 
       unsubEnd = window.atlasElectron!.onWorkflowComplete((data: any) => {
         setMessages((prev) => {
-          const updated = prev.map((m) =>
-            m.id === assistantId
-              ? {
-                  ...m,
-                  streaming: false,
-                  results: data?.results ?? m.results,
-                  toolExecutions: m.toolExecutions?.map((t) => ({ ...t, status: "done" as const })),
-                  draft: m.draft && m.draft.status !== "rejected" ? { ...m.draft, status: "done" as const } : m.draft,
-                }
-              : m
-          );
+          const updated = prev.map((m) => {
+            if (m.id !== assistantId) return m;
+
+            // Fix #3: filter results to only relevant ones
+            const rawResults: SearchResult[] = data?.results ?? m.results ?? [];
+            const filteredResults = filterRelevantResults(m.content, rawResults);
+
+            // Fix #2: if workflow errored, mark non-final drafts as 'failed'
+            let updatedDraft = m.draft;
+            if (data?.error && updatedDraft && updatedDraft.status !== "rejected" && updatedDraft.status !== "done") {
+              updatedDraft = { ...updatedDraft, status: "failed" as const, errorMessage: data.error };
+            } else if (updatedDraft && updatedDraft.status !== "rejected") {
+              updatedDraft = { ...updatedDraft, status: "done" as const };
+            }
+
+            return {
+              ...m,
+              streaming: false,
+              content: m.content || data?.response || "",
+              results: filteredResults.length > 0 ? filteredResults : undefined,
+              toolExecutions: m.toolExecutions?.map((t) => ({ ...t, status: "done" as const })),
+              draft: updatedDraft,
+            };
+          });
 
           // Save messages to store with full card data
           let convId = conversationIdRef.current;
@@ -820,13 +909,13 @@ function ChatPageInner() {
           return updated;
         });
         setStatus("idle");
-
-        unsubStream?.();
-        unsubEnd?.();
-        unsubTool?.();
-        unsubApproval?.();
-        unsubDraft?.();
+        cleanupAll();
       });
+
+      // Store all unsubscribers in ref so handleStop can access them
+      unsubscribersRef.current = [
+        unsubStream, unsubEnd, unsubTool, unsubApproval, unsubDraft,
+      ].filter(Boolean) as Array<() => void>;
 
       try {
         await window.atlasElectron!.executeWorkflow(text);
@@ -841,11 +930,7 @@ function ChatPageInner() {
                     : m
                 )
               );
-              unsubStream?.();
-              unsubEnd?.();
-              unsubTool?.();
-              unsubApproval?.();
-              unsubDraft?.();
+              cleanupAll();
               return "idle";
             }
             return currentStatus;
@@ -860,11 +945,7 @@ function ChatPageInner() {
           )
         );
         setStatus("idle");
-        unsubStream?.();
-        unsubEnd?.();
-        unsubTool?.();
-        unsubApproval?.();
-        unsubDraft?.();
+        cleanupAll();
       }
     } else {
       // ── HTTP fallback (dev mode / browser) ──
@@ -957,8 +1038,21 @@ function ChatPageInner() {
   // ── Stop handler ───────────────────────────────────────────────────────
 
   const handleStop = useCallback(() => {
-    // Abort any HTTP requests
+    // Abort any HTTP requests (browser/dev fallback path)
     abortRef.current?.abort();
+
+    // Immediately unsubscribe all workflow IPC listeners so the renderer
+    // ignores further events from a still-running backend workflow.
+    // NOTE: Full backend abort would require orchestrator.ts changes (access to
+    // its internal AbortController for the Ollama stream). Out of scope here.
+    unsubscribersRef.current.forEach((fn) => fn());
+    unsubscribersRef.current = [];
+
+    // Signal the main process (best-effort acknowledgement)
+    if (hasElectronIPC()) {
+      window.atlasElectron!.abortWorkflow().catch(() => {});
+    }
+
     // Stop streaming — mark all messages as not streaming
     setMessages((prev) =>
       prev.map((m) => m.streaming ? { ...m, streaming: false, content: m.content || "Response stopped." } : m)

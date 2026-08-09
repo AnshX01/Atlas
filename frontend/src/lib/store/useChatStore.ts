@@ -34,7 +34,8 @@ export interface DraftData {
   executionId: string;
   actionType: string;
   fields: Record<string, string>;
-  status: "pending" | "approved" | "rejected" | "executing" | "done";
+  status: "pending" | "approved" | "rejected" | "executing" | "done" | "failed";
+  errorMessage?: string;
 }
 
 export interface ChatMessage {
@@ -89,6 +90,10 @@ function backgroundSync(conversationId: string, getState: () => ChatState): void
       role: m.role,
       content: m.content,
       timestamp: m.timestamp,
+      results: m.results,
+      actions: m.actions,
+      toolExecutions: m.toolExecutions,
+      draft: m.draft,
     }));
     conversationSyncAPI.syncConversation({
       id: conv.id,

@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { RefreshCw, Zap } from "lucide-react";
+import { RefreshCw, CheckSquare } from "lucide-react";
 import { BriefingCard } from "@/components/composite/BriefingCard";
 import { BriefingCardSkeleton } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
@@ -34,7 +34,7 @@ function EmptyBriefing() {
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
     >
       <div className="w-16 h-16 rounded-2xl bg-[var(--accent)]/10 flex items-center justify-center mb-4">
-        <Zap size={28} className="text-[var(--accent)]" />
+        <CheckSquare size={28} className="text-[var(--accent)]" />
       </div>
       <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
         {hasConnectors ? "Briefing Unavailable" : "Get Started with Atlas"}

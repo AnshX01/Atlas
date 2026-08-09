@@ -12,6 +12,10 @@ export interface SyncedMessage {
   role: string;
   content: string;
   timestamp: string;
+  results?: any[];
+  actions?: any[];
+  toolExecutions?: any[];
+  draft?: any;
 }
 
 export const conversationSyncAPI = {
@@ -28,7 +32,7 @@ export const conversationSyncAPI = {
     id: string;
     title: string;
     last_message: string;
-    messages: Array<{ id: string; role: string; content: string; timestamp: string }>;
+    messages: Array<{ id: string; role: string; content: string; timestamp: string; results?: any[]; actions?: any[]; toolExecutions?: any[]; draft?: any }>;
   }): Promise<void> {
     try {
       await apiClient.post('/conversations', conversation);

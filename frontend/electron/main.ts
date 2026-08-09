@@ -38,7 +38,7 @@ import {
   ProviderName,
   ProviderCredentials,
 } from "./services/token-store";
-import { startGoogleOAuth, handleOAuthCallback, hasPendingOAuth } from "./services/google-oauth";
+import { startGoogleOAuth, handleOAuthCallback, hasPendingOAuth, setOAuthRedirectPort } from "./services/google-oauth";
 import * as http from "http";
 
 const isDev = !app.isPackaged;
@@ -119,9 +119,10 @@ app.whenReady().then(async () => {
   console.log("[Atlas] Orchestrator (local LangGraph engine) initialized");
 
   // ── OAuth Callback Server ───────────────────────────────────────────
-  // Listens on localhost:19876 for OAuth redirects from the system browser
+  // Listens on localhost for OAuth redirects from the system browser.
+  // Tries ports 19876, 19877, 19878 in sequence if port is already in use.
   const oauthServer = http.createServer(async (req, res) => {
-    const url = new URL(req.url || "/", "http://localhost:19876");
+    const url = new URL(req.url || "/", "http://localhost");
     
     if (url.pathname === "/oauth-callback" || url.pathname === "/oauth/callback") {
       const accessToken = url.searchParams.get("access_token");
@@ -177,12 +178,29 @@ app.whenReady().then(async () => {
       res.end();
     }
   });
-  oauthServer.listen(19876, "127.0.0.1", () => {
-    console.log("[Atlas] OAuth callback server listening on http://localhost:19876");
-  });
-  oauthServer.on("error", (err) => {
-    console.warn("[Atlas] OAuth callback server failed to start:", err.message);
-  });
+
+  // Try ports 19876, 19877, 19878 with fallback
+  const OAUTH_PORTS = [19876, 19877, 19878];
+  function tryListenOAuth(portIndex: number): void {
+    if (portIndex >= OAUTH_PORTS.length) {
+      console.warn("[Atlas] OAuth callback server failed to bind on any port (19876-19878)");
+      return;
+    }
+    const port = OAUTH_PORTS[portIndex];
+    oauthServer.once("error", (err: NodeJS.ErrnoException) => {
+      if (err.code === "EADDRINUSE") {
+        console.warn(`[Atlas] OAuth port ${port} in use, trying next...`);
+        tryListenOAuth(portIndex + 1);
+      } else {
+        console.warn("[Atlas] OAuth callback server failed to start:", err.message);
+      }
+    });
+    oauthServer.listen(port, "127.0.0.1", () => {
+      setOAuthRedirectPort(port);
+      console.log(`[Atlas] OAuth callback server listening on http://localhost:${port}`);
+    });
+  }
+  tryListenOAuth(0);
 
   // ── Global shortcut: Cmd+Space → Toggle command bar ─────────────────
   // Sent to the renderer via IPC so the React store handles it.
@@ -391,6 +409,18 @@ ipcMain.handle(
     return { rejected: true };
   }
 );
+
+/**
+ * workflow-abort: Signal from renderer that the user wants to stop the current workflow.
+ * NOTE: Full backend abort would require orchestrator.ts changes (access to its internal
+ * AbortController). This handler acknowledges the abort intent; the renderer is responsible
+ * for unsubscribing its own IPC listeners to ignore further events from a still-running workflow.
+ */
+ipcMain.handle("workflow-abort", async () => {
+  // Acknowledge the abort — actual stream cancellation is not possible without
+  // modifying orchestrator.ts (out of scope). The renderer detaches listeners.
+  return { aborted: true };
+});
 
 // ── Conversation IPC Handlers ─────────────────────────────────────────────────
 

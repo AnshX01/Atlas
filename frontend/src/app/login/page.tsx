@@ -8,6 +8,9 @@ import { useAuthStore } from "../../lib/store/useAuthStore";
 import { authAPI } from "../../lib/api/auth";
 import { tokenSyncAPI } from "../../lib/api/token-sync";
 import { apiClient } from "../../lib/api/client";
+import { conversationSyncAPI } from "@/lib/api/conversation-sync";
+import { useChatStore } from "@/lib/store/useChatStore";
+import { Toast } from "@/components/ui/Toast";
 
 export default function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
@@ -20,6 +23,7 @@ export default function LoginPage() {
   const [otpStep, setOtpStep] = useState(false);
   const [generatedOtp, setGeneratedOtp] = useState("");
   const [otpInput, setOtpInput] = useState("");
+  const [offlineToast, setOfflineToast] = useState(false);
   const router = useRouter();
   const setUser = useAuthStore((state) => state.setUser);
   const setTokens = useAuthStore((state) => state.setTokens);
@@ -44,25 +48,22 @@ export default function LoginPage() {
       }
     }).catch(() => {});
     // 2. Download conversations from cloud and merge into local store
-    import("@/lib/api/conversation-sync").then(({ conversationSyncAPI }) => {
-      conversationSyncAPI.listConversations().then((conversations) => {
-        if (conversations.length > 0) {
-          const { useChatStore } = require("@/lib/store/useChatStore");
-          const store = useChatStore.getState();
-          const existingIds = new Set(store.conversations.map((c: any) => c.id));
-          for (const conv of conversations) {
-            if (!existingIds.has(conv.id)) {
-              // Add cloud conversation to local store
-              store.conversations.unshift({
-                id: conv.id,
-                title: conv.title,
-                createdAt: conv.created_at,
-                lastMessage: conv.last_message,
-              });
-            }
+    conversationSyncAPI.listConversations().then((conversations) => {
+      if (conversations.length > 0) {
+        const store = useChatStore.getState();
+        const existingIds = new Set(store.conversations.map((c: any) => c.id));
+        for (const conv of conversations) {
+          if (!existingIds.has(conv.id)) {
+            // Add cloud conversation to local store
+            store.conversations.unshift({
+              id: conv.id,
+              title: conv.title,
+              createdAt: conv.created_at,
+              lastMessage: conv.last_message,
+            });
           }
         }
-      }).catch(() => {});
+      }
     }).catch(() => {});
     // 3. Download avatar
     apiClient.get('/users/me/avatar').then(({ data }) => {
@@ -151,6 +152,7 @@ export default function LoginPage() {
             ? await localAuth.register(currentEmail, currentPassword, currentFullName)
             : await localAuth.login(currentEmail, currentPassword);
           setUser({ ...localUser, is_active: true, avatar_url: null } as any);
+          setOfflineToast(true);
           router.push("/dashboard");
         } catch (localErr: any) {
           setError(localErr.message || "Authentication failed. Please check your credentials.");
@@ -505,6 +507,16 @@ export default function LoginPage() {
           Atlas v0.1.0 · Beta
         </p>
       </motion.div>
+
+      {/* Offline auth toast */}
+      {offlineToast && (
+        <Toast
+          message="Working offline — using local account (cross-device sync unavailable)"
+          type="success"
+          duration={5000}
+          onClose={() => setOfflineToast(false)}
+        />
+      )}
     </div>
   );
 }

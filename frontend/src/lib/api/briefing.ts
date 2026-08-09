@@ -128,20 +128,28 @@ function createFallbackItems(rawData: RawDataEntry[]): BriefingItemData[] {
       case "messages":
         for (let i = 0; i < Math.min(dataArray.length, 5); i++) {
           const msg = dataArray[i];
+          const isGoogleTask = entry.source === "tasks";
+          const title = isGoogleTask
+            ? (msg?.title || "Untitled task")
+            : (msg?.text?.slice(0, 80) || "Message");
+          const summary = isGoogleTask
+            ? (msg?.due ? `Due: ${new Date(msg.due).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}${msg?.notes ? ` — ${msg.notes}` : ""}` : (msg?.notes || "No due date"))
+            : (msg?.text || "New message");
           items.push({
             id: makeId(entry.source, "task", i, msg?.ts || msg?.id),
             type: "task",
-            title: msg?.text?.slice(0, 80) || "Slack message",
-            summary: msg?.text || "New message in Slack",
-            source: "slack",
-            priority_score: 50,
-            action_label: "Open in Slack",
+            title,
+            summary,
+            source: entry.source,
+            priority_score: isGoogleTask ? 65 : 50,
+            action_label: isGoogleTask ? "View Task" : "Open in Slack",
             action_url: msg?.permalink || undefined,
             metadata: {
               channel: msg?.channel || msg?.channelName || "",
               sender: msg?.user || msg?.username || "",
+              list: msg?.list || "",
             },
-            timestamp: msg?.ts ? new Date(parseFloat(msg.ts) * 1000).toISOString() : new Date().toISOString(),
+            timestamp: msg?.due || (msg?.ts ? new Date(parseFloat(msg.ts) * 1000).toISOString() : new Date().toISOString()),
           });
         }
         break;
@@ -209,12 +217,14 @@ Rules:
     // Use sendChatMessage and collect the streamed response
     const response = await new Promise<string>((resolve, reject) => {
       let fullResponse = "";
-      let streamEndHandler: (() => void) | null = null;
-      let streamHandler: ((chunk: string) => void) | null = null;
+
+      // Capture the unsubscribe functions returned by the preload API
+      let unsubStream: (() => void) | null = null;
+      let unsubEnd: (() => void) | null = null;
 
       const cleanup = () => {
-        if (streamHandler) electron.removeOnChatStream?.(streamHandler);
-        if (streamEndHandler) electron.removeOnChatStreamEnd?.(streamEndHandler);
+        unsubStream?.();
+        unsubEnd?.();
       };
 
       // Set a timeout in case Ollama is unresponsive
@@ -223,18 +233,19 @@ Rules:
         reject(new Error("Ollama timeout"));
       }, 60000);
 
-      streamHandler = (chunk: string) => {
+      const streamHandler = (chunk: string) => {
         fullResponse += chunk;
       };
 
-      streamEndHandler = () => {
+      const streamEndHandler = () => {
         clearTimeout(timeout);
         cleanup();
         resolve(fullResponse);
       };
 
-      electron.onChatStream(streamHandler);
-      electron.onChatStreamEnd(streamEndHandler);
+      // onChatStream/onChatStreamEnd return unsubscribe functions directly
+      unsubStream = electron.onChatStream(streamHandler);
+      unsubEnd = electron.onChatStreamEnd(streamEndHandler);
 
       electron.sendChatMessage(
         [

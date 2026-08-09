@@ -110,6 +110,11 @@ const READONLY_TOOLS = new Set([
   "get_page",
 ]);
 
+// NOTE: Some keywords (e.g. 'email', 'message', 'post') also appear in ACTION_KEYWORDS
+// in intent-classifier.ts. This is intentional — TOOL_ROUTING maps keywords to candidate
+// tools, but resolveTools() filters by READONLY_TOOLS or DESTRUCTIVE_TOOLS based on the
+// classified intentType. So 'email' as a search query routes to search_emails (readonly),
+// while 'email' as an action routes to send_email (destructive). No conflict.
 const TOOL_ROUTING: Record<string, { server: string; tool: string }[]> = {
   email: [
     { server: "google_workspace", tool: "search_emails" },
@@ -289,6 +294,59 @@ const TOOL_ROUTING: Record<string, { server: string; tool: string }[]> = {
 };
 
 
+// ── Standalone response keywords (issue #7) ───────────────────────────────────
+// Short follow-ups that are themselves actionable and should NOT be concatenated
+// with the previous message for routing context enrichment.
+const STANDALONE_RESPONSE_KEYWORDS = new Set([
+  "yes", "no", "ok", "okay", "sure", "approve", "reject", "cancel",
+  "send it", "send", "confirm", "deny", "stop", "go ahead", "do it",
+  "nevermind", "never mind", "skip", "done", "thanks", "thank you",
+]);
+
+// ── ISO-8601 date regex ────────────────────────────────────────────────────────
+const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/;
+const ISO_DATE_LOOSE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+/**
+ * Recursively walks an object/array and reformats ISO-8601 date strings
+ * into human-readable form (e.g. 'Sat, Aug 8, 2026, 1:18 PM') so the LLM
+ * outputs natural language dates rather than parroting raw ISO strings.
+ * Only applied to LLM-facing context — NOT to UI-facing card data (UI uses date-fns).
+ */
+function humanizeDates(obj: unknown): unknown {
+  if (typeof obj === 'string') {
+    if (ISO_DATE_LOOSE_REGEX.test(obj) || ISO_DATE_REGEX.test(obj)) {
+      try {
+        const d = new Date(obj);
+        if (!isNaN(d.getTime())) {
+          return d.toLocaleDateString('en-US', {
+            weekday: 'short',
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+          }) + ', ' + d.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+          });
+        }
+      } catch {}
+    }
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(humanizeDates);
+  }
+  if (obj !== null && typeof obj === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      result[key] = humanizeDates(value);
+    }
+    return result;
+  }
+  return obj;
+}
+
+
 // ── Orchestrator Class ─────────────────────────────────────────────────────────
 
 export class Orchestrator {
@@ -326,7 +384,11 @@ export class Orchestrator {
     // BUT don't enrich if the follow-up is just providing supplementary info (email, name, etc.)
     const isSupplementaryInfo = /^(his|her|their|the|my)?\s*(email|address|name|number)\s*(is|:)/i.test(prompt.trim());
     
-    if (!isSupplementaryInfo && prompt.trim().split(/\s+/).length <= 5 && prevUserMessages.length > 1) {
+    // Issue #7: Don't enrich if the short follow-up is itself a complete actionable command
+    // (e.g. 'yes', 'no', 'approve', 'cancel', 'send it') — these don't need routing context
+    const isStandaloneResponse = STANDALONE_RESPONSE_KEYWORDS.has(prompt.trim().toLowerCase());
+
+    if (!isSupplementaryInfo && !isStandaloneResponse && prompt.trim().split(/\s+/).length <= 5 && prevUserMessages.length > 1) {
       // Short follow-up — combine with previous user message for routing context
       const prevMsg = prevUserMessages[prevUserMessages.length - 2];
       if (prevMsg) {
@@ -357,6 +419,8 @@ export class Orchestrator {
           break;
 
         case "action":
+          // Pre-fetch context for actions that need it (reply needs the email, etc.)
+          await this.prefetchActionContext(state, mainWindow);
           await this.actionNode(state, mainWindow);
           if (state.requiresApproval) {
             // Generate draft before asking for approval
@@ -402,6 +466,7 @@ export class Orchestrator {
         intent: state.intent,
         toolCalls: state.toolCalls,
         results,
+        error: state.error || undefined,
       });
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
@@ -535,6 +600,58 @@ export class Orchestrator {
 
 
   /**
+   * Pre-fetch context for actions that need external data before drafting.
+   * This ensures the draft has real data (email addresses, PR numbers, etc.)
+   */
+  private async prefetchActionContext(
+    state: WorkflowState,
+    mainWindow: BrowserWindow
+  ): Promise<void> {
+    const lower = state.input.toLowerCase();
+
+    // Reply/respond/forward email — fetch the relevant email first
+    if (lower.includes("reply") || lower.includes("respond") || lower.includes("forward")) {
+      // Issue #1: Reuse buildGmailQuery to target the person mentioned in the user's input
+      const emailQuery = this.buildGmailQuery(state.input, {});
+      try {
+        mainWindow.webContents.send("workflow-tool-executing", { server: "google_workspace", tool: "search_emails" });
+        // Use maxResults=3 to increase chances of finding the right email
+        const emails = await this.mcpManager.callTool("google_workspace", "search_emails", { query: emailQuery, maxResults: 3 });
+        if (emails && !emails.error && Array.isArray(emails) && emails.length > 0) {
+          state.context.push({ type: "tool_result", server: "google_workspace", tool: "search_emails", result: emails });
+        }
+      } catch {}
+    }
+
+    // Merge/close PR — fetch the PR details
+    if (lower.includes("merge") || (lower.includes("close") && lower.includes("pr"))) {
+      try {
+        mainWindow.webContents.send("workflow-tool-executing", { server: "github", tool: "list_prs" });
+        const prs = await this.mcpManager.callTool("github", "list_prs", { state: "open" });
+        if (prs && !prs.error) {
+          state.context.push({ type: "tool_result", server: "github", tool: "list_prs", result: prs });
+        }
+      } catch {}
+    }
+
+    // Post to Slack — fetch channels for context
+    // Issue #9: Tightened condition — 'post' and 'message' alone cause false positives
+    // (e.g. 'create a post about X', 'send message' for email). Require 'slack' OR
+    // a channel reference (#channel), OR 'post'/'message' as first word (imperative).
+    const hasSlackSignal = lower.includes("slack") || /#[\w-]+/.test(lower);
+    const startsWithSlackVerb = /^(post|message)\b/.test(lower);
+    if ((hasSlackSignal || startsWithSlackVerb) && !lower.includes("email") && !lower.includes("mail")) {
+      try {
+        mainWindow.webContents.send("workflow-tool-executing", { server: "slack", tool: "read_messages" });
+        const channels = await this.mcpManager.callTool("slack", "list_channels", {});
+        if (channels && !channels.error) {
+          state.context.push({ type: "tool_result", server: "slack", tool: "list_channels", result: channels });
+        }
+      } catch {}
+    }
+  }
+
+  /**
    * Draft Node: Uses Ollama to generate a draft for the action.
    * Emits workflow-draft-ready to the renderer.
    */
@@ -548,6 +665,33 @@ export class Orchestrator {
 
     // Generate draft content with Ollama
     const fields = await this.generateDraft(actionType, state.input, state.context);
+
+    // Post-process: fix fields using real pre-fetched data
+    this.fixDraftFieldsWithContext(actionType, fields, state.context);
+
+    // Issue #1: Validate email recipient — if still not a valid email after fixDraftFieldsWithContext,
+    // try harder to find one in context, or blank it and flag for user editing
+    if (actionType === "reply_email" || actionType === "send_email" || actionType === "forward_email") {
+      if (!fields.to || !fields.to.includes('@')) {
+        // Try harder: scan all tool_result context for any email address
+        const allContextStr = JSON.stringify(state.context);
+        const emailsInContext = allContextStr.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g);
+        if (emailsInContext && emailsInContext.length > 0) {
+          // Use the first email found that isn't a system/noreply address
+          const validEmail = emailsInContext.find(e => !e.includes('noreply') && !e.includes('no-reply') && !e.includes('mailer-daemon'));
+          if (validEmail) {
+            fields.to = validEmail;
+          } else {
+            fields.to = '';
+            fields._recipientNotFound = 'true';
+          }
+        } else {
+          // No email found anywhere — blank it and flag for UI
+          fields.to = '';
+          fields._recipientNotFound = 'true';
+        }
+      }
+    }
 
     state.draft = {
       executionId,
@@ -613,7 +757,7 @@ export class Orchestrator {
   ): { system: string; user: string } {
     const contextStr = context
       .filter((c) => c.type === "classification" || c.type === "tool_result")
-      .map((c) => JSON.stringify(c.params || c.result))
+      .map((c) => JSON.stringify(humanizeDates(c.params || c.result)))
       .join("\n")
       .slice(0, 2000);
 
@@ -625,82 +769,85 @@ export class Orchestrator {
       case "send_email":
       case "forward_email":
         return {
-          system: `You interpret natural language email requests. Extract ALL details the user mentioned and generate a complete email draft. Output ONLY a JSON object with these fields: {"to": "recipient email or name", "subject": "appropriate subject line", "body": "full email body text"}.
+          system: `You are an email assistant. The user wants to send/reply/forward an email. Use the fetched email data below to extract the ACTUAL recipient email address (from the "from" field in the data). Output ONLY a JSON object: {"to": "actual-email@domain.com", "subject": "appropriate subject", "body": "email body text"}.
 
 Rules:
-- Extract the recipient from the user's message (name or email)
-- Generate a professional, appropriate subject line based on context
-- Write the full body based on what the user wants to say
-- Match the user's tone (casual, formal, etc.)
-- Include all details the user mentioned
-- No markdown, no explanation, ONLY the JSON object`,
-          user: `User request: "${userInput}"\nToday: ${today}\nContext: ${contextStr}`,
+- For replies: extract recipient email from the "from" field in the fetched data. Prefix subject with "Re:" 
+- For new emails: use the email/name the user explicitly mentioned
+- Write the body using the user's exact intent/words — be direct, not overly formal
+- If an email address appears in the fetched data, use that exact address
+- No placeholders like [Recipient] or [Your Name] — use real data from context
+- No markdown, ONLY the JSON object`,
+          user: `User request: "${userInput}"\nToday: ${today}\nFetched data: ${contextStr}`,
         };
 
       case "merge_pr":
       case "close_pr":
         return {
-          system: `You interpret GitHub PR action requests. Output ONLY a JSON object: {"title": "PR title", "description": "merge/close reason", "action": "merge|close"}. Extract PR number, repo, and reason from the user's message.`,
-          user: `User request: "${userInput}"\nContext: ${contextStr}`,
+          system: `You interpret GitHub PR actions. Use the fetched PR data below to get the actual PR number, title, and repo. Output ONLY a JSON object: {"owner": "owner", "repo": "repo-name", "pull_number": number, "commit_title": "merge commit message"}.
+
+Rules:
+- Extract the actual PR number from fetched data if available
+- Extract owner/repo from the data
+- No explanation, ONLY the JSON object`,
+          user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
 
       case "create_branch":
         return {
-          system: `You interpret GitHub branch creation requests. Extract the branch name and repository. Output ONLY a JSON object: {"owner": "github-username-or-org", "repo": "repository-name", "branch": "new-branch-name", "from_branch": "main"}. The repo should be just the repo name without the owner prefix. If no source branch mentioned, default "from_branch" to "main". No explanation, just JSON.`,
-          user: `User request: "${userInput}"\nContext: ${contextStr}`,
+          system: `You interpret branch creation requests. Output ONLY a JSON object: {"owner": "github-username", "repo": "repo-name", "branch": "new-branch-name", "from_branch": "main"}. Extract repo name from the user's message. Default from_branch to "main". No explanation, just JSON.`,
+          user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
 
       case "create_pull_request":
         return {
-          system: `You interpret GitHub pull request creation requests. Output ONLY a JSON object: {"owner": "github-username-or-org", "repo": "repository-name", "title": "PR title", "body": "PR description", "head": "source-branch", "base": "main"}. Extract all details from the user's message. No explanation, just JSON.`,
-          user: `User request: "${userInput}"\nContext: ${contextStr}`,
+          system: `You interpret PR creation requests. Output ONLY a JSON object: {"owner": "github-username", "repo": "repo-name", "title": "PR title", "body": "PR description", "head": "source-branch", "base": "main"}. No explanation, just JSON.`,
+          user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
 
       case "post_message":
       case "send_message":
         return {
-          system: `You interpret Slack message requests. Extract the channel, recipient, and message content. Output ONLY a JSON object: {"channel": "#channel-name or @person", "message": "the full message text"}.
+          system: `You interpret Slack message requests. Use any fetched Slack data below to identify the correct channel. Output ONLY a JSON object: {"channel": "#channel-name", "message": "the message text"}.
 
 Rules:
-- Extract the channel or person from the user's message
-- Write the complete message based on what the user wants to say
-- Keep the user's tone and intent
+- Extract channel from user's message or from fetched data
+- Write the message using the user's exact words/intent
 - No markdown, ONLY the JSON object`,
-          user: `User request: "${userInput}"\nContext: ${contextStr}`,
+          user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
 
       case "create_issue":
         return {
-          system: `You interpret GitHub issue creation requests. Extract all details. Output ONLY a JSON object: {"title": "concise issue title", "body": "detailed issue description", "labels": "comma-separated labels if mentioned"}. Write a clear, descriptive issue based on the user's request.`,
-          user: `User request: "${userInput}"\nContext: ${contextStr}`,
+          system: `You interpret GitHub issue creation requests. Output ONLY a JSON object: {"owner": "owner", "repo": "repo-name", "title": "issue title", "body": "issue description", "labels": "bug,enhancement"}. Use fetched data to determine repo if available. No explanation, just JSON.`,
+          user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
 
       case "create_event":
       case "schedule_event":
         return {
-          system: `You interpret calendar event requests. Extract ALL details: who, what, when, where. Output ONLY a JSON object: {"title": "event title", "startTime": "ISO 8601 datetime", "endTime": "ISO 8601 datetime", "description": "event details", "attendees": ["email@example.com"]}.
+          system: `You interpret calendar event requests. Output ONLY a JSON object: {"title": "event title", "startTime": "ISO 8601 datetime", "endTime": "ISO 8601 datetime", "description": "details", "attendees": ["email@example.com"]}.
 
 Rules:
-- Parse relative dates: "tomorrow" means ${new Date(Date.now() + 86400000).toISOString().split('T')[0]}, "next Monday" etc.
 - Today is ${today}, current time is ${nowTime}
-- If no end time specified, default to 1 hour after start
-- If no specific time given, use a reasonable default (10am for morning, 2pm for afternoon)
-- ATTENDEES must be ONLY email addresses, never names. If a name is mentioned without email, leave attendees empty.
+- "tomorrow" = ${new Date(Date.now() + 86400000).toISOString().split('T')[0]}
+- If no end time, default to 1 hour after start
+- If no specific time, use 10:00 for morning, 14:00 for afternoon
+- ATTENDEES: ONLY email addresses. If user mentions a name without email, check fetched data for their email. Otherwise leave attendees empty.
 - No markdown, ONLY the JSON object`,
-          user: `User request: "${userInput}"\nContext: ${contextStr}`,
+          user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
 
       case "create_page":
       case "update_page":
         return {
-          system: `You interpret Notion page creation requests. Extract the title and generate appropriate content. Output ONLY a JSON object: {"title": "page title", "content": "page content in plain text"}.
+          system: `You interpret Notion page requests. Output ONLY a JSON object: {"title": "page title", "content": "page content"}.
 
 Rules:
-- Generate a clear, organized title
-- Write useful content based on what the user described
-- Structure the content logically (use line breaks for sections)
-- No markdown formatting, ONLY the JSON object`,
-          user: `User request: "${userInput}"\nContext: ${contextStr}`,
+- Generate a clear title from the user's intent
+- Write organized content based on what the user described
+- No markdown, ONLY the JSON object`,
+          user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
 
       default:
@@ -715,31 +862,125 @@ Rules:
     actionType: string,
     userInput: string
   ): Record<string, string> {
+    // Issue #10: Attempt basic regex extraction so fallback fields are less empty
+    const emailMatch = userInput.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+    const channelMatch = userInput.match(/#([\w-]+)/);
+    const repoMatch = userInput.match(/(\w+\/\w+)/) || userInput.match(/(?:repo|repository)\s+(\S+)/i);
+
     switch (actionType) {
       case "reply_email":
       case "send_email":
       case "forward_email":
-        return { to: "", subject: "", body: userInput };
+        return { to: emailMatch ? emailMatch[0] : "", subject: "", body: userInput };
       case "merge_pr":
-      case "close_pr":
-        return { title: "", description: userInput, action: actionType.replace("_", " ") };
-      case "create_branch":
-        return { owner: "", repo: "", branch: "", from_branch: "main" };
+      case "close_pr": {
+        const prNumMatch = userInput.match(/#(\d+)/);
+        return {
+          title: "",
+          description: userInput,
+          action: actionType.replace("_", " "),
+          ...(prNumMatch ? { pull_number: prNumMatch[1] } : {}),
+          ...(repoMatch ? { repo: repoMatch[1] } : {}),
+        };
+      }
+      case "create_branch": {
+        const branchMatch = userInput.match(/(?:branch|named?)\s+([\w./-]+)/i);
+        return {
+          owner: "",
+          repo: repoMatch ? repoMatch[1] : "",
+          branch: branchMatch ? branchMatch[1] : "",
+          from_branch: "main",
+        };
+      }
       case "create_pull_request":
-        return { owner: "", repo: "", title: "", body: userInput, head: "", base: "main" };
+        return {
+          owner: "",
+          repo: repoMatch ? repoMatch[1] : "",
+          title: "",
+          body: userInput,
+          head: "",
+          base: "main",
+        };
       case "post_message":
       case "send_message":
-        return { channel: "", message: userInput };
+        return { channel: channelMatch ? `#${channelMatch[1]}` : "", message: userInput };
       case "create_issue":
-        return { title: "", body: userInput, labels: "" };
+        return {
+          title: "",
+          body: userInput,
+          labels: "",
+          ...(repoMatch ? { repo: repoMatch[1] } : {}),
+        };
       case "create_event":
       case "schedule_event":
-        return { title: userInput, startTime: "", endTime: "", description: "", attendees: "" };
+        return { title: userInput, startTime: "", endTime: "", description: "", attendees: emailMatch ? emailMatch[0] : "" };
       case "create_page":
       case "update_page":
         return { title: "", content: userInput };
       default:
         return { description: userInput };
+    }
+  }
+
+  /**
+   * Post-process draft fields using pre-fetched context data.
+   * Fixes common LLM mistakes like using names instead of emails.
+   */
+  private fixDraftFieldsWithContext(
+    actionType: string,
+    fields: Record<string, string>,
+    context: any[]
+  ): void {
+    const toolResults = context.filter((c) => c.type === "tool_result");
+
+    // For email actions: ensure 'to' is a valid email address
+    if (actionType === "reply_email" || actionType === "send_email" || actionType === "forward_email") {
+      const emailResult = toolResults.find((c) => c.tool === "search_emails");
+      if (emailResult?.result && Array.isArray(emailResult.result) && emailResult.result.length > 0) {
+        const email = emailResult.result[0];
+        // Extract actual email address from the 'from' field
+        const fromField = email.from || "";
+        const emailMatch = fromField.match(/<([^>]+)>/) || fromField.match(/([^\s<]+@[^\s>]+)/);
+        const actualEmail = emailMatch ? emailMatch[1] : fromField;
+
+        // If 'to' doesn't look like an email, replace it with the extracted one
+        if (fields.to && !fields.to.includes("@")) {
+          fields.to = actualEmail;
+        }
+        // If subject is empty or generic, use the original email's subject
+        if (!fields.subject || fields.subject === "Re: " || fields.subject.length < 3) {
+          const originalSubject = email.subject || "";
+          fields.subject = originalSubject.startsWith("Re:") ? originalSubject : `Re: ${originalSubject}`;
+        }
+        // Store messageId and threadId for reply functionality
+        if (email.id) fields.messageId = email.id;
+        if (email.threadId) fields.threadId = email.threadId;
+      }
+    }
+
+    // For GitHub actions: ensure owner is set
+    if (actionType === "create_branch" || actionType === "create_pull_request" || actionType === "create_issue") {
+      if (!fields.owner) {
+        // Will be auto-filled by MCP Manager from PAT
+      }
+    }
+
+    // For calendar: ensure times are valid ISO strings
+    if (actionType === "create_event" || actionType === "schedule_event") {
+      if (fields.startTime && !fields.startTime.includes("T")) {
+        // Not a valid ISO datetime — try to fix
+        try { fields.startTime = new Date(fields.startTime).toISOString(); } catch {}
+      }
+      if (fields.endTime && !fields.endTime.includes("T")) {
+        try { fields.endTime = new Date(fields.endTime).toISOString(); } catch {}
+      }
+      // If attendees is a string, try to parse as JSON array
+      if (typeof fields.attendees === "string" && fields.attendees.startsWith("[")) {
+        try {
+          const parsed = JSON.parse(fields.attendees);
+          fields.attendees = Array.isArray(parsed) ? parsed.join(",") : fields.attendees;
+        } catch {}
+      }
     }
   }
 
@@ -791,22 +1032,17 @@ Rules:
           tool.tool,
           tool.params as Record<string, any>
         );
-        tool.result = result;
 
-        saveToolExecution(
-          state.conversationId,
-          tool.server,
-          tool.tool,
-          tool.params,
-          result
-        );
-
-        state.context.push({
-          type: "tool_result",
-          server: tool.server,
-          tool: tool.tool,
-          result,
-        });
+        // Check if the result indicates an error
+        if (result && typeof result === 'object' && result.error) {
+          console.error(`[Orchestrator] Execute error: ${tool.server}/${tool.tool}: ${result.error}`);
+          state.context.push({ type: "tool_error", server: tool.server, tool: tool.tool, error: result.error });
+          state.error = result.error;
+        } else {
+          tool.result = result;
+          saveToolExecution(state.conversationId, tool.server, tool.tool, tool.params, result);
+          state.context.push({ type: "tool_result", server: tool.server, tool: tool.tool, result });
+        }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : "Tool call failed";
         console.error(
@@ -874,8 +1110,19 @@ Rules:
       result?: unknown;
     }> = [];
 
+    // Issue #5: Optimize keyword matching — split input into a word Set for O(1) single-word
+    // lookups; only do substring search for multi-word keys.
+    const inputWords = new Set(input.split(/\s+/));
+    // Separate single-word and multi-word keys for efficient matching
+    const matchedKeywords: string[] = [];
+
     for (const [keyword, routes] of Object.entries(TOOL_ROUTING)) {
-      if (input.includes(keyword)) {
+      // Fast path: single-word keywords checked via Set lookup
+      const isMultiWord = keyword.includes(' ');
+      const matches = isMultiWord ? input.includes(keyword) : inputWords.has(keyword);
+
+      if (matches) {
+        matchedKeywords.push(keyword);
         for (const route of routes) {
           if (intentType === "search" && !READONLY_TOOLS.has(route.tool)) {
             continue;
@@ -894,12 +1141,22 @@ Rules:
     }
 
     const seen = new Set<string>();
-    return tools.filter((t) => {
+    const deduped = tools.filter((t) => {
       const key = `${t.server}:${t.tool}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
-    }).slice(0, 3); // Limit to max 3 tools to balance speed vs coverage
+    });
+
+    // Issue #6: For simple "get my latest X" queries where only one keyword matched,
+    // cap to 1 tool to avoid calling 3 tools when 1 suffices.
+    const isSimpleFetch = /^(what'?s?|show|get)\s+(my\s+)?(latest|last|newest)\b/i.test(input);
+    const distinctKeywords = new Set(matchedKeywords);
+    if (isSimpleFetch && distinctKeywords.size <= 1) {
+      return deduped.slice(0, 1);
+    }
+
+    return deduped.slice(0, 3); // General cap: max 3 tools for speed vs coverage
   }
 
   private buildToolParams(
@@ -915,7 +1172,10 @@ Rules:
       case "read_emails": {
         // Convert natural language to Gmail query syntax
         const emailQuery = this.buildGmailQuery(input, classParams);
-        return { query: emailQuery, maxResults: 10 };
+        // Limit to fewer results for specific queries (latest, from person)
+        const lower = input.toLowerCase();
+        const maxResults = (lower.includes("latest") || lower.includes("last") || lower.includes("recent")) ? 1 : 5;
+        return { query: emailQuery, maxResults };
       }
 
       case "list_calendar":
@@ -1011,7 +1271,9 @@ Rules:
       const contextStr = toolResults
         .map((c) => {
           if (c.type === "tool_result") {
-            const str = JSON.stringify(c.result);
+            // Humanize ISO dates so LLM outputs natural phrasing
+            const humanized = humanizeDates(c.result);
+            const str = JSON.stringify(humanized);
             return str.length > 3000 ? str.slice(0, 3000) + "..." : str;
           }
           return `Error fetching from ${c.server}: ${c.error}`;
@@ -1056,7 +1318,9 @@ Rules:
         const contextStr = toolResults
           .map((c) => {
             if (c.type === "tool_result") {
-              return JSON.stringify(c.result, null, 2);
+              // Humanize ISO dates so LLM outputs natural phrasing
+              const humanized = humanizeDates(c.result);
+              return JSON.stringify(humanized, null, 2);
             }
             return `Error: ${c.error}`;
           })
@@ -1087,18 +1351,18 @@ Rules:
       const items = Array.isArray(rawResult) ? rawResult : rawResult?.items ?? rawResult?.results ?? rawResult?.messages ?? rawResult?.emails ?? [];
 
       if (Array.isArray(items)) {
-        for (const item of items.slice(0, 8)) {
+        for (const item of items.slice(0, 3)) {
           const card = this.itemToCard(item, ctx.server, ctx.tool);
           if (card) results.push(card);
         }
       } else if (typeof rawResult === "object" && rawResult.title) {
-        // Single item result
         const card = this.itemToCard(rawResult, ctx.server, ctx.tool);
         if (card) results.push(card);
       }
     }
 
-    return results;
+    // Max 5 cards total across all tools
+    return results.slice(0, 5);
   }
 
   /**
@@ -1406,6 +1670,10 @@ Rules:
       return classParams.query as string;
     }
 
+    // Person-based queries — "from pranav", "latest from pranav", "email from john"
+    const fromMatch = lower.match(/(?:from|by)\s+(\w+)/);
+    if (fromMatch) return `from:${fromMatch[1]} newer_than:30d`;
+
     // Time-based queries
     if (lower.includes("today")) return "newer_than:1d";
     if (lower.includes("yesterday")) return "newer_than:2d older_than:1d";
@@ -1413,10 +1681,6 @@ Rules:
     if (lower.includes("this month")) return "newer_than:30d";
     if (lower.includes("unread")) return "is:unread";
     if (lower.includes("inbox")) return "is:inbox newer_than:1d";
-
-    // Person-based queries
-    const fromMatch = lower.match(/(?:from|by)\s+(\w+)/);
-    if (fromMatch) return `from:${fromMatch[1]}`;
 
     // Subject/topic queries
     const aboutMatch = lower.match(/(?:about|regarding|re:?)\s+(.+?)(?:\s*$|\s+(?:from|today|this))/);
@@ -1456,7 +1720,7 @@ Rules:
       const resultSummary = toolResults
         .map(
           (c) =>
-            `• ${c.server}/${c.tool}: ${JSON.stringify(c.result).slice(0, 200)}`
+            `• ${c.server}/${c.tool}: ${JSON.stringify(humanizeDates(c.result)).slice(0, 200)}`
         )
         .join("\n");
       return `Here's what I found:\n\n${resultSummary}`;

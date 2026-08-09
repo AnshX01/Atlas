@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { Plug, Search, Zap, Calendar, Activity, ArrowRight, Mail, GitPullRequest, FileText, LayoutDashboard, Settings, MessageSquare } from "lucide-react";
+import { Plug, Search, CheckSquare, Calendar, Activity, ArrowRight, Mail, GitPullRequest, FileText, LayoutDashboard, Settings, MessageSquare } from "lucide-react";
 import {
   GoogleLogo,
   GitHubLogo,
@@ -66,7 +66,7 @@ const typeIcons: Record<string, React.ReactNode> = {
   calendar: <Calendar size={13} className="text-white/70" />,
   document: <FileText size={13} className="text-slate-400" />,
   file: <FileText size={13} className="text-slate-400" />,
-  task: <Zap size={13} className="text-white/70" />,
+  task: <CheckSquare size={13} className="text-white/70" />,
 };
 
 // ── Provider Display Names ────────────────────────────────────────────────────
@@ -267,7 +267,7 @@ export default function DashboardPage() {
                     {item.title}
                   </p>
                   <p className="text-xs text-[var(--text-muted)] truncate">
-                    {item.source} · Priority {item.priority_score}
+                    {item.source === "gmail" ? "Google Workspace" : item.source === "github" ? "GitHub" : item.source === "calendar" ? "Google Workspace" : item.source === "tasks" ? "Google Workspace" : item.source === "slack" ? "Slack" : item.source === "notion" ? "Notion" : item.source?.charAt(0).toUpperCase() + item.source?.slice(1)}
                   </p>
                 </div>
                 <ArrowRight size={12} className="text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors shrink-0" />

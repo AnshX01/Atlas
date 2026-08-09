@@ -4,7 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
 import {
-  Mail, GitPullRequest, AlertCircle, Calendar, FileText, Zap,
+  Mail, GitPullRequest, AlertCircle, Calendar, FileText, CheckSquare,
   ChevronDown, ChevronUp, Check, ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -39,7 +39,7 @@ const typeConfig: Record<
   issue:    { icon: <AlertCircle size={16} />,    color: "text-white/70", bgColor: "bg-white/[0.06]" },
   calendar: { icon: <Calendar size={16} />,       color: "text-white/70",  bgColor: "bg-white/[0.06]" },
   document: { icon: <FileText size={16} />,       color: "text-white/70",  bgColor: "bg-white/[0.06]" },
-  task:     { icon: <Zap size={16} />,            color: "text-white/70", bgColor: "bg-white/[0.06]" },
+  task:     { icon: <CheckSquare size={16} />,    color: "text-white/70", bgColor: "bg-white/[0.06]" },
 };
 
 function getActionUrl(item: BriefingItemData): string | null {
@@ -180,7 +180,7 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
             className="mb-3 overflow-hidden"
           >
-            <div className="p-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] space-y-3">
+            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-3">
               {item.type === "email" && (
                 <div className="space-y-2">
                   {!!item.metadata?.subject && (
@@ -197,7 +197,7 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
                       </span>
                     </div>
                   )}
-                  <div className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-line border-t border-[var(--border-default)] pt-2 mt-2">
+                  <div className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-line border-t border-white/[0.06] pt-2 mt-2">
                     {item.summary.split("\n").slice(0, 6).join("\n") || item.title}
                   </div>
                 </div>
@@ -217,7 +217,7 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
                   {!!item.metadata?.issue_number && (
                     <div className="text-xs text-[var(--text-muted)]">Issue #{String(item.metadata.issue_number)}</div>
                   )}
-                  <div className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-line border-t border-[var(--border-default)] pt-2 mt-2">
+                  <div className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-line border-t border-white/[0.06] pt-2 mt-2">
                     {item.summary}
                   </div>
                 </div>
@@ -249,8 +249,8 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium
-                             text-[var(--accent)] bg-[var(--bg-secondary)]
-                             hover:bg-[var(--accent)]/10 transition-colors"
+                             text-[var(--accent)] bg-white/[0.02]
+                             hover:bg-[var(--accent)]/10 border border-white/[0.06] transition-colors"
                 >
                   <ExternalLink size={12} />
                   {getActionLabel(item)}

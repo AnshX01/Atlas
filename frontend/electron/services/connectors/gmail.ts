@@ -27,10 +27,18 @@ export class GmailConnector {
     let res = await fetch(url, { ...options, headers });
     if (res.status === 401 && this.refreshToken && this.clientId && this.clientSecret) {
       this.accessToken = await refreshGoogleToken(this.clientId, this.clientSecret, this.refreshToken);
-      // Update stored token
-      const creds = getToken('google_workspace') as Record<string, string>;
+      // Update stored token — preserve all existing fields
+      const creds = getToken('google_workspace') as Record<string, string> | null;
       if (creds) {
         setToken('google_workspace', { ...creds, access_token: this.accessToken });
+      } else {
+        // Fallback: persist using instance fields so refreshed token isn't lost
+        setToken('google_workspace', {
+          client_id: this.clientId,
+          client_secret: this.clientSecret,
+          refresh_token: this.refreshToken,
+          access_token: this.accessToken,
+        });
       }
       res = await fetch(url, { ...options, headers: { ...headers, Authorization: `Bearer ${this.accessToken}` } });
     }
@@ -73,6 +81,11 @@ export class GmailConnector {
   // ── Gmail Write ────────────────────────────────────────────────────────────
 
   async sendEmail(to: string, subject: string, body: string): Promise<any> {
+    // Validate recipient — fail fast rather than sending to garbage
+    if (!to || !to.includes('@')) {
+      throw new Error(`Invalid recipient email address: "${to || '(empty)'}". Cannot send email without a valid 'to' address.`);
+    }
+
     const raw = Buffer.from(
       `To: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
     ).toString('base64url');
@@ -87,6 +100,11 @@ export class GmailConnector {
   }
 
   async replyEmail(messageId: string, threadId: string, body: string): Promise<any> {
+    // Validate messageId/threadId
+    if (!messageId) {
+      throw new Error('Cannot reply: missing messageId. The original email could not be identified.');
+    }
+
     // Get original message to extract headers for reply
     const original = await this.gmailApi(`/users/me/messages/${messageId}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Message-ID`);
     const headers = original.payload?.headers || [];
@@ -109,6 +127,14 @@ export class GmailConnector {
   }
 
   async forwardEmail(messageId: string, to: string, body: string): Promise<any> {
+    // Validate recipient — fail fast rather than forwarding to garbage
+    if (!to || !to.includes('@')) {
+      throw new Error(`Invalid recipient email address: "${to || '(empty)'}". Cannot forward email without a valid 'to' address.`);
+    }
+    if (!messageId) {
+      throw new Error('Cannot forward: missing messageId. The original email could not be identified.');
+    }
+
     const original = await this.gmailApi(`/users/me/messages/${messageId}?format=full`);
     const headers = original.payload?.headers || [];
     const subject = headers.find((h: any) => h.name === 'Subject')?.value || '';
@@ -211,5 +237,47 @@ export class GmailConnector {
       }
     }
     return allTasks;
+  }
+
+  // ── Google Tasks Write ─────────────────────────────────────────────────────
+
+  async createTask(listId: string, title: string, notes?: string, due?: string): Promise<any> {
+    const body: Record<string, any> = { title };
+    if (notes) body.notes = notes;
+    if (due) body.due = due;
+
+    const res = await this.authFetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`Create task failed: ${res.status}`);
+    return res.json();
+  }
+
+  async updateTask(listId: string, taskId: string, updates: Record<string, any>): Promise<any> {
+    const body: Record<string, any> = {};
+    if (updates.title) body.title = updates.title;
+    if (updates.notes !== undefined) body.notes = updates.notes;
+    if (updates.due !== undefined) body.due = updates.due;
+    if (updates.status) body.status = updates.status;
+
+    const res = await this.authFetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`Update task failed: ${res.status}`);
+    return res.json();
+  }
+
+  async completeTask(listId: string, taskId: string): Promise<any> {
+    const res = await this.authFetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'completed' }),
+    });
+    if (!res.ok) throw new Error(`Complete task failed: ${res.status}`);
+    return res.json();
   }
 }

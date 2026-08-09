@@ -126,6 +126,15 @@ contextBridge.exposeInMainWorld("atlasElectron", {
     ipcRenderer.invoke("workflow-reject", { executionId }),
 
   /**
+   * Abort the current workflow.
+   * NOTE: This signals abort intent but does not cancel the backend Ollama stream
+   * (that would require orchestrator.ts changes). The renderer should unsubscribe
+   * its IPC listeners immediately after calling this.
+   */
+  abortWorkflow: (): Promise<void> =>
+    ipcRenderer.invoke("workflow-abort"),
+
+  /**
    * Subscribe to streaming tokens during response generation.
    * Returns an unsubscribe function.
    */
@@ -284,6 +293,7 @@ export type AtlasElectronAPI = {
   executeWorkflow: (prompt: string, conversationId?: string) => Promise<void>;
   approveAction: (executionId: string) => Promise<void>;
   rejectAction: (executionId: string) => Promise<void>;
+  abortWorkflow: () => Promise<void>;
   onWorkflowStream: (callback: (token: string) => void) => () => void;
   onWorkflowApprovalNeeded: (callback: (data: any) => void) => () => void;
   onWorkflowToolExecuting: (callback: (data: any) => void) => () => void;

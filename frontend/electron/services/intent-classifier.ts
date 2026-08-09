@@ -104,6 +104,12 @@ const SEARCH_KEYWORDS = [
   "due",
 ];
 
+// NOTE: Some keywords (e.g. 'email', 'message', 'post') intentionally appear in both
+// ACTION_KEYWORDS here and TOOL_ROUTING in orchestrator.ts. This is safe because:
+// - classifyWithKeywords tie-breaks in favor of 'action' intent (action is more specific)
+// - resolveTools() in orchestrator.ts filters by READONLY_TOOLS vs DESTRUCTIVE_TOOLS
+//   based on the classified intentType, so the same keyword produces search tools for
+//   search intent and action tools for action intent.
 const ACTION_KEYWORDS = [
   "send",
   "reply",
@@ -278,12 +284,22 @@ export async function classifyIntent(input: string): Promise<ClassificationResul
   }
 
   // For ambiguous cases, use Ollama for smarter classification
+  // Use cached health status to avoid a network round-trip on every call
   try {
-    const ollamaAvailable = await checkOllamaHealth();
-    if (ollamaAvailable) {
+    const now = Date.now();
+    if (ollamaAvailableCache === null || (now - lastHealthCheck) >= HEALTH_CHECK_INTERVAL_MS) {
+      // Cache expired or never set — do a real health check
+      ollamaAvailableCache = await checkOllamaHealth();
+      lastHealthCheck = now;
+    }
+    if (ollamaAvailableCache) {
       return await classifyWithOllama(input);
     }
-  } catch {}
+  } catch {
+    // If Ollama call itself fails, mark as unavailable for next interval
+    ollamaAvailableCache = false;
+    lastHealthCheck = Date.now();
+  }
 
   // Fallback to keyword result
   return keywordResult;
