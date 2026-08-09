@@ -5,6 +5,7 @@
   "repository": "https://github.com/AnshX01/Atlas",
   "author": "AnshX01",
   "description": "Your True AI Chief of Staff",
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -16,7 +17,7 @@
     "test:watch": "jest --watch",
     "electron-compile": "npx tsup electron/main.ts electron/preload.ts --outDir dist-electron --format cjs --external electron --external sql.js",
     "electron-dev": "concurrently \"npm run dev -- --port 3000\" \"wait-on http://localhost:3000 && npm run electron-compile && electron dist-electron/main.js\"",
-    "electron-build": "next build && electron-builder build",
+    "electron-build": "next build && npm run electron-compile && electron-builder build",
     "postinstall": "electron-builder install-app-deps"
   },
   "build": {
@@ -25,6 +26,11 @@
     "directories": {
       "output": "dist"
     },
+    "files": [
+      "dist-electron/**/*",
+      "out/**/*",
+      "package.json"
+    ],
     "mac": {
       "target": ["dmg"]
     },
