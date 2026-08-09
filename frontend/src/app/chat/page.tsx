@@ -22,7 +22,7 @@ import {
   BookOpen,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/useAuthStore";
-import { useSpeechToText } from "@/lib/hooks/useSpeechToText";
+
 import { useChatStore,
   type ChatMessage as StoredChatMessage,
   type SearchResult,
