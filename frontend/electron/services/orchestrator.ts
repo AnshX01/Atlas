@@ -359,6 +359,16 @@ export class Orchestrator {
     this.mcpManager = mcpManager;
   }
 
+  private safeSend(mainWindow: BrowserWindow, channel: string, ...args: any[]): void {
+    try {
+      if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents && !mainWindow.webContents.isDestroyed()) {
+        mainWindow.webContents.send(channel, ...args);
+      }
+    } catch (e) {
+      console.warn(`[Orchestrator] IPC send error on ${channel}:`, e);
+    }
+  }
+
   /**
    * Execute a full workflow for a user prompt.
    */
@@ -457,7 +467,7 @@ export class Orchestrator {
         }
 
         if (i > 0 && state.response && combinedResponse) {
-          mainWindow.webContents.send("workflow-stream", "\n\n");
+          this.safeSend(mainWindow, "workflow-stream", "\n\n");
         }
         await this.responseNode(state, mainWindow);
 
@@ -497,7 +507,7 @@ export class Orchestrator {
       saveMessage(conversationId, "assistant", combinedResponse);
     }
 
-    mainWindow.webContents.send("workflow-complete", {
+    this.safeSend(mainWindow, "workflow-complete", {
       conversationId,
       response: combinedResponse,
       intent: lastIntent,
@@ -544,7 +554,7 @@ export class Orchestrator {
     }
 
     for (const tool of toolsToCall) {
-      mainWindow.webContents.send("workflow-tool-executing", {
+      this.safeSend(mainWindow, "workflow-tool-executing", {
         server: tool.server,
         tool: tool.tool,
         params: tool.params,
@@ -638,7 +648,7 @@ export class Orchestrator {
       // Issue #1: Reuse buildGmailQuery to target the person mentioned in the user's input
       const emailQuery = this.buildGmailQuery(state.input, {});
       try {
-        mainWindow.webContents.send("workflow-tool-executing", { server: "google_workspace", tool: "search_emails" });
+        this.safeSend(mainWindow, "workflow-tool-executing", { server: "google_workspace", tool: "search_emails" });
         // Use maxResults=3 to increase chances of finding the right email
         const emails = await this.mcpManager.callTool("google_workspace", "search_emails", { query: emailQuery, maxResults: 3 });
         if (emails && !emails.error && Array.isArray(emails) && emails.length > 0) {
@@ -650,7 +660,7 @@ export class Orchestrator {
     // Merge/close PR — fetch the PR details
     if (lower.includes("merge") || (lower.includes("close") && lower.includes("pr"))) {
       try {
-        mainWindow.webContents.send("workflow-tool-executing", { server: "github", tool: "list_prs" });
+        this.safeSend(mainWindow, "workflow-tool-executing", { server: "github", tool: "list_prs" });
         const prs = await this.mcpManager.callTool("github", "list_prs", { state: "open" });
         if (prs && !prs.error) {
           state.context.push({ type: "tool_result", server: "github", tool: "list_prs", result: prs });
@@ -666,7 +676,7 @@ export class Orchestrator {
     const startsWithSlackVerb = /^(post|message)\b/.test(lower);
     if ((hasSlackSignal || startsWithSlackVerb) && !lower.includes("email") && !lower.includes("mail")) {
       try {
-        mainWindow.webContents.send("workflow-tool-executing", { server: "slack", tool: "read_messages" });
+        this.safeSend(mainWindow, "workflow-tool-executing", { server: "slack", tool: "read_messages" });
         const channels = await this.mcpManager.callTool("slack", "list_channels", {});
         if (channels && !channels.error) {
           state.context.push({ type: "tool_result", server: "slack", tool: "list_channels", result: channels });
@@ -752,7 +762,7 @@ export class Orchestrator {
     };
 
     // Emit draft-ready event to renderer
-    mainWindow.webContents.send("workflow-draft-ready", {
+    this.safeSend(mainWindow, "workflow-draft-ready", {
       executionId,
       conversationId: state.conversationId,
       actionType,
@@ -1086,7 +1096,7 @@ Rules:
         tool.params = { ...tool.params, ...state.draft.fields };
       }
 
-      mainWindow.webContents.send("workflow-tool-executing", {
+      this.safeSend(mainWindow, "workflow-tool-executing", {
         server: tool.server,
         tool: tool.tool,
         params: tool.params,
@@ -1167,14 +1177,14 @@ Rules:
 
         const now = Date.now();
         if (now - lastFlushTime >= 16) {
-          mainWindow.webContents.send("workflow-stream", tokenBuffer.join(""));
+          this.safeSend(mainWindow, "workflow-stream", tokenBuffer.join(""));
           tokenBuffer = [];
           lastFlushTime = now;
         }
       }
 
       if (tokenBuffer.length > 0) {
-        mainWindow.webContents.send("workflow-stream", tokenBuffer.join(""));
+        this.safeSend(mainWindow, "workflow-stream", tokenBuffer.join(""));
       }
 
       state.response = fullResponse;
@@ -1184,7 +1194,7 @@ Rules:
       }
       console.warn("[Orchestrator] Ollama unavailable for response, using fallback");
       state.response = this.generateFallbackResponse(state);
-      mainWindow.webContents.send("workflow-stream", state.response);
+      this.safeSend(mainWindow, "workflow-stream", state.response);
     } finally {
       this.activeStreams.delete(state.conversationId);
     }

@@ -78,14 +78,19 @@ function generateId(): string {
   return `conv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
+const syncTimers: Record<string, ReturnType<typeof setTimeout>> = {};
+
 /** Fire-and-forget background sync to cloud backend */
 function backgroundSync(conversationId: string, getState: () => ChatState): void {
-  // Debounce: wait 1s after last change before syncing
-  if ((backgroundSync as any)._timer) clearTimeout((backgroundSync as any)._timer);
-  (backgroundSync as any)._timer = setTimeout(() => {
+  // Debounce: wait 1s after last change before syncing per conversation
+  if (syncTimers[conversationId]) clearTimeout(syncTimers[conversationId]);
+  syncTimers[conversationId] = setTimeout(() => {
     const state = getState();
     const conv = state.conversations.find((c) => c.id === conversationId);
-    if (!conv) return;
+    if (!conv) {
+      delete syncTimers[conversationId];
+      return;
+    }
     const messages = (state.messages[conversationId] || []).map((m) => ({
       id: m.id,
       role: m.role,
@@ -103,6 +108,8 @@ function backgroundSync(conversationId: string, getState: () => ChatState): void
       messages,
     }).catch(err => {
       console.error("Background sync error:", err);
+    }).finally(() => {
+      delete syncTimers[conversationId];
     });
   }, 1000);
 }

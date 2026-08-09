@@ -94,7 +94,6 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         )}
         disabled={disabled || isLoading}
         onClick={handleClick}
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         {...(props as any)}
       >
         {isLoading ? (

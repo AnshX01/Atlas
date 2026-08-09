@@ -5,6 +5,7 @@ import {
   ipcMain,
   nativeTheme,
   shell,
+  session,
 } from "electron";
 import * as path from "path";
 import { MCPServerManager } from "./services/mcp-manager";
@@ -91,6 +92,16 @@ function createWindow(): BrowserWindow {
 
 // ── App lifecycle ──────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
+  // Automatically grant permissions for media/microphone
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    const allowedPermissions = ['media', 'mediaKeySystem', 'display-capture'];
+    if (allowedPermissions.includes(permission)) {
+      callback(true);
+    } else {
+      callback(false);
+    }
+  });
+
   mainWindow = createWindow();
 
   // ── Ollama health check on startup ──────────────────────────────────

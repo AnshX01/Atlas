@@ -16,8 +16,10 @@ import {
   Loader2,
   ExternalLink,
   ArrowDown,
+  Mic,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/useAuthStore";
+import { useSpeechToText } from "@/lib/hooks/useSpeechToText";
 import {
   useChatStore,
   type ChatMessage as StoredChatMessage,
@@ -598,10 +600,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
       <div className="flex flex-col gap-2 min-w-0 overflow-x-hidden">
         <div
           className={cn(
-            "px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed break-word",
-            isUser
-              ? "bg-[var(--accent)]/10 text-[var(--text-primary)]"
-              : "bg-[var(--bg-secondary)] text-[var(--text-primary)]",
+            "py-1 text-[15px] leading-relaxed break-word text-[var(--text-primary)]",
             !isUser && message.streaming && message.content.trim().startsWith('{') && "hidden"
           )}
         >
@@ -671,7 +670,31 @@ function ChatInput({
   isStreaming?: boolean;
 }) {
   const [text, setText] = useState("");
+  const [preDictationText, setPreDictationText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const { isListening, transcript, toggleListening } = useSpeechToText();
+
+  useEffect(() => {
+    if (isListening) {
+      const base = preDictationText.trim();
+      setText(base ? base + (transcript ? " " + transcript : "") : transcript);
+    }
+  }, [transcript, isListening, preDictationText]);
+
+  const handleToggleListening = () => {
+    if (!isListening) {
+      setPreDictationText(text);
+    }
+    toggleListening();
+  };
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (isListening) {
+      toggleListening(); // Stop dictation if the user manually types
+    }
+    setText(e.target.value);
+  };
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -703,22 +726,43 @@ function ChatInput({
   }, [text, autoResize]);
 
   return (
-    <div className="flex items-end gap-2 p-3 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] transition-all duration-200">
+    <div className="flex items-end gap-2 px-4 py-2 rounded-full glass-panel shadow-lg border border-[var(--border-default)] transition-all duration-200">
+      <button
+        onClick={handleToggleListening}
+        className={cn(
+          "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-150 mb-1",
+          isListening ? "text-[var(--accent)]" : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        )}
+        aria-label="Toggle speech to text"
+      >
+        {isListening ? (
+          <motion.div
+            animate={{ scale: [1, 1.2, 1] }}
+            transition={{ repeat: Infinity, duration: 1.5 }}
+            className="text-[var(--accent)] drop-shadow-[0_0_8px_rgba(var(--accent),0.8)]"
+          >
+            <Mic size={18} />
+          </motion.div>
+        ) : (
+          <Mic size={18} />
+        )}
+      </button>
+
       <textarea
         ref={textareaRef}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={handleTextChange}
         onKeyDown={handleKeyDown}
         placeholder="Ask anything..."
         rows={1}
         disabled={disabled}
-        className="flex-1 bg-transparent text-[14px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none resize-none max-h-40 leading-relaxed min-h-[44px] focus-visible:outline-none"
+        className="flex-1 bg-transparent text-[14px] text-[var(--text-primary)] placeholder-[var(--text-muted)] outline-none resize-none max-h-40 leading-relaxed py-2.5 focus-visible:outline-none"
         aria-label="Chat input"
       />
       {isStreaming ? (
         <button
           onClick={onStop}
-          className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all duration-150"
+          className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all duration-150 mb-1"
           aria-label="Stop generating"
         >
           <span className="w-3 h-3 rounded-sm bg-current" />
@@ -728,10 +772,10 @@ function ChatInput({
           onClick={handleSend}
           disabled={disabled || !text.trim()}
           className={cn(
-            "flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-150",
+            "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-150 mb-1",
             text.trim() && !disabled
               ? "bg-[var(--accent)] text-[var(--bg-primary)] hover:bg-[var(--accent-hover)] shadow-sm"
-              : "bg-[var(--bg-tertiary)] text-[var(--text-muted)] cursor-not-allowed"
+              : "bg-transparent text-[var(--text-muted)] cursor-not-allowed"
           )}
           aria-label="Send message"
         >
@@ -1245,7 +1289,7 @@ function ChatPageInner() {
 
   return (
     <div className="flex flex-col h-full relative">
-      <div className="flex-1 overflow-y-auto px-6 lg:px-12 py-6" onScroll={handleScroll}>
+      <div className="flex-1 overflow-y-auto px-6 lg:px-12 pt-6 pb-32" onScroll={handleScroll}>
         <div ref={contentRef} className="h-full w-full">
         {messages.length === 0 ? (
           <EmptyState onSuggestionClick={handleSuggestionClick} />
@@ -1271,9 +1315,9 @@ function ChatPageInner() {
         </div>
       </div>
 
-      <div className="flex-shrink-0 px-6 lg:px-12 pb-4 pt-3 bg-[var(--bg-primary)]">
+      <div className="absolute bottom-0 left-0 right-0 px-6 lg:px-12 pb-8 pt-4 pointer-events-none flex flex-col items-center z-10">
         {isAutoScrollPaused && (
-          <div className="absolute bottom-[90px] left-1/2 -translate-x-1/2 z-10">
+          <div className="mb-4 pointer-events-auto">
             <button
               onClick={() => {
                 setIsAutoScrollPaused(false);
@@ -1285,7 +1329,7 @@ function ChatPageInner() {
             </button>
           </div>
         )}
-        <div className="w-full max-w-4xl mx-auto">
+        <div className="w-full max-w-3xl mx-auto pointer-events-auto">
           <ChatInput onSend={sendMessage} onStop={handleStop} disabled={status !== "idle"} isStreaming={status === "streaming"} />
         </div>
       </div>
