@@ -16,6 +16,7 @@ import { app } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { randomUUID } from "crypto";
+import { LRUCache } from "./cache";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,9 @@ let db: any = null;
 let dbPath: string = "";
 let SQL: any = null;
 
+const conversationCache = new LRUCache<Conversation>(100);
+const messagesCache = new LRUCache<Message[]>(100);
+
 function getDbPath(): string {
   try {
     return path.join(app.getPath("userData"), "atlas-workflows.db");
@@ -58,14 +62,39 @@ function getDbPath(): string {
   }
 }
 
-function persistToDisk(): void {
+let isPersisting = false;
+let pendingPersist = false;
+
+async function persistToDisk(): Promise<void> {
+  if (!db) return;
+  if (isPersisting) {
+    pendingPersist = true;
+    return;
+  }
+  isPersisting = true;
+  pendingPersist = false;
+  try {
+    const data = db.export();
+    const buffer = Buffer.from(data);
+    await fs.promises.writeFile(dbPath, buffer);
+  } catch (err) {
+    console.error("[Atlas Store] Failed to persist database:", err);
+  } finally {
+    isPersisting = false;
+    if (pendingPersist) {
+      persistToDisk();
+    }
+  }
+}
+
+function persistToDiskSync(): void {
   if (!db) return;
   try {
     const data = db.export();
     const buffer = Buffer.from(data);
     fs.writeFileSync(dbPath, buffer);
   } catch (err) {
-    console.error("[Atlas Store] Failed to persist database:", err);
+    console.error("[Atlas Store] Failed to persist database synchronously:", err);
   }
 }
 
@@ -81,7 +110,6 @@ export async function initDB(): Promise<void> {
   SQL = await initSqlJs();
 
   dbPath = getDbPath();
-  console.log(`[Atlas Store] Opening database at: ${dbPath}`);
 
   // Load existing database from file, or create new one
   try {
@@ -96,40 +124,48 @@ export async function initDB(): Promise<void> {
   }
 
   // Create tables
-  db.run(`
-    CREATE TABLE IF NOT EXISTS conversations (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL DEFAULT 'local',
-      created_at TEXT NOT NULL,
-      title TEXT NOT NULL DEFAULT 'New Conversation'
-    );
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS conversations (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL DEFAULT 'local',
+        created_at TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT 'New Conversation'
+      );
 
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      timestamp TEXT NOT NULL
-    );
+      CREATE TABLE IF NOT EXISTS messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        timestamp TEXT NOT NULL
+      );
 
-    CREATE TABLE IF NOT EXISTS tool_executions (
-      id TEXT PRIMARY KEY,
-      conversation_id TEXT NOT NULL,
-      server TEXT NOT NULL,
-      tool TEXT NOT NULL,
-      params TEXT NOT NULL DEFAULT '{}',
-      result TEXT NOT NULL DEFAULT '{}',
-      timestamp TEXT NOT NULL
-    );
+      CREATE TABLE IF NOT EXISTS tool_executions (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        server TEXT NOT NULL,
+        tool TEXT NOT NULL,
+        params TEXT NOT NULL DEFAULT '{}',
+        result TEXT NOT NULL DEFAULT '{}',
+        timestamp TEXT NOT NULL
+      );
 
-    CREATE TABLE IF NOT EXISTS config (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL
-    );
-  `);
+      CREATE TABLE IF NOT EXISTS config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_messages_conversationId ON messages(conversation_id);
+    `);
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+    throw err;
+  }
 
   persistToDisk();
-  console.log("[Atlas Store] Database initialized successfully");
 }
 
 /**
@@ -137,10 +173,9 @@ export async function initDB(): Promise<void> {
  */
 export function closeDB(): void {
   if (db) {
-    persistToDisk();
+    persistToDiskSync();
     db.close();
     db = null;
-    console.log("[Atlas Store] Database closed");
   }
 }
 
@@ -151,10 +186,17 @@ export function createConversation(title: string, userId: string = "local"): Con
   const id = randomUUID();
   const createdAt = new Date().toISOString();
 
-  db.run(
-    "INSERT INTO conversations (id, user_id, created_at, title) VALUES (?, ?, ?, ?)",
-    [id, userId, createdAt, title]
-  );
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run(
+      "INSERT INTO conversations (id, user_id, created_at, title) VALUES (?, ?, ?, ?)",
+      [id, userId, createdAt, title]
+    );
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+    throw err;
+  }
   persistToDisk();
 
   return { id, user_id: userId, created_at: createdAt, title };
@@ -174,11 +216,16 @@ export function listConversations(limit: number = 50): Conversation[] {
 
 export function getConversation(id: string): Conversation | undefined {
   if (!db) return undefined;
+
+  const cached = conversationCache.get(id);
+  if (cached) return cached;
+
   const stmt = db.prepare("SELECT * FROM conversations WHERE id = ?");
   stmt.bind([id]);
   if (stmt.step()) {
     const row = stmt.getAsObject() as unknown as Conversation;
     stmt.free();
+    conversationCache.set(id, row);
     return row;
   }
   stmt.free();
@@ -187,8 +234,21 @@ export function getConversation(id: string): Conversation | undefined {
 
 export function updateConversationTitle(id: string, title: string): void {
   if (!db) return;
-  db.run("UPDATE conversations SET title = ? WHERE id = ?", [title, id]);
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run("UPDATE conversations SET title = ? WHERE id = ?", [title, id]);
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+    throw err;
+  }
   persistToDisk();
+  
+  const cached = conversationCache.get(id);
+  if (cached) {
+    cached.title = title;
+    conversationCache.set(id, cached);
+  }
 }
 
 // ── Message Operations ─────────────────────────────────────────────────────────
@@ -202,11 +262,20 @@ export function saveMessage(
   const id = randomUUID();
   const timestamp = new Date().toISOString();
 
-  db.run(
-    "INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
-    [id, conversationId, role, content, timestamp]
-  );
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run(
+      "INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
+      [id, conversationId, role, content, timestamp]
+    );
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+    throw err;
+  }
   persistToDisk();
+
+  messagesCache.clear();
 
   return { id, conversation_id: conversationId, role, content, timestamp };
 }
@@ -216,6 +285,11 @@ export function getConversationHistory(
   limit: number = 100
 ): Message[] {
   if (!db) return [];
+
+  const cacheKey = `${conversationId}:${limit}`;
+  const cached = messagesCache.get(cacheKey);
+  if (cached) return cached;
+
   const stmt = db.prepare(
     "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC LIMIT ?"
   );
@@ -225,6 +299,8 @@ export function getConversationHistory(
     results.push(stmt.getAsObject() as unknown as Message);
   }
   stmt.free();
+
+  messagesCache.set(cacheKey, results);
   return results;
 }
 
@@ -243,10 +319,17 @@ export function saveToolExecution(
   const paramsJson = JSON.stringify(params);
   const resultJson = JSON.stringify(result);
 
-  db.run(
-    "INSERT INTO tool_executions (id, conversation_id, server, tool, params, result, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    [id, conversationId, server, tool, paramsJson, resultJson, timestamp]
-  );
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run(
+      "INSERT INTO tool_executions (id, conversation_id, server, tool, params, result, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [id, conversationId, server, tool, paramsJson, resultJson, timestamp]
+    );
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+    throw err;
+  }
   persistToDisk();
 
   return {
@@ -294,15 +377,29 @@ export function getConfig(key: string): string | undefined {
 
 export function setConfig(key: string, value: string): void {
   if (!db) return;
-  db.run(
-    "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
-    [key, value]
-  );
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run(
+      "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
+      [key, value]
+    );
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+    throw err;
+  }
   persistToDisk();
 }
 
 export function deleteConfig(key: string): void {
   if (!db) return;
-  db.run("DELETE FROM config WHERE key = ?", [key]);
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run("DELETE FROM config WHERE key = ?", [key]);
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+    throw err;
+  }
   persistToDisk();
 }

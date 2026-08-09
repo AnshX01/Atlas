@@ -24,6 +24,7 @@ interface BriefingState {
   // ── UI State ──────────────────────────────────────────────────────
   loading: boolean;
   error: string | null;
+  isSummarizing: boolean;
 
   // ── Actions ────────────────────────────────────────────────────────
   setLoading: (loading: boolean) => void;
@@ -34,6 +35,7 @@ interface BriefingState {
     focus_score_label: string;
     total_unread: number;
     generated_at: string;
+    is_summarizing?: boolean;
   }) => void;
   markItemActioned: (itemId: string) => void;
   dismissItem: (id: string) => void;
@@ -52,6 +54,7 @@ export const useBriefingStore = create<BriefingState>()((set, get) => ({
   dismissedIds: loadDismissedIds(),
   loading: false,
   error: null,
+  isSummarizing: false,
 
   // ── Actions ─────────────────────────────────────────────────────────
   setLoading: (loading) => set({ loading }),
@@ -64,6 +67,7 @@ export const useBriefingStore = create<BriefingState>()((set, get) => ({
       focusScoreLabel: data.focus_score_label,
       totalUnread: data.total_unread,
       generatedAt: data.generated_at,
+      isSummarizing: data.is_summarizing ?? false,
       loading: false,
       error: null,
     })),
@@ -100,5 +104,6 @@ export const useBriefingStore = create<BriefingState>()((set, get) => ({
       totalUnread: 0,
       generatedAt: null,
       error: null,
+      isSummarizing: false,
     }),
 }));

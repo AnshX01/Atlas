@@ -8,6 +8,13 @@ import { ErrorBoundary } from "@/components/layout/ErrorBoundary";
 import { OfflineBanner } from "@/components/layout/OfflineBanner";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 
+import dynamic from "next/dynamic";
+
+const CommandPalette = dynamic(
+  () => import("@/components/ui/CommandPalette").then((mod) => mod.CommandPalette),
+  { ssr: false }
+);
+
 function HydrationSpinner() {
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-[var(--bg-primary)]">
@@ -61,6 +68,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <OfflineBanner />
+      <CommandPalette />
       <div className="app-layout">
         <Sidebar />
         <main id="main-content" className="app-main" role="main">

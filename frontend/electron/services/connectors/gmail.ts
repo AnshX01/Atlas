@@ -5,11 +5,33 @@
 import { getToken, setToken } from '../token-store';
 import { refreshGoogleToken } from '../google-oauth';
 
+class SimpleLRU<K, V> {
+  private cache = new Map<K, V>();
+  constructor(private capacity: number) {}
+  get(key: K): V | undefined {
+    if (!this.cache.has(key)) return undefined;
+    const val = this.cache.get(key)!;
+    this.cache.delete(key);
+    this.cache.set(key, val);
+    return val;
+  }
+  set(key: K, value: V) {
+    if (this.cache.has(key)) {
+      this.cache.delete(key);
+    } else if (this.cache.size >= this.capacity) {
+      const firstKey = this.cache.keys().next().value;
+      if (firstKey !== undefined) this.cache.delete(firstKey);
+    }
+    this.cache.set(key, value);
+  }
+}
+
 export class GmailConnector {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
   private clientId: string | null = null;
   private clientSecret: string | null = null;
+  private emailCache = new SimpleLRU<string, any[]>(20);
 
   async init(): Promise<boolean> {
     const creds = getToken('google_workspace') as Record<string, string> | null;
@@ -26,21 +48,27 @@ export class GmailConnector {
     const headers = { Authorization: `Bearer ${this.accessToken}`, ...options.headers };
     let res = await fetch(url, { ...options, headers });
     if (res.status === 401 && this.refreshToken && this.clientId && this.clientSecret) {
-      this.accessToken = await refreshGoogleToken(this.clientId, this.clientSecret, this.refreshToken);
-      // Update stored token — preserve all existing fields
-      const creds = getToken('google_workspace') as Record<string, string> | null;
-      if (creds) {
-        setToken('google_workspace', { ...creds, access_token: this.accessToken });
-      } else {
-        // Fallback: persist using instance fields so refreshed token isn't lost
-        setToken('google_workspace', {
-          client_id: this.clientId,
-          client_secret: this.clientSecret,
-          refresh_token: this.refreshToken,
-          access_token: this.accessToken,
-        });
+      try {
+        this.accessToken = await refreshGoogleToken(this.clientId, this.clientSecret, this.refreshToken);
+        // Update stored token — preserve all existing fields
+        const creds = getToken('google_workspace') as Record<string, string> | null;
+        if (creds) {
+          setToken('google_workspace', { ...creds, access_token: this.accessToken });
+        } else {
+          // Fallback: persist using instance fields so refreshed token isn't lost
+          setToken('google_workspace', {
+            client_id: this.clientId,
+            client_secret: this.clientSecret,
+            refresh_token: this.refreshToken,
+            access_token: this.accessToken,
+          });
+        }
+        res = await fetch(url, { ...options, headers: { ...headers, Authorization: `Bearer ${this.accessToken}` } });
+      } catch (err: any) {
+        throw new Error(`Google token refresh failed. Please re-authenticate in Settings. (${err.message})`);
       }
-      res = await fetch(url, { ...options, headers: { ...headers, Authorization: `Bearer ${this.accessToken}` } });
+    } else if (res.status === 401) {
+      throw new Error('Google token expired and no refresh token available. Please re-authenticate in Settings.');
     }
     return res;
   }
@@ -53,24 +81,66 @@ export class GmailConnector {
 
   // ── Gmail Read ─────────────────────────────────────────────────────────────
 
-  async listEmails(maxResults: number = 10, query: string = ''): Promise<any[]> {
+  async listEmails(maxResults: number = 10, query: string = '', skipCache: boolean = false): Promise<any[]> {
     const q = query || 'is:inbox newer_than:1d';
+    const cacheKey = `${maxResults}_${q}`;
+
+    if (!skipCache) {
+      const cached = this.emailCache.get(cacheKey);
+      if (cached) return cached;
+    }
+
     const list = await this.gmailApi(`/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent(q)}`);
-    if (!list.messages) return [];
-    const emails = await Promise.all(
-      list.messages.slice(0, 5).map(async (msg: any) => {
-        const detail = await this.gmailApi(`/users/me/messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date`);
-        const headers = detail.payload?.headers || [];
-        return {
-          id: detail.id,
-          threadId: detail.threadId,
-          subject: headers.find((h: any) => h.name === 'Subject')?.value || '(no subject)',
-          from: headers.find((h: any) => h.name === 'From')?.value || 'Unknown',
-          date: headers.find((h: any) => h.name === 'Date')?.value || '',
-          snippet: detail.snippet || '',
-        };
-      })
-    );
+    if (!list.messages || list.messages.length === 0) return [];
+    
+    const boundary = 'batch_gmail_boundary';
+    let batchBody = '';
+    
+    const messagesToFetch = list.messages.slice(0, 5);
+    
+    messagesToFetch.forEach((msg: any, i: number) => {
+      batchBody += `--${boundary}\r\n`;
+      batchBody += `Content-Type: application/http\r\n`;
+      batchBody += `Content-ID: <item${i}>\r\n\r\n`;
+      batchBody += `GET /gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date\r\n\r\n`;
+    });
+    batchBody += `--${boundary}--\r\n`;
+
+    const res = await this.authFetch('https://gmail.googleapis.com/batch/gmail/v1', {
+      method: 'POST',
+      headers: {
+        'Content-Type': `multipart/mixed; boundary=${boundary}`
+      },
+      body: batchBody
+    });
+
+    if (!res.ok) throw new Error(`Batch Gmail fetch failed: ${res.status}`);
+    
+    const batchText = await res.text();
+    const emails: any[] = [];
+    
+    const parts = batchText.split(/--batch_[^\r\n]+/);
+    for (const part of parts) {
+      if (part.includes('{')) {
+        const jsonStr = part.substring(part.indexOf('{'), part.lastIndexOf('}') + 1);
+        try {
+          const detail = JSON.parse(jsonStr);
+          if (detail.id) {
+            const headers = detail.payload?.headers || [];
+            emails.push({
+              id: detail.id,
+              threadId: detail.threadId,
+              subject: headers.find((h: any) => h.name === 'Subject')?.value || '(no subject)',
+              from: headers.find((h: any) => h.name === 'From')?.value || 'Unknown',
+              date: headers.find((h: any) => h.name === 'Date')?.value || '',
+              snippet: detail.snippet || '',
+            });
+          }
+        } catch (e) {}
+      }
+    }
+    
+    this.emailCache.set(cacheKey, emails);
     return emails;
   }
 

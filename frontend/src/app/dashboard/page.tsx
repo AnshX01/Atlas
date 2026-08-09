@@ -112,7 +112,7 @@ export default function DashboardPage() {
 
   const { data: briefing, isLoading: briefingLoading } = useQuery({
     queryKey: ["briefing", "daily"],
-    queryFn: briefingAPI.getDaily,
+    queryFn: () => briefingAPI.getDaily(),
     staleTime: 1000 * 60 * 5,
   });
 

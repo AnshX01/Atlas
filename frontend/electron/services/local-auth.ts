@@ -94,7 +94,6 @@ export async function initAuthTables(): Promise<void> {
   `);
 
   persist();
-  console.log("[Atlas Auth] Auth tables initialized");
 }
 
 // ── Password Hashing ───────────────────────────────────────────────────────────

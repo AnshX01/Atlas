@@ -130,7 +130,14 @@ export class MCPServerManager {
       },
     });
 
-    console.log('[MCP Manager] Initialized with servers: github, slack, filesystem, google_workspace (direct), notion (direct)');
+    // Keep-Alive heartbeat for MCP subprocesses
+    setInterval(() => {
+      for (const [name, server] of this.servers) {
+        if (server.status === 'running' && (name === 'github' || name === 'slack')) {
+          this.sendRequest(name, 'tools/list').catch(() => {});
+        }
+      }
+    }, 60 * 1000); // 1 minute
   }
 
   private defineServer(name: string, config: MCPServerConfig) {
@@ -173,43 +180,68 @@ export class MCPServerManager {
       // Resolve args: use dynamic getArgs() if defined (e.g. filesystem paths as CLI args)
       const args = server.config.getArgs ? (server.config.getArgs() || server.config.args) : server.config.args;
 
-      const proc = spawn(server.config.command, args, {
-        env: { ...process.env, ...env },
-        stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
-        windowsHide: true,
-      });
+      let proc: ChildProcess;
+      try {
+        proc = spawn(server.config.command, args, {
+          env: { ...process.env, ...env },
+          stdio: ['pipe', 'pipe', 'pipe'],
+          shell: true,
+          windowsHide: true,
+        });
+      } catch (spawnErr: any) {
+        throw new Error(`Failed to spawn process: ${spawnErr.message}`);
+      }
 
       server.process = proc;
       this.buffers.set(name, '');
 
       proc.stdout?.on('data', (data: Buffer) => {
-        const buffer = (this.buffers.get(name) || '') + data.toString();
-        const lines = buffer.split('\n');
-        this.buffers.set(name, lines.pop() || '');
+        try {
+          const buffer = (this.buffers.get(name) || '') + data.toString();
+          const lines = buffer.split('\n');
+          this.buffers.set(name, lines.pop() || '');
 
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const response = JSON.parse(line) as MCPResponse;
-            const pending = this.pendingRequests.get(response.id);
-            if (pending) {
-              clearTimeout(pending.timeout);
-              this.pendingRequests.delete(response.id);
-              if (response.error) {
-                pending.reject(new Error(response.error.message));
-              } else {
-                pending.resolve(response.result);
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const response = JSON.parse(line) as MCPResponse;
+              const pending = this.pendingRequests.get(response.id);
+              if (pending) {
+                clearTimeout(pending.timeout);
+                this.pendingRequests.delete(response.id);
+                if (response.error) {
+                  pending.reject(new Error(response.error.message));
+                } else {
+                  pending.resolve(response.result);
+                }
               }
+            } catch {
+              // Not JSON, ignore (could be log output)
             }
-          } catch {
-            // Not JSON, ignore (could be log output)
           }
+        } catch (err: any) {
+          console.error(`[MCP ${name}] stdout data handling error:`, err.message);
         }
       });
 
+      proc.stdout?.on('error', (err: Error) => {
+        console.error(`[MCP ${name}] stdout stream error:`, err.message);
+      });
+
       proc.stderr?.on('data', (data: Buffer) => {
-        console.error(`[MCP ${name}] stderr:`, data.toString().trim());
+        try {
+          console.error(`[MCP ${name}] stderr:`, data.toString().trim());
+        } catch (err: any) {
+          console.error(`[MCP ${name}] stderr data handling error:`, err.message);
+        }
+      });
+
+      proc.stderr?.on('error', (err: Error) => {
+        console.error(`[MCP ${name}] stderr stream error:`, err.message);
+      });
+
+      proc.stdin?.on('error', (err: Error) => {
+        console.error(`[MCP ${name}] stdin stream error:`, err.message);
       });
 
       proc.on('exit', (code) => {
@@ -265,7 +297,6 @@ export class MCPServerManager {
       }
 
       server.status = 'running';
-      console.log(`[MCP Manager] Server ${name} started successfully`);
       return true;
     } catch (err: any) {
       console.error(`[MCP Manager] Failed to start ${name}:`, err.message);
@@ -299,7 +330,6 @@ export class MCPServerManager {
 
     server.process = null;
     server.status = 'stopped';
-    console.log(`[MCP Manager] Server ${name} stopped`);
   }
 
   async stopAll(): Promise<void> {
@@ -409,7 +439,7 @@ export class MCPServerManager {
       // Read operations
       case 'list_emails':
       case 'search_emails':
-      case 'read_emails': return await this.gmailConnector.listEmails(params.maxResults || 10, params.query || '');
+      case 'read_emails': return await this.gmailConnector.listEmails(params.maxResults || 10, params.query || '', params.skipCache);
       case 'get_email': return await this.gmailConnector.getEmail(params.messageId);
       case 'list_calendar':
       case 'list_events': return await this.gmailConnector.listCalendarEvents(params.timeMin, params.timeMax);
@@ -494,7 +524,6 @@ export class MCPServerManager {
    * Reload configuration — re-reads token store. Call after settings change.
    */
   reloadConfig(): void {
-    console.log('[MCP Manager] Config reload requested');
     // Servers will pick up new tokens on next startServer() call via getEnv()
   }
 

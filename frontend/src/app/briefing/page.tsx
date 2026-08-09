@@ -81,15 +81,59 @@ function BriefingError({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+// ── Proactive Actions ──────────────────────────────────────────────────────────
+function ProactiveActions({ items }: { items: any[] }) {
+  if (items.length === 0) return null;
+  const topItem = items[0];
+  if ((topItem.priority_score || 0) < 60) return null; // Only show for important items
+  
+  return (
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.95, y: 10 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      transition={{ delay: 0.3, type: "spring", stiffness: 300, damping: 25 }}
+      className="mb-8 p-5 rounded-2xl border border-white/10 bg-gradient-to-br from-[var(--bg-secondary)]/80 to-[var(--bg-primary)]/40 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] relative overflow-hidden"
+    >
+      <div className="absolute inset-0 bg-gradient-to-r from-[var(--accent)]/10 to-transparent opacity-50" />
+      <div className="relative z-10">
+        <h3 className="text-sm font-bold text-[var(--text-primary)] mb-2 flex items-center gap-2">
+          <span className="relative flex h-3 w-3">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--accent)] opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-[var(--accent)]"></span>
+          </span>
+          Proactive Suggestion
+        </h3>
+        <p className="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
+          Highly prioritized item: <strong className="text-[var(--text-primary)]">{topItem.title}</strong>. 
+          <br className="hidden sm:block" />
+          {topItem.summary.slice(0, 120)}{topItem.summary.length > 120 ? '...' : ''}
+        </p>
+        {topItem.action_label && topItem.action_url && (
+          <Button 
+            variant="primary" 
+            size="sm" 
+            onClick={() => window.open(topItem.action_url, '_blank')}
+            className="shadow-lg shadow-[var(--accent)]/20 transition-all hover:scale-105"
+          >
+            {topItem.action_label}
+          </Button>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BriefingPage() {
   const { user } = useAuthStore();
-  const { setBriefing, setLoading, setError, items, isDismissed, dismissItem } =
+  const { setBriefing, setLoading, setError, items, isDismissed, dismissItem, isSummarizing } =
     useBriefingStore();
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["briefing", "daily"],
-    queryFn: briefingAPI.getDaily,
+    queryFn: () => briefingAPI.getDaily({
+      onFallback: (fallbackData) => setBriefing(fallbackData)
+    }),
     staleTime: 1000 * 60 * 5,
     retry: 2,
   });
@@ -107,7 +151,9 @@ export default function BriefingPage() {
     return 'Good evening';
   };
 
-  const visibleItems = items.filter((item) => !isDismissed(item.id));
+  const visibleItems = items
+    .filter((item) => !isDismissed(item.id))
+    .sort((a, b) => (b.priority_score || 0) - (a.priority_score || 0));
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric",
@@ -149,7 +195,7 @@ export default function BriefingPage() {
       {/* Items count */}
       {!isLoading && !isError && visibleItems.length > 0 && (
         <motion.div
-          className="mb-4"
+          className="mb-4 flex items-center justify-between"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.1 }}
@@ -157,6 +203,12 @@ export default function BriefingPage() {
           <p className="text-xs text-[var(--text-muted)]">
             {visibleItems.length} item{visibleItems.length !== 1 ? "s" : ""} for today
           </p>
+          {isSummarizing && (
+            <p className="text-xs text-[var(--accent)] animate-pulse flex items-center gap-2">
+              <RefreshCw size={12} className="animate-spin" />
+              AI is summarizing...
+            </p>
+          )}
         </motion.div>
       )}
 
@@ -172,31 +224,65 @@ export default function BriefingPage() {
       {/* Error State */}
       {isError && <BriefingError onRetry={refetch} />}
 
+      {/* Proactive Actions */}
+      {!isLoading && !isError && visibleItems.length > 0 && (
+        <ProactiveActions items={visibleItems} />
+      )}
+
       {/* Briefing Items */}
       {!isLoading && !isError && (
-        <AnimatePresence mode="popLayout">
-          {visibleItems.length === 0 ? (
-            <EmptyBriefing key="empty" />
-          ) : (
-            <div
-              className="flex flex-col gap-3"
-              role="feed"
-              aria-label="Today's briefing items"
-              aria-live="polite"
-            >
-              {visibleItems.map((item, index) => (
-                <BriefingCard
-                  key={item.id}
-                  item={item}
-                  index={index}
-                  onAction={(item) => {
-                    dismissItem(item.id);
-                  }}
-                />
-              ))}
+        <div className="relative">
+          {isSummarizing && visibleItems.length > 0 && (
+            <div className="absolute inset-0 z-10 bg-[var(--bg-primary)]/50 backdrop-blur-[1px] flex flex-col items-center justify-center rounded-xl border border-[var(--border)]">
+              <div className="bg-[var(--bg-secondary)] p-4 rounded-xl shadow-lg flex items-center gap-3">
+                <RefreshCw size={16} className="animate-spin text-[var(--accent)]" />
+                <p className="text-sm font-medium text-[var(--text-primary)]">AI is summarizing...</p>
+              </div>
             </div>
           )}
-        </AnimatePresence>
+          <AnimatePresence mode="popLayout">
+            {visibleItems.length === 0 ? (
+              <EmptyBriefing key="empty" />
+            ) : (
+              <motion.div
+                className="flex flex-col gap-4"
+                role="feed"
+                aria-label="Today's briefing items"
+                aria-live="polite"
+                variants={{
+                  hidden: { opacity: 0 },
+                  visible: {
+                    opacity: 1,
+                    transition: {
+                      staggerChildren: 0.1
+                    }
+                  }
+                }}
+                initial="hidden"
+                animate="visible"
+              >
+                {visibleItems.map((item, index) => (
+                  <motion.div 
+                    key={item.id}
+                    variants={{
+                      hidden: { opacity: 0, y: 20 },
+                      visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
+                    }}
+                    layout
+                  >
+                    <BriefingCard
+                      item={item}
+                      index={index}
+                      onAction={(item) => {
+                        dismissItem(item.id);
+                      }}
+                    />
+                  </motion.div>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       )}
     </div>
   );

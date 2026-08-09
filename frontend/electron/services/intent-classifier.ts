@@ -20,6 +20,7 @@ export interface ClassificationResult {
   intent: Intent;
   confidence: number;
   extractedParams: Record<string, unknown>;
+  correctedQuery?: string;
 }
 
 // ── Classification System Prompt ───────────────────────────────────────────────
@@ -31,7 +32,9 @@ const CLASSIFICATION_SYSTEM_PROMPT = `You are an intent classifier for a persona
 - "chat": General conversation, questions about the system, help requests, or anything else. Examples: "how does this work?", "what can you do?", "tell me about...", "explain X"
 
 Respond with ONLY a JSON object in this exact format (no markdown, no explanation):
-{"intent": "search|action|chat", "confidence": 0.0-1.0, "params": {}}
+{"intent": "search|action|chat", "confidence": 0.0-1.0, "params": {}, "correctedQuery": "..."}
+
+The "correctedQuery" field MUST fix all spelling mistakes, grammatical errors, and expand colloquialisms (e.g. 'tmrw' -> 'tomorrow', 'u' -> 'you') from the original user input. Keep the original meaning intact.
 
 The "params" field should extract any relevant entities:
 - For search: {"query": "...", "source": "email|calendar|github|files|slack|notion"}
@@ -40,13 +43,13 @@ The "params" field should extract any relevant entities:
 
 Examples:
 User: "Find emails from John about the quarterly report"
-{"intent": "search", "confidence": 0.95, "params": {"query": "quarterly report from John", "source": "email"}}
+{"intent": "search", "confidence": 0.95, "params": {"query": "quarterly report from John", "source": "email"}, "correctedQuery": "Find emails from John about the quarterly report"}
 
 User: "Merge PR #123 on the atlas repo"
-{"intent": "action", "confidence": 0.98, "params": {"action": "merge_pr", "target": "PR #123", "details": "atlas repo"}}
+{"intent": "action", "confidence": 0.98, "params": {"action": "merge_pr", "target": "PR #123", "details": "atlas repo"}, "correctedQuery": "Merge PR #123 on the atlas repo"}
 
-User: "What can you help me with?"
-{"intent": "chat", "confidence": 0.9, "params": {}}`;
+User: "What can u help me with tmrw?"
+{"intent": "chat", "confidence": 0.9, "params": {}, "correctedQuery": "What can you help me with tomorrow?"}`;
 
 // ── Keyword-based Fallback Classifier ──────────────────────────────────────────
 
@@ -252,6 +255,7 @@ async function classifyWithOllama(input: string): Promise<ClassificationResult> 
       intent,
       confidence: typeof parsed.confidence === "number" ? parsed.confidence : 0.7,
       extractedParams: parsed.params || {},
+      correctedQuery: parsed.correctedQuery,
     };
   } catch (error) {
     console.warn("[Intent Classifier] Ollama classification failed, using keyword fallback:", error);
@@ -313,3 +317,70 @@ export function resetClassifierCache(): void {
   ollamaAvailableCache = null;
   lastHealthCheck = 0;
 }
+
+/**
+ * Resolve ambiguous pronouns in the user input using conversation history.
+ */
+export async function resolveEntities(input: string, history: {role: string, content: string}[]): Promise<string> {
+  const ambiguousRegex = /\b(it|them|him|her|that|this|he|she)\b/i;
+  if (!ambiguousRegex.test(input) || history.length === 0) {
+    return input;
+  }
+
+  const recentHistory = history.slice(-5);
+  const historyText = recentHistory.map(m => `${m.role}: ${m.content}`).join("\n");
+  
+  const systemPrompt = `You are a helpful assistant. The user just said something containing an ambiguous pronoun (it, them, him, her, that, this, etc.). 
+Based on the conversation history, replace the pronoun with the concrete noun it refers to. 
+Output ONLY the rewritten sentence, with no quotes, no explanation, and no extra text. Keep the original intent intact.`;
+
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: `History:\n${historyText}\n\nUser input: ${input}` }
+  ];
+
+  let fullResponse = "";
+  try {
+    for await (const token of streamChat(messages)) {
+      fullResponse += token;
+    }
+    return fullResponse.trim() || input;
+  } catch (err) {
+    return input;
+  }
+}
+
+/**
+ * Detects if a user input contains multiple actionable requests and splits them.
+ */
+export async function splitMultiIntent(input: string): Promise<string[]> {
+  if (!/\b(and|then|also)\b/i.test(input)) {
+    return [input];
+  }
+
+  const systemPrompt = `You are a prompt splitter. If the user's input contains multiple distinct actionable requests or questions, split them into a JSON array of separate strings. If it's a single request, return an array with just that one string. Do not split compound objects (e.g. 'cats and dogs' is one search). Output ONLY a valid JSON array of strings, nothing else.`;
+
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: input }
+  ];
+
+  let fullResponse = "";
+  try {
+    for await (const token of streamChat(messages)) {
+      fullResponse += token;
+    }
+    
+    const jsonMatch = fullResponse.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === "string") {
+        return parsed;
+      }
+    }
+    return [input];
+  } catch (err) {
+    return [input];
+  }
+}
+

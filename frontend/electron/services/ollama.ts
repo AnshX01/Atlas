@@ -135,7 +135,8 @@ export async function listModels(): Promise<string[]> {
  */
 export async function* streamChat(
   messages: OllamaMessage[],
-  model: string = DEFAULT_MODEL
+  model: string = DEFAULT_MODEL,
+  abortSignal?: AbortSignal
 ): AsyncGenerator<string, void, unknown> {
   const controller = new AbortController();
   // Inactivity timeout — aborts if no data received for 120s (accounts for model cold start)
@@ -145,6 +146,11 @@ export async function* streamChat(
     clearTimeout(inactivityTimer);
     inactivityTimer = setTimeout(() => controller.abort(), 120000);
   };
+
+  if (abortSignal) {
+    abortSignal.addEventListener('abort', () => controller.abort());
+    if (abortSignal.aborted) controller.abort();
+  }
 
   const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
     method: 'POST',

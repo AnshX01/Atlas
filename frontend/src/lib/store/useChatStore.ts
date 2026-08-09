@@ -27,14 +27,15 @@ export interface ToolExecution {
   id: string;
   server: string;
   tool: string;
-  status: "executing" | "done";
+  status: "executing" | "done" | "failed";
+  errorMessage?: string;
 }
 
 export interface DraftData {
   executionId: string;
   actionType: string;
   fields: Record<string, string>;
-  status: "pending" | "approved" | "rejected" | "executing" | "done" | "failed";
+  status: "generating" | "pending" | "approved" | "rejected" | "executing" | "done" | "failed";
   errorMessage?: string;
 }
 
@@ -100,8 +101,23 @@ function backgroundSync(conversationId: string, getState: () => ChatState): void
       title: conv.title,
       last_message: conv.lastMessage,
       messages,
+    }).catch(err => {
+      console.error("Background sync error:", err);
     });
   }, 1000);
+}
+
+function deepEqual(a: any, b: any): boolean {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const key of keysA) {
+    if (!keysB.includes(key) || !deepEqual(a[key], b[key])) return false;
+  }
+  return true;
 }
 
 export const useChatStore = create<ChatState>()(
@@ -147,20 +163,41 @@ export const useChatStore = create<ChatState>()(
       },
 
       updateConversationTitle: (id: string, title: string) => {
-        set((state) => ({
-          conversations: state.conversations.map((c) =>
-            c.id === id ? { ...c, title } : c
-          ),
-        }));
+        set((state) => {
+          const conv = state.conversations.find((c) => c.id === id);
+          if (conv && conv.title === title) return state;
+          
+          return {
+            conversations: state.conversations.map((c) =>
+              c.id === id ? { ...c, title } : c
+            ),
+          };
+        });
       },
 
       addMessage: (conversationId: string, message: ChatMessage) => {
         set((state) => {
           const existing = state.messages[conversationId] || [];
-          // Deduplicate — don't add if message with same ID already exists
-          if (existing.some((m) => m.id === message.id)) {
-            return state;
+          const index = existing.findIndex((m) => m.id === message.id);
+
+          if (index !== -1) {
+            if (deepEqual(existing[index], message)) {
+              return state;
+            }
+            const updatedMessages = [...existing];
+            updatedMessages[index] = message;
+
+            const updatedConversations = state.conversations.map((c) =>
+              c.id === conversationId
+                ? { ...c, lastMessage: message.content.slice(0, 100) }
+                : c
+            );
+            return {
+              messages: { ...state.messages, [conversationId]: updatedMessages },
+              conversations: updatedConversations,
+            };
           }
+
           const updatedConversations = state.conversations.map((c) =>
             c.id === conversationId
               ? { ...c, lastMessage: message.content.slice(0, 100) }
@@ -188,6 +225,11 @@ export const useChatStore = create<ChatState>()(
         activeConversationId: state.activeConversationId,
         messages: state.messages,
       }),
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error("Rehydration error:", error);
+        }
+      },
     }
   )
 );

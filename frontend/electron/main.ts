@@ -102,9 +102,16 @@ app.whenReady().then(async () => {
   }
 
   // ── Initialize MCP Server Manager ───────────────────────────────────
-  // Don't auto-start servers — user configures which ones to enable via settings.
   mcpManager = new MCPServerManager();
-  console.log("[Atlas] MCP Server Manager initialized (servers will start on user request)");
+  // Pre-warm configured servers in the background
+  mcpManager.startAll().catch(console.error);
+
+  // Background Pre-fetch (e.g. Gmail top 10) every 5 minutes
+  setInterval(() => {
+    if (mcpManager) {
+      mcpManager.callTool('google_workspace', 'list_emails', { maxResults: 10, query: '', skipCache: true }).catch(() => {});
+    }
+  }, 5 * 60 * 1000);
 
   // ── Initialize Local Store (SQLite) ─────────────────────────────────
   await initDB();
@@ -416,9 +423,14 @@ ipcMain.handle(
  * AbortController). This handler acknowledges the abort intent; the renderer is responsible
  * for unsubscribing its own IPC listeners to ignore further events from a still-running workflow.
  */
-ipcMain.handle("workflow-abort", async () => {
-  // Acknowledge the abort — actual stream cancellation is not possible without
-  // modifying orchestrator.ts (out of scope). The renderer detaches listeners.
+ipcMain.handle("workflow-abort", async (_event, payload?: { conversationId: string }) => {
+  if (orchestrator) {
+    if (payload?.conversationId) {
+      orchestrator.abortWorkflow(payload.conversationId);
+    } else {
+      orchestrator.abortAll();
+    }
+  }
   return { aborted: true };
 });
 

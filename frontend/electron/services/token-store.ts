@@ -118,8 +118,6 @@ export function setToken(provider: ProviderName, credentials: ProviderCredential
   const store = readStore();
   (store as Record<string, ProviderCredentials>)[provider] = credentials;
   writeStore(store);
-
-  console.log(`[Token Store] Credentials stored for provider: ${provider}`);
 }
 
 /**
@@ -135,8 +133,6 @@ export function removeToken(provider: ProviderName): void {
 
   delete (store as Record<string, unknown>)[provider];
   writeStore(store);
-
-  console.log(`[Token Store] Credentials removed for provider: ${provider}`);
 }
 
 /**

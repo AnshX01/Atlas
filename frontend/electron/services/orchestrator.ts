@@ -17,8 +17,9 @@
 import { BrowserWindow } from "electron";
 import { randomUUID } from "crypto";
 import { streamChat } from "./ollama";
-import { classifyIntent, Intent } from "./intent-classifier";
+import { classifyIntent, Intent, resolveEntities, splitMultiIntent } from "./intent-classifier";
 import { MCPServerManager } from "./mcp-manager";
+import { repairAndParseJson, MissingArgumentError } from "./json-repair";
 import {
   initDB,
   createConversation,
@@ -352,6 +353,7 @@ function humanizeDates(obj: unknown): unknown {
 export class Orchestrator {
   private mcpManager: MCPServerManager;
   private pendingApprovals: Map<string, PendingApproval> = new Map();
+  private activeStreams: Map<string, AbortController> = new Map();
 
   constructor(mcpManager: MCPServerManager) {
     this.mcpManager = mcpManager;
@@ -367,6 +369,10 @@ export class Orchestrator {
   ): Promise<void> {
     initDB();
 
+    if (prompt.length > 2000) {
+      prompt = prompt.substring(0, 2000);
+    }
+
     if (!conversationId) {
       const title = prompt.slice(0, 60) + (prompt.length > 60 ? "..." : "");
       const conversation = createConversation(title);
@@ -375,113 +381,131 @@ export class Orchestrator {
 
     saveMessage(conversationId, "user", prompt);
 
-    // Enrich the prompt with conversation context for better routing
-    let enrichedPrompt = prompt;
     const history = getConversationHistory(conversationId, 10);
-    const prevUserMessages = history.filter(m => m.role === "user");
-    
-    // Only enrich for short follow-ups that are clearly a continuation
-    // BUT don't enrich if the follow-up is just providing supplementary info (email, name, etc.)
-    const isSupplementaryInfo = /^(his|her|their|the|my)?\s*(email|address|name|number)\s*(is|:)/i.test(prompt.trim());
-    
-    // Issue #7: Don't enrich if the short follow-up is itself a complete actionable command
-    // (e.g. 'yes', 'no', 'approve', 'cancel', 'send it') — these don't need routing context
-    const isStandaloneResponse = STANDALONE_RESPONSE_KEYWORDS.has(prompt.trim().toLowerCase());
+    const recent5 = history.slice(-5).map(m => ({ role: m.role, content: m.content }));
+    prompt = await resolveEntities(prompt, recent5);
 
-    if (!isSupplementaryInfo && !isStandaloneResponse && prompt.trim().split(/\s+/).length <= 5 && prevUserMessages.length > 1) {
-      // Short follow-up — combine with previous user message for routing context
-      const prevMsg = prevUserMessages[prevUserMessages.length - 2];
-      if (prevMsg) {
-        enrichedPrompt = `${prevMsg.content} — ${prompt}`;
+    const subPrompts = await splitMultiIntent(prompt);
+
+    let combinedResponse = "";
+    let combinedResults: any[] = [];
+    const allToolCalls: any[] = [];
+    let lastIntent: Intent = "unknown";
+    let finalError: string | undefined;
+    let isCancelled = false;
+
+    for (let i = 0; i < subPrompts.length; i++) {
+      const currentPrompt = subPrompts[i];
+
+      let enrichedPrompt = currentPrompt;
+      const prevUserMessages = history.filter(m => m.role === "user");
+      
+      const isSupplementaryInfo = /^(his|her|their|the|my)?\s*(email|address|name|number)\s*(is|:)/i.test(currentPrompt.trim());
+      const isStandaloneResponse = STANDALONE_RESPONSE_KEYWORDS.has(currentPrompt.trim().toLowerCase());
+
+      if (!isSupplementaryInfo && !isStandaloneResponse && currentPrompt.trim().split(/\s+/).length <= 5 && prevUserMessages.length > 1) {
+        const prevMsg = prevUserMessages[prevUserMessages.length - 2];
+        if (prevMsg) {
+          enrichedPrompt = `${prevMsg.content} — ${currentPrompt}`;
+        }
       }
-    }
 
-    const state: WorkflowState = {
-      input: enrichedPrompt,
-      userId: "local",
-      conversationId,
-      intent: "unknown",
-      context: [],
-      toolCalls: [],
-      response: "",
-      requiresApproval: false,
-      approved: false,
-    };
+      const state: WorkflowState = {
+        input: enrichedPrompt,
+        userId: "local",
+        conversationId,
+        intent: "unknown",
+        context: [],
+        toolCalls: [],
+        response: "",
+        requiresApproval: false,
+        approved: false,
+      };
 
-    try {
-      // ── Node 1: Router ──────────────────────────────────────────────
-      await this.routerNode(state);
+      try {
+        await this.routerNode(state);
 
-      // ── Node 2-5: Route based on intent ─────────────────────────────
-      switch (state.intent) {
-        case "search":
-          await this.searchNode(state, mainWindow);
-          break;
+        switch (state.intent) {
+          case "search":
+            await this.searchNode(state, mainWindow);
+            break;
 
-        case "action":
-          // Pre-fetch context for actions that need it (reply needs the email, etc.)
-          await this.prefetchActionContext(state, mainWindow);
-          await this.actionNode(state, mainWindow);
-          if (state.requiresApproval) {
-            // Generate draft before asking for approval
-            await this.draftNode(state, mainWindow);
-            const approved = await this.approvalNode(state, mainWindow);
-            if (approved) {
-              await this.executeNode(state, mainWindow);
+          case "action":
+            await this.prefetchActionContext(state, mainWindow);
+            await this.actionNode(state, mainWindow);
+            if (state.requiresApproval) {
+              await this.draftNode(state, mainWindow);
+              const approved = await this.approvalNode(state, mainWindow);
+              if (approved) {
+                await this.executeNode(state, mainWindow);
+              } else {
+                isCancelled = true;
+                break;
+              }
             } else {
-              state.response = "";
-              mainWindow.webContents.send("workflow-complete", {
-                conversationId,
-                response: "",
-                cancelled: true,
-              });
-              return;
+              await this.executeNode(state, mainWindow);
             }
-          } else {
-            await this.executeNode(state, mainWindow);
-          }
-          break;
+            break;
 
-        case "chat":
-        default:
+          case "chat":
+          default:
+            break;
+        }
+
+        if (isCancelled) {
           break;
+        }
+
+        if (i > 0 && state.response && combinedResponse) {
+          mainWindow.webContents.send("workflow-stream", "\n\n");
+        }
+        await this.responseNode(state, mainWindow);
+
+        if (state.response) {
+          combinedResponse += (combinedResponse ? "\n\n" : "") + state.response;
+        }
+        allToolCalls.push(...state.toolCalls);
+        
+        const hasUsefulResults = state.context.some(
+          (c) => c.type === "tool_result" && c.result && 
+          (Array.isArray(c.result) ? c.result.length > 0 : !c.result.error)
+        );
+        if (hasUsefulResults) {
+          combinedResults.push(...this.formatToolResultsAsCards(state));
+        }
+        lastIntent = state.intent;
+
+      } catch (error) {
+        if (error instanceof MissingArgumentError) {
+          const clarificationMsg = `I need a bit more info before I can do that: ${error.message}`;
+          combinedResponse += (combinedResponse ? "\n\n" : "") + clarificationMsg;
+          isCancelled = true;
+          break;
+        }
+
+        const errorMsg = error instanceof Error ? error.message : "Unknown error";
+        finalError = errorMsg;
+        console.error("[Orchestrator] Workflow error:", errorMsg);
+
+        const errorResponse = `I encountered an error while processing your request: ${errorMsg}`;
+        combinedResponse += (combinedResponse ? "\n\n" : "") + errorResponse;
+        break;
       }
-
-      // ── Node 6: Response Generation ────────────────────────────────
-      await this.responseNode(state, mainWindow);
-
-      saveMessage(conversationId, "assistant", state.response);
-
-      // Format tool results into source cards for the UI
-      // Only include cards if the AI actually found useful data (not "couldn't find" responses)
-      const hasUsefulResults = state.context.some(
-        (c) => c.type === "tool_result" && c.result && 
-        (Array.isArray(c.result) ? c.result.length > 0 : !c.result.error)
-      );
-      const results = hasUsefulResults ? this.formatToolResultsAsCards(state) : [];
-
-      mainWindow.webContents.send("workflow-complete", {
-        conversationId,
-        response: state.response,
-        intent: state.intent,
-        toolCalls: state.toolCalls,
-        results,
-        error: state.error || undefined,
-      });
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : "Unknown error";
-      state.error = errorMsg;
-      console.error("[Orchestrator] Workflow error:", errorMsg);
-
-      const errorResponse = `I encountered an error while processing your request: ${errorMsg}`;
-      saveMessage(conversationId, "assistant", errorResponse);
-
-      mainWindow.webContents.send("workflow-complete", {
-        conversationId,
-        response: errorResponse,
-        error: errorMsg,
-      });
     }
+
+    if (combinedResponse) {
+      saveMessage(conversationId, "assistant", combinedResponse);
+    }
+
+    mainWindow.webContents.send("workflow-complete", {
+      conversationId,
+      response: combinedResponse,
+      intent: lastIntent,
+      toolCalls: allToolCalls,
+      results: combinedResults.slice(0, 5),
+      error: finalError,
+      cancelled: isCancelled && !combinedResponse,
+    });
   }
 
 
@@ -491,6 +515,10 @@ export class Orchestrator {
     const result = await classifyIntent(state.input);
     state.intent = result.intent;
 
+    if (result.correctedQuery) {
+      state.input = result.correctedQuery;
+    }
+
     if (Object.keys(result.extractedParams).length > 0) {
       state.context.push({
         type: "classification",
@@ -499,10 +527,6 @@ export class Orchestrator {
         params: result.extractedParams,
       });
     }
-
-    console.log(
-      `[Orchestrator] Router classified intent as "${state.intent}" (confidence: ${result.confidence})`
-    );
   }
 
   private async searchNode(
@@ -663,8 +687,35 @@ export class Orchestrator {
     const executionId = randomUUID();
     const actionType = pendingTool.tool;
 
-    // Generate draft content with Ollama
-    const fields = await this.generateDraft(actionType, state.input, state.context);
+    let toolSchemaStr = "";
+    try {
+      const tools = await this.mcpManager.listTools(pendingTool.server);
+      const toolDef = tools.find(t => t.name === actionType);
+      if (toolDef && toolDef.inputSchema) {
+         toolSchemaStr = JSON.stringify(toolDef.inputSchema, null, 2);
+      }
+    } catch(e) {}
+
+    const abortController = new AbortController();
+    this.activeStreams.set(state.conversationId, abortController);
+
+    let fields: Record<string, string>;
+    try {
+      // Generate draft content with Ollama
+      fields = await this.generateDraft(actionType, state.input, state.context, toolSchemaStr, abortController.signal);
+      
+      // Check for placeholders in required fields
+      for (const [key, value] of Object.entries(fields)) {
+        if (typeof value === "string") {
+          const valTrimmed = value.trim();
+          if (valTrimmed === "" || (valTrimmed.startsWith("[") && valTrimmed.endsWith("]"))) {
+            throw new MissingArgumentError(`Please provide a valid ${key}.`);
+          }
+        }
+      }
+    } finally {
+      this.activeStreams.delete(state.conversationId);
+    }
 
     // Post-process: fix fields using real pre-fetched data
     this.fixDraftFieldsWithContext(actionType, fields, state.context);
@@ -721,9 +772,11 @@ export class Orchestrator {
   private async generateDraft(
     actionType: string,
     userInput: string,
-    context: any[]
+    context: any[],
+    toolSchemaStr: string,
+    abortSignal?: AbortSignal
   ): Promise<Record<string, string>> {
-    const draftPrompt = this.buildDraftPrompt(actionType, userInput, context);
+    const draftPrompt = this.buildDraftPrompt(actionType, userInput, context, toolSchemaStr);
 
     const messages = [
       { role: "system" as const, content: draftPrompt.system },
@@ -732,17 +785,15 @@ export class Orchestrator {
 
     let fullResponse = "";
     try {
-      for await (const token of streamChat(messages)) {
+      for await (const token of streamChat(messages, undefined, abortSignal)) {
         fullResponse += token;
       }
 
-      // Parse the JSON response
-      const jsonMatch = fullResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        return parsed;
-      }
+      return repairAndParseJson(fullResponse);
     } catch (error) {
+      if (error instanceof MissingArgumentError) {
+        throw error;
+      }
       console.warn("[Orchestrator] Draft generation failed, using fallback:", error);
     }
 
@@ -753,7 +804,8 @@ export class Orchestrator {
   private buildDraftPrompt(
     actionType: string,
     userInput: string,
-    context: any[]
+    context: any[],
+    toolSchemaStr: string
   ): { system: string; user: string } {
     const contextStr = context
       .filter((c) => c.type === "classification" || c.type === "tool_result")
@@ -764,11 +816,13 @@ export class Orchestrator {
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     const nowTime = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
+    let basePrompt: { system: string; user: string };
+
     switch (actionType) {
       case "reply_email":
       case "send_email":
       case "forward_email":
-        return {
+        basePrompt = {
           system: `You are an email assistant. The user wants to send/reply/forward an email. Use the fetched email data below to extract the ACTUAL recipient email address (from the "from" field in the data). Output ONLY a JSON object: {"to": "actual-email@domain.com", "subject": "appropriate subject", "body": "email body text"}.
 
 Rules:
@@ -780,10 +834,11 @@ Rules:
 - No markdown, ONLY the JSON object`,
           user: `User request: "${userInput}"\nToday: ${today}\nFetched data: ${contextStr}`,
         };
+        break;
 
       case "merge_pr":
       case "close_pr":
-        return {
+        basePrompt = {
           system: `You interpret GitHub PR actions. Use the fetched PR data below to get the actual PR number, title, and repo. Output ONLY a JSON object: {"owner": "owner", "repo": "repo-name", "pull_number": number, "commit_title": "merge commit message"}.
 
 Rules:
@@ -792,22 +847,25 @@ Rules:
 - No explanation, ONLY the JSON object`,
           user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
+        break;
 
       case "create_branch":
-        return {
+        basePrompt = {
           system: `You interpret branch creation requests. Output ONLY a JSON object: {"owner": "github-username", "repo": "repo-name", "branch": "new-branch-name", "from_branch": "main"}. Extract repo name from the user's message. Default from_branch to "main". No explanation, just JSON.`,
           user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
+        break;
 
       case "create_pull_request":
-        return {
+        basePrompt = {
           system: `You interpret PR creation requests. Output ONLY a JSON object: {"owner": "github-username", "repo": "repo-name", "title": "PR title", "body": "PR description", "head": "source-branch", "base": "main"}. No explanation, just JSON.`,
           user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
+        break;
 
       case "post_message":
       case "send_message":
-        return {
+        basePrompt = {
           system: `You interpret Slack message requests. Use any fetched Slack data below to identify the correct channel. Output ONLY a JSON object: {"channel": "#channel-name", "message": "the message text"}.
 
 Rules:
@@ -816,16 +874,18 @@ Rules:
 - No markdown, ONLY the JSON object`,
           user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
+        break;
 
       case "create_issue":
-        return {
+        basePrompt = {
           system: `You interpret GitHub issue creation requests. Output ONLY a JSON object: {"owner": "owner", "repo": "repo-name", "title": "issue title", "body": "issue description", "labels": "bug,enhancement"}. Use fetched data to determine repo if available. No explanation, just JSON.`,
           user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
+        break;
 
       case "create_event":
       case "schedule_event":
-        return {
+        basePrompt = {
           system: `You interpret calendar event requests. Output ONLY a JSON object: {"title": "event title", "startTime": "ISO 8601 datetime", "endTime": "ISO 8601 datetime", "description": "details", "attendees": ["email@example.com"]}.
 
 Rules:
@@ -837,10 +897,11 @@ Rules:
 - No markdown, ONLY the JSON object`,
           user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
+        break;
 
       case "create_page":
       case "update_page":
-        return {
+        basePrompt = {
           system: `You interpret Notion page requests. Output ONLY a JSON object: {"title": "page title", "content": "page content"}.
 
 Rules:
@@ -849,13 +910,21 @@ Rules:
 - No markdown, ONLY the JSON object`,
           user: `User request: "${userInput}"\nFetched data: ${contextStr}`,
         };
+        break;
 
       default:
-        return {
+        basePrompt = {
           system: `You interpret action requests. Extract all relevant details from the user's message. Output ONLY a JSON object with the appropriate fields for a "${actionType}" action. No explanation, no markdown.`,
           user: `User request: "${userInput}"\nToday: ${today}\nContext: ${contextStr}`,
         };
+        break;
     }
+
+    if (toolSchemaStr) {
+      basePrompt.system += `\n\nCRITICAL: You MUST strictly adhere to this JSON Schema for your output parameters to prevent hallucinated arguments. Only output valid JSON matching this schema:\n${toolSchemaStr}`;
+    }
+
+    return basePrompt;
   }
 
   private getFallbackDraftFields(
@@ -1002,9 +1071,6 @@ Rules:
       this.pendingApprovals.set(executionId, pending);
 
       // DraftCard in the UI handles approve/reject — no need to emit a separate approval event
-      console.log(
-        `[Orchestrator] Awaiting approval for ${pendingTool.server}/${pendingTool.tool} (id: ${executionId})`
-      );
     });
   }
 
@@ -1027,11 +1093,22 @@ Rules:
       });
 
       try {
-        const result = await this.mcpManager.callTool(
-          tool.server,
-          tool.tool,
-          tool.params as Record<string, any>
-        );
+        let result: any;
+        try {
+          result = await this.mcpManager.callTool(
+            tool.server,
+            tool.tool,
+            tool.params as Record<string, any>
+          );
+        } catch (initialError) {
+          console.warn(`[Orchestrator] Tool call failed, retrying after 1s backoff:`, initialError);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          result = await this.mcpManager.callTool(
+            tool.server,
+            tool.tool,
+            tool.params as Record<string, any>
+          );
+        }
 
         // Check if the result indicates an error
         if (result && typeof result === 'object' && result.error) {
@@ -1073,24 +1150,63 @@ Rules:
       return;
     }
 
-    const history = getConversationHistory(state.conversationId, 20);
+    const history = getConversationHistory(state.conversationId, 10);
     const messages = this.buildResponseMessages(state, history);
 
-    console.log(`[Orchestrator] ResponseNode: intent=${state.intent}, context items=${state.context.length}, tool_results=${state.context.filter(c => c.type === 'tool_result').length}, tool_errors=${state.context.filter(c => c.type === 'tool_error').length}`);
-
     let fullResponse = "";
+    const abortController = new AbortController();
+    this.activeStreams.set(state.conversationId, abortController);
 
     try {
-      for await (const token of streamChat(messages)) {
+      let tokenBuffer: string[] = [];
+      let lastFlushTime = Date.now();
+
+      for await (const token of streamChat(messages, undefined, abortController.signal)) {
         fullResponse += token;
-        mainWindow.webContents.send("workflow-stream", token);
+        tokenBuffer.push(token);
+
+        const now = Date.now();
+        if (now - lastFlushTime >= 16) {
+          mainWindow.webContents.send("workflow-stream", tokenBuffer.join(""));
+          tokenBuffer = [];
+          lastFlushTime = now;
+        }
       }
+
+      if (tokenBuffer.length > 0) {
+        mainWindow.webContents.send("workflow-stream", tokenBuffer.join(""));
+      }
+
       state.response = fullResponse;
-    } catch (error) {
+    } catch (error: any) {
+      if (error.name === 'AbortError' || abortController.signal.aborted) {
+        throw error;
+      }
       console.warn("[Orchestrator] Ollama unavailable for response, using fallback");
       state.response = this.generateFallbackResponse(state);
       mainWindow.webContents.send("workflow-stream", state.response);
+    } finally {
+      this.activeStreams.delete(state.conversationId);
     }
+  }
+
+  // ── Stream Management ──────────────────────────────────────────────────────
+
+  public abortWorkflow(conversationId: string): boolean {
+    const controller = this.activeStreams.get(conversationId);
+    if (controller) {
+      controller.abort();
+      this.activeStreams.delete(conversationId);
+      return true;
+    }
+    return false;
+  }
+
+  public abortAll(): void {
+    for (const controller of this.activeStreams.values()) {
+      controller.abort();
+    }
+    this.activeStreams.clear();
   }
 
   // ── Helper Methods ─────────────────────────────────────────────────────────
@@ -1787,5 +1903,13 @@ Rules:
     }
 
     return pending;
+  }
+
+  abort(conversationId: string): void {
+    const controller = this.activeStreams.get(conversationId);
+    if (controller) {
+      controller.abort();
+      this.activeStreams.delete(conversationId);
+    }
   }
 }

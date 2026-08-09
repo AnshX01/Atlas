@@ -9,6 +9,7 @@
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
+    "strictNullChecks": true,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
@@ -43,6 +44,7 @@
     "node_modules",
     "dist-electron",
     "electron",
-    "src/__tests__/**"
+    "src/__tests__/**",
+    "tests/**"
   ]
 }

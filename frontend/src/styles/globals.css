@@ -111,6 +111,15 @@ p  { color: var(--text-secondary); line-height: 1.7; }
   box-shadow: var(--shadow-glass);
 }
 
+.glass-panel {
+  background: rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
 .glow {
   box-shadow: var(--shadow-glow);
 }

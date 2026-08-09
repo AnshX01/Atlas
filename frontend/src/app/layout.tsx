@@ -25,6 +25,10 @@ export const metadata: Metadata = {
   },
 };
 
+import { OnboardingWizard } from "@/components/layout/OnboardingWizard";
+import { ErrorBoundary } from "@/components/layout/ErrorBoundary";
+import { OfflineBanner } from "@/components/ui/OfflineBanner";
+
 export default function RootLayout({
   children,
 }: {
@@ -38,6 +42,7 @@ export default function RootLayout({
         <meta name="theme-color" content="#09090b" />
       </head>
       <body className={inter.className}>
+        <OfflineBanner />
         {/* Skip to main content — WCAG 2.1 AA */}
         <a
           href="#main-content"
@@ -47,9 +52,13 @@ export default function RootLayout({
         </a>
 
         <Providers>
-          <AppShell>
-            {children}
-          </AppShell>
+          <ErrorBoundary>
+            <OnboardingWizard>
+              <AppShell>
+                {children}
+              </AppShell>
+            </OnboardingWizard>
+          </ErrorBoundary>
         </Providers>
       </body>
     </html>

@@ -15,6 +15,22 @@
     "electron-dev": "concurrently \"npm run dev -- --port 3000\" \"wait-on http://localhost:3000 && npm run electron-compile && electron dist-electron/main.js\"",
     "electron-build": "next build && electron-builder build"
   },
+  "build": {
+    "appId": "com.atlas.app",
+    "productName": "Atlas",
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "target": ["dmg"]
+    },
+    "win": {
+      "target": ["nsis"]
+    },
+    "linux": {
+      "target": ["AppImage"]
+    }
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@modelcontextprotocol/server-filesystem": "^2026.7.10",
@@ -40,6 +56,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "^6.4.0",
     "@testing-library/react": "^16.0.0",
     "@types/jest": "^30.0.0",

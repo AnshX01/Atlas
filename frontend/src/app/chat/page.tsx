@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, Suspense, type KeyboardEvent } from "react";
+import { useState, useRef, useCallback, useEffect, Suspense, type KeyboardEvent, memo } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -105,6 +105,12 @@ function stripMarkdown(text: string): string {
   result = result.replace(/`([^`]+)`/g, "$1");
   // Replace bullet markers at line start: "* " or "- " → "– "
   result = result.replace(/^[\*\-]\s+/gm, "– ");
+  
+  // Aggressively remove stray **, #, and backticks
+  result = result.replace(/\*\*/g, "");
+  result = result.replace(/#/g, "");
+  result = result.replace(/`/g, "");
+  
   return result;
 }
 
@@ -161,24 +167,40 @@ function formatServerName(server: string): string {
   return names[server] || server.charAt(0).toUpperCase() + server.slice(1);
 }
 
-function ToolExecutionCard({ tool }: { tool: ToolExecution }) {
+const ToolExecutionCard = memo(function ToolExecutionCard({ tool, onRetry }: { tool: ToolExecution; onRetry?: (toolId: string) => void }) {
   return (
     <motion.div
-      className="flex items-center gap-2 px-3 py-2 rounded-lg border border-white/[0.04] bg-white/[0.02]"
-      initial={{ opacity: 0, height: 0 }}
-      animate={{ opacity: 1, height: "auto" }}
-    >
-      {tool.status === "executing" ? (
-        <Loader2 size={12} className="text-white/40 animate-spin" />
-      ) : (
-        <Check size={12} className="text-white/50" />
+      className={cn(
+        "flex items-center justify-between gap-2 px-3 py-2 rounded-lg",
+        tool.status === "failed" ? "border-red-500/20 bg-red-500/5" : "glass-panel"
       )}
-      <span className="text-[12px] text-white/50">
-        {formatServerName(tool.server)}
-      </span>
+      initial={{ opacity: 0, height: 0, scale: 0.95 }}
+      animate={{ opacity: 1, height: "auto", scale: 1 }}
+      transition={{ type: "spring", stiffness: 500, damping: 30 }}
+    >
+      <div className="flex items-center gap-2">
+        {tool.status === "executing" ? (
+          <Loader2 size={12} className="text-white/40 animate-spin" />
+        ) : tool.status === "failed" ? (
+          <X size={12} className="text-red-400" />
+        ) : (
+          <Check size={12} className="text-white/50" />
+        )}
+        <span className={cn("text-[12px]", tool.status === "failed" ? "text-red-400/90" : "text-white/50")}>
+          {formatServerName(tool.server)} {tool.status === "failed" ? "Failed" : ""}
+        </span>
+      </div>
+      {tool.status === "failed" && onRetry && (
+        <button
+          onClick={() => onRetry(tool.id)}
+          className="text-[11px] font-medium px-2 py-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+        >
+          Retry
+        </button>
+      )}
     </motion.div>
   );
-}
+}, (prev, next) => JSON.stringify(prev.tool) === JSON.stringify(next.tool));
 
 function formatSourceName(source: string): string {
   const names: Record<string, string> = {
@@ -198,7 +220,7 @@ function formatSourceName(source: string): string {
   return names[source?.toLowerCase()] || source?.charAt(0).toUpperCase() + source?.slice(1) || "Source";
 }
 
-function ResultCard({ result }: { result: SearchResult }) {
+const ResultCard = memo(function ResultCard({ result }: { result: SearchResult }) {
   const icon = typeIcon[result.type] ?? <FileText size={15} />;
 
   const handleClick = () => {
@@ -209,11 +231,12 @@ function ResultCard({ result }: { result: SearchResult }) {
 
   return (
     <motion.div
-      className="group cursor-pointer rounded-xl border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/[0.12] transition-all duration-200"
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={{ y: -1 }}
-      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+      className="group cursor-pointer rounded-xl glass-panel hover:bg-white/[0.04] transition-all duration-300"
+      initial={{ opacity: 0, y: 10, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      whileHover={{ y: -2, scale: 1.01 }}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: "spring", stiffness: 400, damping: 25 }}
       onClick={handleClick}
     >
       <div className="px-4 py-3">
@@ -253,7 +276,7 @@ function ResultCard({ result }: { result: SearchResult }) {
       </div>
     </motion.div>
   );
-}
+}, (prev, next) => JSON.stringify(prev.result) === JSON.stringify(next.result));
 
 
 function getActionIcon(actionType: string): React.ReactNode {
@@ -266,7 +289,7 @@ function getActionIcon(actionType: string): React.ReactNode {
   return <CheckSquare size={16} />;
 }
 
-function ActionCard({
+const ActionCard = memo(function ActionCard({
   action,
   onApprove,
   onReject,
@@ -335,9 +358,9 @@ function ActionCard({
       </div>
     </motion.div>
   );
-}
+}, (prev, next) => JSON.stringify(prev.action) === JSON.stringify(next.action));
 
-function DraftCard({
+const DraftCard = memo(function DraftCard({
   draft,
   onApprove,
   onReject,
@@ -410,15 +433,25 @@ function DraftCard({
           {isPending && (
             <div className="flex items-center gap-2">
               <button
-                onClick={() => onApprove(draft.executionId)}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors"
+                onClick={(e) => {
+                  if (draft.status !== "pending") return;
+                  e.currentTarget.disabled = true;
+                  onApprove(draft.executionId);
+                }}
+                disabled={draft.status !== "pending"}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Check size={14} />
                 Send
               </button>
               <button
-                onClick={() => onReject(draft.executionId)}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+                onClick={(e) => {
+                  if (draft.status !== "pending") return;
+                  e.currentTarget.disabled = true;
+                  onReject(draft.executionId);
+                }}
+                disabled={draft.status !== "pending"}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <X size={14} />
                 Cancel
@@ -465,15 +498,54 @@ function DraftCard({
       </div>
     </motion.div>
   );
+}, (prev, next) => JSON.stringify(prev.draft) === JSON.stringify(next.draft));
+
+
+function DraftCardSkeleton() {
+  return (
+    <motion.div
+      className="relative group w-full mt-2"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <div className="absolute -inset-[1px] rounded-2xl bg-gradient-to-b from-white/[0.08] to-white/[0.02]" />
+      <div className="relative rounded-2xl bg-[#111113]/90 backdrop-blur-xl overflow-hidden p-4">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-5 h-5 rounded-md bg-white/10 animate-pulse" />
+          <div className="w-24 h-4 rounded-md bg-white/10 animate-pulse" />
+        </div>
+        <div className="space-y-3 mb-4 pb-4 border-b border-white/[0.04]">
+          <div className="flex items-center gap-2">
+             <div className="w-12 h-3 rounded bg-white/5 animate-pulse" />
+             <div className="w-48 h-3 rounded bg-white/10 animate-pulse" />
+          </div>
+          <div className="flex items-center gap-2">
+             <div className="w-12 h-3 rounded bg-white/5 animate-pulse" />
+             <div className="w-32 h-3 rounded bg-white/10 animate-pulse" />
+          </div>
+        </div>
+        <div className="space-y-2 mb-4">
+          <div className="w-full h-3 rounded bg-white/10 animate-pulse" />
+          <div className="w-[90%] h-3 rounded bg-white/10 animate-pulse" />
+          <div className="w-[95%] h-3 rounded bg-white/10 animate-pulse" />
+          <div className="w-[80%] h-3 rounded bg-white/10 animate-pulse" />
+        </div>
+        <div className="flex items-center gap-2 pt-2 border-t border-white/[0.06]">
+          <Loader2 size={12} className="text-[var(--accent)] animate-spin" />
+          <span className="text-[11px] text-[var(--text-secondary)]">Generating draft...</span>
+        </div>
+      </div>
+    </motion.div>
+  );
 }
 
-
-function ChatMessageBubble({
+const ChatMessageBubble = memo(function ChatMessageBubble({
   message,
   onApproveAction,
   onRejectAction,
   onApproveDraft,
   onRejectDraft,
+  onRetryTool,
   userAvatar,
 }: {
   message: ChatMessage;
@@ -481,6 +553,7 @@ function ChatMessageBubble({
   onRejectAction: (actionId: string) => void;
   onApproveDraft: (executionId: string) => void;
   onRejectDraft: (executionId: string) => void;
+  onRetryTool?: (toolId: string) => void;
   userAvatar?: string | null;
 }) {
   const isUser = message.role === "user";
@@ -522,7 +595,8 @@ function ChatMessageBubble({
             "px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed",
             isUser
               ? "bg-[var(--accent)]/10 text-[var(--text-primary)]"
-              : "bg-[var(--bg-secondary)] text-[var(--text-primary)]"
+              : "bg-[var(--bg-secondary)] text-[var(--text-primary)]",
+            !isUser && message.streaming && message.content.trim().startsWith('{') && "hidden"
           )}
         >
           <span className="whitespace-pre-wrap">
@@ -536,7 +610,7 @@ function ChatMessageBubble({
         {message.toolExecutions && message.toolExecutions.length > 0 && (
           <div className="flex flex-col gap-1">
             {message.toolExecutions.map((tool) => (
-              <ToolExecutionCard key={tool.id} tool={tool} />
+              <ToolExecutionCard key={tool.id} tool={tool} onRetry={onRetryTool} />
             ))}
           </div>
         )}
@@ -564,18 +638,20 @@ function ChatMessageBubble({
           </div>
         )}
 
-        {/* Draft Card */}
-        {message.draft && (
+        {/* Draft Card or Skeleton */}
+        {message.draft ? (
           <DraftCard
             draft={message.draft}
             onApprove={onApproveDraft}
             onReject={onRejectDraft}
           />
-        )}
+        ) : (!isUser && message.streaming && message.content.trim().startsWith('{')) ? (
+          <DraftCardSkeleton />
+        ) : null}
       </div>
     </motion.div>
   );
-}
+}, (prev, next) => JSON.stringify(prev.message) === JSON.stringify(next.message) && prev.userAvatar === next.userAvatar);
 
 function ChatInput({
   onSend,
@@ -704,6 +780,7 @@ function ChatPageInner() {
   const [status, setStatus] = useState<ChatStatus>("idle");
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
   /**
    * Holds unsubscribe functions for all active workflow IPC listeners.
@@ -746,8 +823,16 @@ function ChatPageInner() {
   }, [conversationId]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    const content = contentRef.current;
+    if (!content) return;
+
+    const observer = new ResizeObserver(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    });
+
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
 
   // ── Send message & get response ────────────────────────────────────────
 
@@ -871,7 +956,15 @@ function ChatPageInner() {
               streaming: false,
               content: m.content || data?.response || "",
               results: filteredResults.length > 0 ? filteredResults : undefined,
-              toolExecutions: m.toolExecutions?.map((t) => ({ ...t, status: "done" as const })),
+              toolExecutions: m.toolExecutions?.map((t, idx) => {
+                const backendTool = data?.toolCalls?.[idx];
+                const hasError = backendTool?.result?.error != null || backendTool?.error != null;
+                return {
+                  ...t,
+                  status: (hasError ? "failed" : "done") as any,
+                  errorMessage: hasError ? (backendTool?.result?.error || backendTool?.error) : undefined,
+                };
+              }),
               draft: updatedDraft,
             };
           });
@@ -1032,7 +1125,7 @@ function ChatPageInner() {
         setStatus("idle");
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   // ── Stop handler ───────────────────────────────────────────────────────
@@ -1114,6 +1207,10 @@ function ChatPageInner() {
     }
   }, []);
 
+  const handleRetryTool = useCallback((toolId: string) => {
+    sendMessage("Retry that tool");
+  }, [sendMessage]);
+
   const handleSuggestionClick = useCallback((suggestion: string) => {
     sendMessage(suggestion);
   }, [sendMessage]);
@@ -1123,10 +1220,11 @@ function ChatPageInner() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto px-6 lg:px-12 py-6">
+        <div ref={contentRef} className="h-full w-full">
         {messages.length === 0 ? (
           <EmptyState onSuggestionClick={handleSuggestionClick} />
         ) : (
-          <div className="max-w-4xl mx-auto flex flex-col gap-5">
+          <div className="w-full max-w-4xl mx-auto flex flex-col gap-5">
             <AnimatePresence mode="popLayout">
               {messages.map((msg) => (
                 <ChatMessageBubble
@@ -1136,6 +1234,7 @@ function ChatPageInner() {
                   onRejectAction={handleRejectAction}
                   onApproveDraft={handleApproveDraft}
                   onRejectDraft={handleRejectDraft}
+                  onRetryTool={handleRetryTool}
                   userAvatar={userAvatar}
                 />
               ))}
@@ -1143,10 +1242,11 @@ function ChatPageInner() {
             <div ref={messagesEndRef} />
           </div>
         )}
+        </div>
       </div>
 
       <div className="flex-shrink-0 px-6 lg:px-12 pb-4 pt-3 bg-[var(--bg-primary)]">
-        <div className="max-w-2xl mx-auto">
+        <div className="w-full max-w-4xl mx-auto">
           <ChatInput onSend={sendMessage} onStop={handleStop} disabled={status !== "idle"} isStreaming={status === "streaming"} />
         </div>
       </div>
@@ -1169,10 +1269,10 @@ function EmptyState({ onSuggestionClick }: { onSuggestionClick: (suggestion: str
         <img src="/logo.png" alt="Atlas" className="w-9 h-9" />
       </div>
       <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-2">Atlas AI</h2>
-      <p className="text-sm text-[var(--text-secondary)] max-w-xs mb-6">
+      <p className="text-sm text-[var(--text-secondary)] max-w-xs mx-auto mb-6">
         Ask me anything about your emails, calendar, pull requests, documents, and more.
       </p>
-      <div className="flex flex-wrap justify-center gap-2.5 max-w-md">
+      <div className="flex flex-wrap justify-center gap-2.5 w-full max-w-md mx-auto">
         {[
           "Summarize today's emails",
           "Open PRs that need review",

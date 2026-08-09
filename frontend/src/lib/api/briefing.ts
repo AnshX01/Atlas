@@ -13,6 +13,7 @@ export interface DailyBriefingResponse {
   items: BriefingItemData[];
   total_unread: number;
   generated_at: string;
+  is_summarizing?: boolean;
 }
 
 interface RawDataEntry {
@@ -48,6 +49,29 @@ function makeId(source: string, type: string, index: number, identifier?: string
 }
 
 // ── Fallback: create briefing items without AI ─────────────────────────────────
+
+function calculatePriorityScore(item: BriefingItemData): number {
+  let score = item.priority_score || 50;
+  const text = `${item.title} ${item.summary}`.toLowerCase();
+  
+  if (text.includes("urgent") || text.includes("asap") || text.includes("immediate") || text.includes("action required")) {
+    score += 30;
+  }
+  
+  if (item.type === "calendar") {
+    const eventTime = item.timestamp ? new Date(item.timestamp).getTime() : 0;
+    if (eventTime) {
+      const diffHours = (eventTime - Date.now()) / (1000 * 60 * 60);
+      if (diffHours >= -1 && diffHours <= 3) {
+        score = 100; // max score for soon events
+      } else if (diffHours > 3 && diffHours <= 24) {
+        score += 20;
+      }
+    }
+  }
+  
+  return Math.min(100, Math.max(1, score));
+}
 
 function createFallbackItems(rawData: RawDataEntry[]): BriefingItemData[] {
   const items: BriefingItemData[] = [];
@@ -397,7 +421,7 @@ export const briefingAPI = {
    * Generate a daily briefing locally using MCP servers + Ollama.
    * Falls back gracefully if Ollama is unavailable or no connectors are configured.
    */
-  async getDaily(): Promise<DailyBriefingResponse> {
+  async getDaily(options?: { onFallback?: (data: DailyBriefingResponse) => void }): Promise<DailyBriefingResponse> {
     const electron = getElectron();
     if (!electron) {
       return emptyBriefing();
@@ -423,10 +447,41 @@ export const briefingAPI = {
       return emptyBriefing();
     }
 
-    // 4. Generate briefing items (AI-powered with Ollama, fallback to direct formatting)
-    const items = await generateBriefingWithOllama(rawData);
+    // 4. Emit fallback cards immediately if a callback was provided
+    if (options?.onFallback) {
+      const fallbackItems = createFallbackItems(rawData).map((item) => ({
+        ...item,
+        priority_score: calculatePriorityScore(item),
+      }));
+      const focusScore = Math.min(100, fallbackItems.length * 15);
+      const focusScoreLabel =
+        fallbackItems.length > 5 ? "Busy" : fallbackItems.length > 2 ? "Moderate" : "Light";
+      const emailEntry = rawData.find((d) => d.type === "emails");
+      const totalUnread = Array.isArray(emailEntry?.data)
+        ? emailEntry.data.length
+        : emailEntry?.data
+          ? 1
+          : 0;
 
-    // 5. Compute focus score
+      options.onFallback({
+        date: new Date().toISOString(),
+        focus_score: focusScore,
+        focus_score_label: focusScoreLabel,
+        items: fallbackItems,
+        total_unread: totalUnread,
+        generated_at: new Date().toISOString(),
+        is_summarizing: true,
+      });
+    }
+
+    // 5. Generate briefing items (AI-powered with Ollama, fallback to direct formatting)
+    let items = await generateBriefingWithOllama(rawData);
+    items = items.map((item) => ({
+      ...item,
+      priority_score: calculatePriorityScore(item),
+    }));
+
+    // 6. Compute focus score
     const focusScore = Math.min(100, items.length * 15);
     const focusScoreLabel =
       items.length > 5 ? "Busy" : items.length > 2 ? "Moderate" : "Light";
@@ -446,6 +501,7 @@ export const briefingAPI = {
       items,
       total_unread: totalUnread,
       generated_at: new Date().toISOString(),
+      is_summarizing: false,
     };
   },
 };
