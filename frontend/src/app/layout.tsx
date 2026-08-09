@@ -26,7 +26,7 @@ export const metadata: Metadata = {
 };
 
 import { OnboardingWizard } from "@/components/layout/OnboardingWizard";
-import { ErrorBoundary } from "@/components/layout/ErrorBoundary";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { OfflineBanner } from "@/components/ui/OfflineBanner";
 
 export default function RootLayout({

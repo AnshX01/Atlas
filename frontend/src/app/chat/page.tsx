@@ -20,8 +20,7 @@ import {
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 import { useSpeechToText } from "@/lib/hooks/useSpeechToText";
-import {
-  useChatStore,
+import { useChatStore,
   type ChatMessage as StoredChatMessage,
   type SearchResult,
   type ActionSuggestion,
@@ -30,6 +29,11 @@ import {
 } from "@/lib/store/useChatStore";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/cjs/styles/prism";
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -92,32 +96,7 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/**
- * Strip common markdown artifacts from assistant messages.
- * Applied only to final (non-streaming) assistant content.
- */
-function stripMarkdown(text: string): string {
-  let result = text;
-  // Remove heading markers at line start: "# ", "## ", "### ", etc.
-  result = result.replace(/^#{1,6}\s+/gm, "");
-  // Remove bold: **text** or __text__
-  result = result.replace(/\*\*(.+?)\*\*/g, "$1");
-  result = result.replace(/__(.+?)__/g, "$1");
-  // Remove italic: *text* or _text_ (single)
-  result = result.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, "$1");
-  result = result.replace(/(?<!_)_(?!_)(.+?)(?<!_)_(?!_)/g, "$1");
-  // Remove inline code: `code`
-  result = result.replace(/`([^`]+)`/g, "$1");
-  // Replace bullet markers at line start: "* " or "- " → "– "
-  result = result.replace(/^[\*\-]\s+/gm, "– ");
-  
-  // Aggressively remove stray **, #, and backticks
-  result = result.replace(/\*\*/g, "");
-  result = result.replace(/#/g, "");
-  result = result.replace(/`/g, "");
-  
-  return result;
-}
+// Strip markdown logic is no longer needed since we are natively rendering markdown!
 
 /**
  * Filter results to only include those relevant to the response text.
@@ -600,14 +579,66 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
       <div className="flex flex-col gap-2 min-w-0 overflow-x-hidden">
         <div
           className={cn(
-            "py-1 text-[15px] leading-relaxed break-word text-[var(--text-primary)]",
+            "px-4 py-3 rounded-2xl text-[15px] leading-relaxed break-word w-full",
+            isUser ? "bg-[var(--accent)] text-[var(--bg-primary)] rounded-tr-none" : "bg-[#18181b] text-[var(--text-primary)] rounded-tl-none border border-white/[0.06]",
             !isUser && message.streaming && message.content.trim().startsWith('{') && "hidden"
           )}
         >
-          <span className="whitespace-pre-wrap">
-            {/* Strip markdown from final assistant messages; leave streaming/user messages untouched */}
-            {!isUser && !message.streaming ? stripMarkdown(message.content) : message.content}
-          </span>
+          {isUser ? (
+            <span className="whitespace-pre-wrap">{message.content}</span>
+          ) : (
+            <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  code({ node, inline, className, children, ...props }: any) {
+                    const match = /language-(\w+)/.exec(className || "");
+                    return !inline && match ? (
+                      <div className="rounded-xl overflow-hidden my-4 border border-white/10 bg-[#282c34]">
+                        <div className="flex items-center justify-between px-4 py-2 bg-black/40">
+                          <span className="text-xs font-mono text-white/50">{match[1]}</span>
+                          <button 
+                            onClick={() => navigator.clipboard.writeText(String(children).replace(/\n$/, ""))}
+                            className="text-xs text-white/50 hover:text-white transition-colors flex items-center gap-1"
+                          >
+                            Copy
+                          </button>
+                        </div>
+                        <SyntaxHighlighter
+                          {...props}
+                          style={oneDark}
+                          language={match[1]}
+                          PreTag="div"
+                          customStyle={{ margin: 0, padding: "1rem", backgroundColor: "transparent" }}
+                        >
+                          {String(children).replace(/\n$/, "")}
+                        </SyntaxHighlighter>
+                      </div>
+                    ) : (
+                      <code {...props} className="bg-white/10 rounded-md px-1.5 py-0.5 text-[0.9em] font-mono text-white/90">
+                        {children}
+                      </code>
+                    );
+                  },
+                  p: ({ children }) => <p className="mb-4 last:mb-0 leading-relaxed text-[15px]">{children}</p>,
+                  a: ({ children, href }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-[var(--accent)] hover:underline">{children}</a>,
+                  ul: ({ children }) => <ul className="list-disc list-outside ml-5 mb-4 space-y-1">{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal list-outside ml-5 mb-4 space-y-1">{children}</ol>,
+                  li: ({ children }) => <li className="pl-1 text-[15px]">{children}</li>,
+                  h1: ({ children }) => <h1 className="text-xl font-bold mb-4 mt-6 text-white">{children}</h1>,
+                  h2: ({ children }) => <h2 className="text-lg font-bold mb-3 mt-5 text-white">{children}</h2>,
+                  h3: ({ children }) => <h3 className="text-base font-bold mb-2 mt-4 text-white">{children}</h3>,
+                  table: ({ children }) => <div className="overflow-x-auto mb-4 border border-white/10 rounded-lg"><table className="min-w-full divide-y divide-white/10">{children}</table></div>,
+                  thead: ({ children }) => <thead className="bg-white/5">{children}</thead>,
+                  th: ({ children }) => <th className="px-4 py-2 text-left text-xs font-medium text-white/70 uppercase tracking-wider">{children}</th>,
+                  td: ({ children }) => <td className="px-4 py-2 text-sm text-white/90 border-t border-white/10">{children}</td>,
+                  blockquote: ({ children }) => <blockquote className="border-l-4 border-[var(--accent)] pl-4 italic text-white/60 mb-4">{children}</blockquote>,
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
+          )}
           {message.streaming && <StreamingIndicator />}
         </div>
 
@@ -674,29 +705,9 @@ function ChatInput({
   onRemoveAttachment?: (index: number) => void;
 }) {
   const [text, setText] = useState("");
-  const [preDictationText, setPreDictationText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const { isListening, transcript, toggleListening } = useSpeechToText();
-
-  useEffect(() => {
-    if (isListening) {
-      const base = preDictationText.trim();
-      setText(base ? base + (transcript ? " " + transcript : "") : transcript);
-    }
-  }, [transcript, isListening, preDictationText]);
-
-  const handleToggleListening = () => {
-    if (!isListening) {
-      setPreDictationText(text);
-    }
-    toggleListening();
-  };
-
   const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (isListening) {
-      toggleListening(); // Stop dictation if the user manually types
-    }
     setText(e.target.value);
   };
 
@@ -743,27 +754,7 @@ function ChatInput({
           ))}
         </div>
       )}
-      <div className="flex items-end gap-2 w-full">
-      <button
-        onClick={handleToggleListening}
-        className={cn(
-          "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-150 mb-1",
-          isListening ? "text-[var(--accent)]" : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-        )}
-        aria-label="Toggle speech to text"
-      >
-        {isListening ? (
-          <motion.div
-            animate={{ scale: [1, 1.2, 1] }}
-            transition={{ repeat: Infinity, duration: 1.5 }}
-            className="text-[var(--accent)] drop-shadow-[0_0_8px_rgba(var(--accent),0.8)]"
-          >
-            <Mic size={18} />
-          </motion.div>
-        ) : (
-          <Mic size={18} />
-        )}
-      </button>
+      <div className="flex items-end gap-2 w-full pl-2">
 
       <textarea
         ref={textareaRef}
@@ -1367,7 +1358,7 @@ function ChatPageInner() {
           </div>
         </div>
       )}
-      <div className="flex-1 overflow-y-auto px-6 lg:px-12 pt-6 pb-32" onScroll={handleScroll}>
+      <div className="flex-1 w-full max-w-4xl mx-auto overflow-y-auto px-4 py-6 scroll-smooth scrollbar-hide" onScroll={handleScroll}>
         <div ref={contentRef} className="h-full w-full">
         {messages.length === 0 ? (
           <EmptyState onSuggestionClick={handleSuggestionClick} />
@@ -1408,14 +1399,16 @@ function ChatPageInner() {
           </div>
         )}
         <div className="w-full max-w-3xl mx-auto pointer-events-auto">
-          <ChatInput 
-            onSend={sendMessage} 
-            onStop={handleStop} 
-            disabled={status !== "idle"} 
-            isStreaming={status === "streaming"}
-            attachments={attachments}
-            onRemoveAttachment={(i) => setAttachments(prev => prev.filter((_, idx) => idx !== i))}
-          />
+          <ErrorBoundary>
+            <ChatInput 
+              onSend={sendMessage} 
+              onStop={handleStop} 
+              disabled={status !== "idle"} 
+              isStreaming={status === "streaming"}
+              attachments={attachments}
+              onRemoveAttachment={(i) => setAttachments(prev => prev.filter((_, idx) => idx !== i))}
+            />
+          </ErrorBoundary>
         </div>
       </div>
     </div>
