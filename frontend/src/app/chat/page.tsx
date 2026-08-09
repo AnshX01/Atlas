@@ -17,6 +17,9 @@ import {
   ExternalLink,
   ArrowDown,
   Mic,
+  Github,
+  Slack,
+  BookOpen,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 import { useSpeechToText } from "@/lib/hooks/useSpeechToText";
@@ -57,7 +60,7 @@ export const snappySpring = { type: "spring", stiffness: 500, damping: 30 };
 
 const typeIcon: Record<string, React.ReactNode> = {
   email: <Mail size={16} />,
-  pr: <GitPullRequest size={16} />,
+  pr: <Github size={16} />,
   issue: <AlertCircle size={16} />,
   calendar: <Calendar size={16} />,
   document: <FileText size={16} />,
@@ -205,7 +208,14 @@ function formatSourceName(source: string): string {
 }
 
 const ResultCard = memo(function ResultCard({ result }: { result: SearchResult }) {
-  const icon = typeIcon[result.type] ?? <FileText size={15} />;
+  let icon = typeIcon[result.type] ?? <FileText size={15} />;
+  
+  // Enhance source icons based on name
+  const sourceName = formatSourceName(result.source).toLowerCase();
+  if (sourceName.includes("github")) icon = <Github size={15} />;
+  if (sourceName.includes("slack")) icon = <Slack size={15} />;
+  if (sourceName.includes("notion")) icon = <BookOpen size={15} />;
+  if (sourceName.includes("google")) icon = <Mail size={15} />;
 
   const handleClick = () => {
     if (result.url) {
@@ -1055,10 +1065,16 @@ function ChatPageInner() {
               updatedDraft = { ...updatedDraft, status: "done" as const };
             }
 
+            let finalContent = m.content || data?.response || "";
+            if (data?.error) {
+              const errMsg = `\n\n> **System Notice:** The workflow encountered an error: ${data.error}`;
+              finalContent += errMsg;
+            }
+
             return {
               ...m,
               streaming: false,
-              content: m.content || data?.response || "",
+              content: finalContent,
               results: filteredResults.length > 0 ? filteredResults : undefined,
               toolExecutions: m.toolExecutions?.map((t, idx) => {
                 const backendTool = data?.toolCalls?.[idx];

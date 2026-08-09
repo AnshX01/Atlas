@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
 import {
   Mail, GitPullRequest, AlertCircle, Calendar, FileText, CheckSquare,
-  ChevronDown, ChevronUp, Check, ExternalLink,
+  Clock, ArrowUpRight, Check, X, Loader2, Github, Slack, BookOpen
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
@@ -35,11 +35,11 @@ const typeConfig: Record<
   { icon: React.ReactNode; color: string; bgColor: string }
 > = {
   email:    { icon: <Mail size={16} />,           color: "text-[#EA4335]",   bgColor: "bg-[#EA4335]/10" },
-  pr:       { icon: <GitPullRequest size={16} />, color: "text-[#181717] dark:text-white", bgColor: "bg-white/10" },
-  issue:    { icon: <AlertCircle size={16} />,    color: "text-[#181717] dark:text-white", bgColor: "bg-white/10" },
-  calendar: { icon: <Calendar size={16} />,       color: "text-[#4285F4]",  bgColor: "bg-[#4285F4]/10" },
-  document: { icon: <FileText size={16} />,       color: "text-[#000000] dark:text-white",  bgColor: "bg-white/10" },
-  task:     { icon: <CheckSquare size={16} />,    color: "text-[#E01E5A]", bgColor: "bg-[#E01E5A]/10" },
+  pr:       { icon: <Github size={16} />,         color: "text-white",       bgColor: "bg-white/10" },
+  issue:    { icon: <Github size={16} />,         color: "text-[#10B981]",   bgColor: "bg-[#10B981]/10" },
+  calendar: { icon: <Calendar size={16} />,       color: "text-[#4285F4]",   bgColor: "bg-[#4285F4]/10" },
+  document: { icon: <FileText size={16} />,       color: "text-[#FBBC04]",   bgColor: "bg-[#FBBC04]/10" },
+  task:     { icon: <CheckSquare size={16} />,    color: "text-purple-400",  bgColor: "bg-purple-500/10" },
 };
 
 function getActionUrl(item: BriefingItemData): string | null {
@@ -140,8 +140,14 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
         <span className={config.color}>
           {config.icon}
         </span>
-        <span className="text-[12px] font-medium text-white/50">
-          {item.source === "gmail" ? "Google Workspace" : item.source === "github" ? "GitHub" : item.source === "calendar" ? "Google Workspace" : item.source === "tasks" ? "Google Workspace" : item.source === "slack" ? "Slack" : item.source === "notion" ? "Notion" : item.source === "filesystem" ? "Local Files" : item.source?.charAt(0).toUpperCase() + item.source?.slice(1)}
+        <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/50">
+            {item.source === "gmail" ? <Mail size={12} className="text-[#EA4335]" /> : 
+             item.source === "github" ? <Github size={12} className="text-white" /> : 
+             item.source === "slack" ? <Slack size={12} className="text-[#E01E5A]" /> : 
+             item.source === "notion" ? <BookOpen size={12} className="text-white" /> : 
+             item.source === "calendar" ? <Calendar size={12} className="text-[#4285F4]" /> : 
+             item.source === "tasks" ? <CheckSquare size={12} className="text-[#4285F4]" /> : null}
+            {item.source === "gmail" ? "Google Workspace" : item.source === "github" ? "GitHub" : item.source === "calendar" ? "Google Workspace" : item.source === "tasks" ? "Google Workspace" : item.source === "slack" ? "Slack" : item.source === "notion" ? "Notion" : item.source === "filesystem" ? "Local Files" : item.source?.charAt(0).toUpperCase() + item.source?.slice(1)}
         </span>
         {item.type === "email" && !!item.metadata?.sender && (
           <>
