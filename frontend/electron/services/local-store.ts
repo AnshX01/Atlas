@@ -25,6 +25,8 @@ export interface Conversation {
   user_id: string;
   created_at: string;
   title: string;
+  updated_at?: string;
+  deleted?: number;
 }
 
 export interface Message {
@@ -33,6 +35,8 @@ export interface Message {
   role: "user" | "assistant" | "system" | "tool";
   content: string;
   timestamp: string;
+  updated_at?: string;
+  deleted?: number;
 }
 
 export interface ToolExecution {
@@ -43,6 +47,8 @@ export interface ToolExecution {
   params: string;
   result: string;
   timestamp: string;
+  updated_at?: string;
+  deleted?: number;
 }
 
 // ── Database Singleton ─────────────────────────────────────────────────────────
@@ -131,7 +137,9 @@ export async function initDB(): Promise<void> {
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL DEFAULT 'local',
         created_at TEXT NOT NULL,
-        title TEXT NOT NULL DEFAULT 'New Conversation'
+        title TEXT NOT NULL DEFAULT 'New Conversation',
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        deleted INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS messages (
@@ -139,7 +147,9 @@ export async function initDB(): Promise<void> {
         conversation_id TEXT NOT NULL,
         role TEXT NOT NULL,
         content TEXT NOT NULL,
-        timestamp TEXT NOT NULL
+        timestamp TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        deleted INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS tool_executions (
@@ -149,16 +159,28 @@ export async function initDB(): Promise<void> {
         tool TEXT NOT NULL,
         params TEXT NOT NULL DEFAULT '{}',
         result TEXT NOT NULL DEFAULT '{}',
-        timestamp TEXT NOT NULL
+        timestamp TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        deleted INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS config (
         key TEXT PRIMARY KEY,
-        value TEXT NOT NULL
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        deleted INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE INDEX IF NOT EXISTS idx_messages_conversationId ON messages(conversation_id);
     `);
+    
+    // Add columns to existing tables if missing (ignore errors if they exist)
+    const tables = ['conversations', 'messages', 'tool_executions', 'config'];
+    for (const table of tables) {
+      try { db.run(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP`); } catch (e) {}
+      try { db.run(`ALTER TABLE ${table} ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+    }
+    
     db.run("COMMIT");
   } catch (err) {
     db.run("ROLLBACK");

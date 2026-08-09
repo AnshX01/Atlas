@@ -2,76 +2,70 @@
   <img src="Atlas logo1.png" alt="Atlas Logo" width="200" />
   
   # Atlas
-  **Your True AI Chief of Staff — 100% Local, Zero Friction, Infinite Capability.**
+  **Your True AI Chief of Staff — 100% Local Processing, Cloud-Synced, Infinite Capability.**
 </div>
 
 ---
 
-Atlas is a locally-hosted, tier-1 AI personal assistant designed to perfectly manage your digital life. Running completely on your machine for absolute privacy, it connects to your email, calendar, GitHub, and local files to read, summarize, and execute actions on your behalf.
-
-With our new **Zero-Friction Architecture**, you no longer need to be a developer to run a cutting-edge AI assistant. Just double-click and go.
+Atlas is a Tier-1 AI personal assistant running entirely on your local machine using Ollama. It reads your email, manages your calendar, controls your GitHub, and acts on your behalf perfectly, with all the beautiful aesthetics and fluid interactions of a native macOS application.
 
 ## ✨ Features
 
-- **Tier-1 Reasoning**: Atlas understands complex, multi-turn conversations and implicit context just like ChatGPT or Gemini. ("Read the email from Sarah, and draft a polite decline.")
-- **Proactive Dashboard**: Your morning briefing isn't just a list; it's a priority-sorted, glassmorphism dashboard that highlights urgent matters (like VIP emails or impending meetings) before you even ask.
-- **Zero-Friction Onboarding**: Missing dependencies? Atlas features a beautiful in-app setup wizard that automatically guides you to connect to Ollama and your API tokens without crashing or confusing terminal errors.
-- **Extreme Performance**: Sub-millisecond latency, instant UI rendering, and an in-memory LRU cache mean your data is always instantly available. 
-- **Absolute Privacy**: All NLP and conversational logic happens locally on your machine via Ollama. 
+- **Tier-1 NLP Engine**: Complex, multi-turn reasoning and implicit entity resolution.
+- **Cross-Device Cloud Sync**: Using an offline-first Supabase architecture, your conversations and integration tokens (securely encrypted) instantly sync across all your devices.
+- **Apple-Tier Aesthetic**: An incredibly smooth, responsive UI featuring permanent top-bar command palettes, `Inter` typography, and pristine Monterey-style glassmorphism.
+- **Rage-Click Defense**: A completely indestructible interface protected against overlapping layout shifts and rapid UI clicks.
 
 ---
 
-## 🚀 How to Use Atlas (End-Users)
+## 🚀 How to Download & Use Atlas
 
-If you just want to use Atlas to manage your life, you **do not** need to touch the code! 
+You do not need to be a developer to run Atlas. Just follow this step-by-step tutorial:
 
-1. Go to the [Releases page](../../releases) on this GitHub repository.
-2. Download the latest installer for your OS (`Atlas-Setup.exe` for Windows, `.dmg` for Mac, `.AppImage` for Linux).
-3. Double-click the installer. 
-4. Upon launching, Atlas will politely greet you and check your system. If you don't have [Ollama](https://ollama.com/) installed, the beautifully designed Onboarding Wizard will guide you through setting it up in one click.
-5. Head to Settings to connect your Gmail, Notion, or GitHub accounts, and start chatting!
+### Step 1: Download the App
+1. Navigate to the [Releases](../../releases) tab on this GitHub repository.
+2. Download the latest installer for your operating system (e.g., `Atlas-Setup.exe` for Windows, `.dmg` for Mac).
+3. Double-click to install and launch Atlas.
 
----
+### Step 2: The Onboarding Wizard
+1. The first time you launch Atlas, it will verify your system.
+2. **If you do not have an AI engine installed**, a beautiful glassmorphism wizard will pop up and guide you through downloading **Ollama** in one click.
+3. Once Ollama is running in the background, Atlas will instantly connect to it.
 
-## 🛠️ How to Deploy & Build (Developers)
+### Step 3: Connect Your Digital Life
+1. Log into Atlas using your email. Your secure session will initialize the cloud sync.
+2. Open the **Settings** menu.
+3. You will see colored icons for integrations like **Gmail**, **Notion**, and **GitHub**. Click them to authenticate.
+4. *Security Note:* When you connect an integration, your OAuth tokens are instantly encrypted before being stored, ensuring complete privacy.
 
-If you want to modify Atlas or build the binary yourself from the source code, follow these steps:
-
-### Prerequisites
-- Node.js (v18+)
-- Ollama (running locally with `llama3:8b` or your preferred model)
-
-### Build Instructions
-
-1. **Clone the repo**:
-   ```bash
-   git clone https://github.com/your-username/Atlas.git
-   cd Atlas/frontend
-   ```
-
-2. **Install Dependencies**:
-   ```bash
-   npm install
-   ```
-
-3. **Build the Electron Executable**:
-   We use `electron-builder` to package the app. Simply run:
-   ```bash
-   npm run electron-build
-   ```
-   This will compile the Next.js frontend, bundle the Electron backend, and output a standalone `.exe` (or `.dmg`/`.AppImage` depending on your OS) into the `frontend/dist/` folder.
-
-4. **GitHub Actions (CI/CD)**:
-   This repository is already configured with a `.github/workflows/release.yml` pipeline. Every time you push a new tag (e.g., `v1.0.0`) to the `main` branch, GitHub Actions will automatically compile the app in the cloud and attach the binaries to the GitHub Release!
+### Step 4: Talk to Your Chief of Staff
+1. Go to the **Chat** tab.
+2. Use the permanent **Top-Bar Command Palette** to navigate or issue quick commands.
+3. Type natural language commands like: *"Read my latest emails from Sarah, and draft a polite decline."*
+4. Enjoy your new life with a perfectly synced, hyper-intelligent assistant.
 
 ---
 
-## 🔒 Architecture & Cross-Sync
+## 🛠️ Developer Deployment (GitHub Actions)
 
-Atlas uses an Electron shell wrapped around a highly optimized Next.js (React) frontend. 
+If you are modifying Atlas or want to release a new version for your users, the deployment is entirely automated via GitHub Actions.
 
-- **Persistence**: All conversations and tokens are stored in a local SQLite database (`local-store.ts`), fronted by an ultra-fast LRU memory cache. This ensures data is perfectly synced across app restarts without relying on a cloud server.
-- **Background Pre-fetching**: Atlas runs silent background chron jobs to pre-fetch your Gmail and keep your Model Context Protocol (MCP) servers warm. This means cross-syncing with your external services happens instantly the moment you open the app.
-- **Intent Routing**: The `orchestrator.ts` parses your natural language, fixes typos via LLM pre-processing, and precisely maps it to the correct external APIs using JSON schemas.
+### Environment Variables & Secrets
+To enable the Cloud Sync (Supabase) architecture for your end-users, you must provide the GitHub Actions runner with your Supabase credentials so they can be baked into the `.exe`.
 
-Enjoy your new personal Chief of Staff!
+1. Go to your GitHub Repository **Settings** > **Secrets and variables** > **Actions**.
+2. Click **New repository secret**.
+3. Add the following secrets:
+   - `NEXT_PUBLIC_SUPABASE_URL`: Your Supabase project URL.
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Your Supabase Anon Key.
+   - *(Any other integration Client IDs, if necessary).*
+
+### Releasing a New Version
+Once your secrets are set:
+1. Push your code to the `main` branch.
+2. Create and push a new git tag (e.g., `v2.0.0`):
+   ```bash
+   git tag v2.0.0
+   git push origin v2.0.0
+   ```
+3. GitHub Actions will automatically spin up Windows, Mac, and Linux runners, cross-compile the application, and publish the `.exe`, `.dmg`, and `.AppImage` files to your Releases page!

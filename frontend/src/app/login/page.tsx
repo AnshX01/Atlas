@@ -20,6 +20,9 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [syncText, setSyncText] = useState("");
   const [otpStep, setOtpStep] = useState(false);
   const [generatedOtp, setGeneratedOtp] = useState("");
   const [otpInput, setOtpInput] = useState("");
@@ -37,42 +40,61 @@ export default function LoginPage() {
     setGeneratedOtp("");
   }, []);
 
-  const handleLoginSuccess = useCallback((user: any) => {
+  const handleLoginSuccess = useCallback(async (user: any) => {
     setUser(user);
-    // Background sync — download all user data from cloud (don't block navigation)
-    // 1. Download connector tokens and save to Electron token store
-    tokenSyncAPI.downloadTokens().then((tokens) => {
-      for (const [provider, creds] of Object.entries(tokens)) {
-        localStorage.setItem(`atlas_connector_${provider}`, JSON.stringify(creds));
-        (window as any).atlasElectron?.tokenStore?.set(provider, creds);
-      }
-    }).catch(() => {});
-    // 2. Download conversations from cloud and merge into local store
-    conversationSyncAPI.listConversations().then((conversations) => {
-      if (conversations.length > 0) {
-        const store = useChatStore.getState();
-        const existingIds = new Set(store.conversations.map((c: any) => c.id));
-        for (const conv of conversations) {
-          if (!existingIds.has(conv.id)) {
-            // Add cloud conversation to local store
-            store.conversations.unshift({
-              id: conv.id,
-              title: conv.title,
-              createdAt: conv.created_at,
-              lastMessage: conv.last_message,
-            });
+    setIsSyncing(true);
+    setSyncProgress(10);
+    setSyncText("Authenticating secure session...");
+
+    try {
+      // 1. Download connector tokens
+      setSyncText("Downloading secure tokens...");
+      await tokenSyncAPI.downloadTokens().then((tokens) => {
+        for (const [provider, creds] of Object.entries(tokens)) {
+          localStorage.setItem(`atlas_connector_${provider}`, JSON.stringify(creds));
+          (window as any).atlasElectron?.tokenStore?.set(provider, creds);
+        }
+      }).catch(() => {});
+      setSyncProgress(40);
+
+      // 2. Download conversations
+      setSyncText("Hydrating local database...");
+      await conversationSyncAPI.listConversations().then((conversations) => {
+        if (conversations.length > 0) {
+          const store = useChatStore.getState();
+          const existingIds = new Set(store.conversations.map((c: any) => c.id));
+          for (const conv of conversations) {
+            if (!existingIds.has(conv.id)) {
+              // Add cloud conversation to local store
+              store.conversations.unshift({
+                id: conv.id,
+                title: conv.title,
+                createdAt: conv.created_at,
+                lastMessage: conv.last_message,
+              });
+            }
           }
         }
-      }
-    }).catch(() => {});
-    // 3. Download avatar
-    apiClient.get('/users/me/avatar').then(({ data }) => {
-      if (data.image_data) {
-        localStorage.setItem('atlas-profile-avatar', data.image_data);
-        window.dispatchEvent(new Event('atlas-avatar-updated'));
-      }
-    }).catch(() => {});
-    router.push("/dashboard");
+      }).catch(() => {});
+      setSyncProgress(75);
+
+      // 3. Download avatar
+      setSyncText("Finalizing profile sync...");
+      await apiClient.get('/users/me/avatar').then(({ data }) => {
+        if (data.image_data) {
+          localStorage.setItem('atlas-profile-avatar', data.image_data);
+          window.dispatchEvent(new Event('atlas-avatar-updated'));
+        }
+      }).catch(() => {});
+      setSyncProgress(100);
+
+      // Smooth transition UX
+      await new Promise(resolve => setTimeout(resolve, 800));
+
+      router.push("/briefing");
+    } catch (e) {
+      router.push("/briefing");
+    }
   }, [setUser, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -153,7 +175,7 @@ export default function LoginPage() {
             : await localAuth.login(currentEmail, currentPassword);
           setUser({ ...localUser, is_active: true, avatar_url: null } as any);
           setOfflineToast(true);
-          router.push("/dashboard");
+          router.push("/briefing");
         } catch (localErr: any) {
           setError(localErr.message || "Authentication failed. Please check your credentials.");
         }
@@ -271,13 +293,49 @@ export default function LoginPage() {
 
         {/* Card */}
         <div
-          className="rounded-2xl border border-white/[0.08] p-8"
+          className="rounded-2xl border border-white/[0.08] p-8 relative overflow-hidden"
           style={{
             background: "rgba(17, 17, 19, 0.8)",
             backdropFilter: "blur(20px)",
             boxShadow: "0 32px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06)",
           }}
         >
+          <AnimatePresence>
+            {isSyncing && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-[#09090b]/95 backdrop-blur-xl"
+              >
+                <div className="w-full max-w-[240px] space-y-6">
+                  <div className="flex flex-col items-center justify-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center shadow-lg animate-pulse border border-white/10">
+                      <img src="/logo.png" alt="Atlas" className="w-6 h-6 opacity-80" />
+                    </div>
+                    <div className="text-center">
+                      <h3 className="text-white text-sm font-semibold tracking-tight mb-1">Authenticating</h3>
+                      <p className="text-white/50 text-xs h-4">{syncText}</p>
+                    </div>
+                  </div>
+                  
+                  <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
+                    <motion.div
+                      className="h-full bg-white rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${syncProgress}%` }}
+                      transition={{ type: "spring", stiffness: 50, damping: 15 }}
+                    />
+                  </div>
+                  <div className="flex justify-between items-center text-[10px] text-white/40 font-mono">
+                    <span>{Math.round(syncProgress)}%</span>
+                    <span>cloud-sync</span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Tab switcher */}
           <div
             className="flex p-1 rounded-xl mb-8"

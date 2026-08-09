@@ -20,6 +20,7 @@
 import { app } from "electron";
 import * as fs from "fs";
 import * as path from "path";
+import { encryptData, decryptData, getEncryptionKey } from "./crypto";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -59,7 +60,21 @@ function readStore(): TokenStoreData {
       return {};
     }
     const raw = fs.readFileSync(storePath, "utf-8");
-    return JSON.parse(raw) as TokenStoreData;
+    
+    // Check if it's plaintext JSON
+    if (raw.trim().startsWith("{")) {
+      return JSON.parse(raw) as TokenStoreData;
+    }
+
+    // Otherwise, assume it's encrypted base64
+    const pwd = getEncryptionKey();
+    if (!pwd) {
+      console.warn("[Token Store] Cannot decrypt token store: Encryption key not set.");
+      return {};
+    }
+
+    const decrypted = decryptData(raw, pwd);
+    return JSON.parse(decrypted) as TokenStoreData;
   } catch (err) {
     console.error("[Token Store] Failed to read token store:", err);
     return {};
@@ -77,7 +92,11 @@ function writeStore(data: TokenStoreData): void {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(storePath, JSON.stringify(data, null, 2), "utf-8");
+    const raw = JSON.stringify(data, null, 2);
+    const pwd = getEncryptionKey();
+    
+    const out = pwd ? encryptData(raw, pwd) : raw;
+    fs.writeFileSync(storePath, out, "utf-8");
   } catch (err) {
     console.error("[Token Store] Failed to write token store:", err);
     throw new Error("Failed to save credentials to disk");

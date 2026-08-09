@@ -41,7 +41,7 @@ export default function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#09090b" />
       </head>
-      <body className={inter.className}>
+      <body className={`${inter.className} antialiased`}>
         <OfflineBanner />
         {/* Skip to main content — WCAG 2.1 AA */}
         <a

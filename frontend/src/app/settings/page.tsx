@@ -63,7 +63,7 @@ const connectorConfigs: ConnectorConfig[] = [
     id: "google_workspace",
     name: "Google Workspace",
     description: "Gmail, Calendar & Tasks",
-    logo: <GoogleLogo size={18} />,
+    logo: <GoogleLogo size={18} className="text-[#EA4335]" />,
     helpText:
       "Create a Google Cloud project, enable Gmail/Calendar APIs, create OAuth credentials. After entering your Client ID and Secret, click Connect to complete the OAuth flow.",
     fields: [
@@ -85,7 +85,7 @@ const connectorConfigs: ConnectorConfig[] = [
     id: "github",
     name: "GitHub",
     description: "Issues & Pull Requests",
-    logo: <GitHubLogo size={18} />,
+    logo: <GitHubLogo size={18} className="text-[#181717] dark:text-white" />,
     helpText:
       "Generate a PAT at github.com/settings/tokens with repo, user scopes.",
     fields: [
@@ -101,7 +101,7 @@ const connectorConfigs: ConnectorConfig[] = [
     id: "slack",
     name: "Slack",
     description: "Messages & Mentions",
-    logo: <SlackLogo size={18} />,
+    logo: <SlackLogo size={18} className="text-[#E01E5A]" />,
     helpText:
       "Create a Slack App at api.slack.com/apps, install to workspace, copy Bot Token.",
     fields: [
@@ -117,7 +117,7 @@ const connectorConfigs: ConnectorConfig[] = [
     id: "notion",
     name: "Notion",
     description: "Pages & Databases",
-    logo: <NotionLogo size={18} />,
+    logo: <NotionLogo size={18} className="text-[#000000] dark:text-white" />,
     helpText:
       "Create an integration at notion.so/my-integrations, copy the token.",
     fields: [
@@ -133,7 +133,7 @@ const connectorConfigs: ConnectorConfig[] = [
     id: "local_fs",
     name: "Local Files",
     description: "Documents & Code",
-    logo: <LocalFilesLogo size={18} />,
+    logo: <LocalFilesLogo size={18} className="text-amber-400" />,
     helpText:
       "Add directory paths that Atlas should index and monitor. Use the Browse button or type paths manually.",
     fields: [

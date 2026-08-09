@@ -15,6 +15,7 @@ import {
   X,
   Loader2,
   ExternalLink,
+  ArrowDown,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 import {
@@ -45,6 +46,8 @@ interface ChatMessage {
 type ChatStatus = "idle" | "streaming" | "loading";
 
 // ── Constants ───────────────────────────────────────────────────────────────
+
+export const snappySpring = { type: "spring", stiffness: 500, damping: 30 };
 
 const typeIcon: Record<string, React.ReactNode> = {
   email: <Mail size={16} />,
@@ -369,6 +372,7 @@ const DraftCard = memo(function DraftCard({
   onApprove: (executionId: string) => void;
   onReject: (executionId: string) => void;
 }) {
+  const [isLocked, setIsLocked] = useState(false);
   const isPending = draft.status === "pending";
   const isExecuting = draft.status === "executing";
   const isDone = draft.status === "done" || draft.status === "approved";
@@ -434,11 +438,11 @@ const DraftCard = memo(function DraftCard({
             <div className="flex items-center gap-2">
               <button
                 onClick={(e) => {
-                  if (draft.status !== "pending") return;
-                  e.currentTarget.disabled = true;
+                  if (draft.status !== "pending" || isLocked) return;
+                  setIsLocked(true);
                   onApprove(draft.executionId);
                 }}
-                disabled={draft.status !== "pending"}
+                disabled={draft.status !== "pending" || isLocked}
                 className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Check size={14} />
@@ -446,11 +450,11 @@ const DraftCard = memo(function DraftCard({
               </button>
               <button
                 onClick={(e) => {
-                  if (draft.status !== "pending") return;
-                  e.currentTarget.disabled = true;
+                  if (draft.status !== "pending" || isLocked) return;
+                  setIsLocked(true);
                   onReject(draft.executionId);
                 }}
-                disabled={draft.status !== "pending"}
+                disabled={draft.status !== "pending" || isLocked}
                 className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <X size={14} />
@@ -561,9 +565,11 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   return (
     <motion.div
       className={cn("flex gap-3 max-w-[85%]", isUser ? "ml-auto flex-row-reverse" : "mr-auto")}
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ type: "spring", stiffness: 400, damping: 30 }}
+      initial={{ opacity: 0, y: 12, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={snappySpring}
+      layout
     >
       {/* Avatar */}
       <div
@@ -589,10 +595,10 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
       </div>
 
       {/* Content */}
-      <div className="flex flex-col gap-2 min-w-0">
+      <div className="flex flex-col gap-2 min-w-0 overflow-x-hidden">
         <div
           className={cn(
-            "px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed",
+            "px-4 py-2.5 rounded-2xl text-[14px] leading-relaxed break-word",
             isUser
               ? "bg-[var(--accent)]/10 text-[var(--text-primary)]"
               : "bg-[var(--bg-secondary)] text-[var(--text-primary)]",
@@ -792,6 +798,12 @@ function ChatPageInner() {
   const conversationIdRef = useRef<string | null>(conversationId);
   const isFirstMessageRef = useRef(!conversationId);
 
+  const [isAutoScrollPaused, setIsAutoScrollPaused] = useState(false);
+  const isAutoScrollPausedRef = useRef(false);
+  useEffect(() => {
+    isAutoScrollPausedRef.current = isAutoScrollPaused;
+  }, [isAutoScrollPaused]);
+
   useEffect(() => {
     const stored = localStorage.getItem('atlas-profile-avatar');
     if (stored) setUserAvatar(stored);
@@ -827,11 +839,25 @@ function ChatPageInner() {
     if (!content) return;
 
     const observer = new ResizeObserver(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      if (!isAutoScrollPausedRef.current) {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      }
     });
 
     observer.observe(content);
     return () => observer.disconnect();
+  }, []);
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const distanceToBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+    const isNearBottom = distanceToBottom < 50;
+
+    if (!isNearBottom && !isAutoScrollPausedRef.current) {
+      setIsAutoScrollPaused(true);
+    } else if (isNearBottom && isAutoScrollPausedRef.current) {
+      setIsAutoScrollPaused(false);
+    }
   }, []);
 
   // ── Send message & get response ────────────────────────────────────────
@@ -1218,8 +1244,8 @@ function ChatPageInner() {
   // ── Render ─────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto px-6 lg:px-12 py-6">
+    <div className="flex flex-col h-full relative">
+      <div className="flex-1 overflow-y-auto px-6 lg:px-12 py-6" onScroll={handleScroll}>
         <div ref={contentRef} className="h-full w-full">
         {messages.length === 0 ? (
           <EmptyState onSuggestionClick={handleSuggestionClick} />
@@ -1246,6 +1272,19 @@ function ChatPageInner() {
       </div>
 
       <div className="flex-shrink-0 px-6 lg:px-12 pb-4 pt-3 bg-[var(--bg-primary)]">
+        {isAutoScrollPaused && (
+          <div className="absolute bottom-[90px] left-1/2 -translate-x-1/2 z-10">
+            <button
+              onClick={() => {
+                setIsAutoScrollPaused(false);
+                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+              }}
+              className="flex items-center gap-2 px-4 py-2 rounded-full bg-[var(--accent)] text-[var(--bg-primary)] text-[13px] font-medium shadow-lg hover:shadow-xl hover:scale-105 transition-all"
+            >
+              <ArrowDown size={16} /> New messages
+            </button>
+          </div>
+        )}
         <div className="w-full max-w-4xl mx-auto">
           <ChatInput onSend={sendMessage} onStop={handleStop} disabled={status !== "idle"} isStreaming={status === "streaming"} />
         </div>

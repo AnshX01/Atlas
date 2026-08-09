@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, MessageSquare, Settings, Mail, Moon, LogOut } from "lucide-react";
@@ -17,24 +17,32 @@ const actions = [
 export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const router = useRouter();
-
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setOpen((open) => !open);
-      }
-    };
-    document.addEventListener("keydown", down);
-    return () => document.removeEventListener("keydown", down);
-  }, []);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const filtered = actions.filter((a) => a.label.toLowerCase().includes(search.toLowerCase()));
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [search, open]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleSelect = (action: typeof actions[0]) => {
     setOpen(false);
     setSearch("");
+    if (inputRef.current) inputRef.current.blur();
+    
     if (action.route) {
       router.push(action.route);
     } else if (action.action === "theme") {
@@ -46,55 +54,90 @@ export function CommandPalette() {
     }
   };
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!open) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        setOpen(true);
+        e.preventDefault();
+      }
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev + 1) % filtered.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev - 1 + filtered.length) % filtered.length);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (filtered[selectedIndex]) {
+        handleSelect(filtered[selectedIndex]);
+      }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setOpen(false);
+      if (inputRef.current) inputRef.current.blur();
+    }
+  };
+
   return (
-    <AnimatePresence>
-      {open && (
-        <>
+    <div className="relative w-full max-w-2xl mx-auto" ref={containerRef}>
+      <div className={cn(
+        "flex items-center gap-3 px-4 py-2.5 bg-[#111113] border border-white/10 rounded-full transition-all duration-200",
+        open ? "bg-white/5 border-white/20 shadow-lg" : "hover:bg-white/5 hover:border-white/20"
+      )}>
+        <Search size={18} className="text-white/40" />
+        <input
+          ref={inputRef}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onFocus={() => setOpen(true)}
+          onKeyDown={handleKeyDown}
+          placeholder="Search commands, settings, or integrations..."
+          className="flex-1 bg-transparent text-[15px] text-white outline-none placeholder:text-white/40"
+        />
+        {open && (
+          <div className="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[10px] text-white/50">
+            <kbd className="font-sans">esc</kbd>
+          </div>
+        )}
+      </div>
+
+      <AnimatePresence>
+        {open && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
-            onClick={() => setOpen(false)}
-          />
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: "-50%", x: "-50%" }}
-            animate={{ opacity: 1, scale: 1, y: "-50%", x: "-50%" }}
-            exit={{ opacity: 0, scale: 0.95, y: "-50%", x: "-50%" }}
-            className="fixed top-1/2 left-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-2xl border border-white/10 bg-[#111113] shadow-2xl"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.15 }}
+            className="absolute top-full left-0 right-0 mt-2 z-50 overflow-hidden rounded-2xl border border-white/10 bg-[#111113] shadow-2xl backdrop-blur-xl"
           >
-            <div className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
-              <Search size={18} className="text-white/40" />
-              <input
-                autoFocus
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Type a command or search..."
-                className="flex-1 bg-transparent text-[15px] text-white outline-none placeholder:text-white/40"
-              />
-              <div className="flex items-center gap-1 rounded bg-white/10 px-2 py-0.5 text-[10px] text-white/50">
-                <kbd className="font-sans">esc</kbd>
-              </div>
-            </div>
             <div className="max-h-[300px] overflow-y-auto p-2">
               {filtered.length === 0 ? (
                 <p className="py-6 text-center text-sm text-white/40">No results found.</p>
               ) : (
-                filtered.map((action) => (
+                filtered.map((action, idx) => (
                   <button
                     key={action.id}
                     onClick={() => handleSelect(action)}
-                    className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[14px] text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+                    onMouseEnter={() => setSelectedIndex(idx)}
+                    className={cn(
+                      "flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-[14px] transition-colors",
+                      selectedIndex === idx
+                        ? "bg-white/10 text-white"
+                        : "text-white/70 hover:bg-white/5 hover:text-white"
+                    )}
                   >
-                    <action.icon size={16} />
+                    <action.icon size={16} className={selectedIndex === idx ? "text-white" : "text-white/50"} />
                     {action.label}
                   </button>
                 ))
               )}
             </div>
           </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }

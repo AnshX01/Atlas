@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { type ButtonHTMLAttributes, forwardRef } from "react";
+import { type ButtonHTMLAttributes, forwardRef, useCallback, useRef } from "react";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
@@ -56,10 +56,27 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
       className,
       children,
       disabled,
+      onClick,
       ...props
     },
     ref
   ) => {
+    const isClicking = useRef(false);
+
+    const handleClick = useCallback(
+      (e: React.MouseEvent<HTMLButtonElement>) => {
+        if (isClicking.current || disabled || isLoading) return;
+        isClicking.current = true;
+        if (onClick) {
+          onClick(e);
+        }
+        setTimeout(() => {
+          isClicking.current = false;
+        }, 300);
+      },
+      [onClick, disabled, isLoading]
+    );
+
     return (
       <motion.button
         ref={ref}
@@ -72,9 +89,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           "disabled:opacity-40 disabled:cursor-not-allowed",
           variantStyles[variant],
           sizeStyles[size],
+          (isLoading || disabled) && "pointer-events-none opacity-50",
           className
         )}
         disabled={disabled || isLoading}
+        onClick={handleClick}
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         {...(props as any)}
       >

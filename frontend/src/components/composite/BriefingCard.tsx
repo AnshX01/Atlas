@@ -34,12 +34,12 @@ const typeConfig: Record<
   BriefingItemData["type"],
   { icon: React.ReactNode; color: string; bgColor: string }
 > = {
-  email:    { icon: <Mail size={16} />,           color: "text-white/70",   bgColor: "bg-white/[0.06]" },
-  pr:       { icon: <GitPullRequest size={16} />, color: "text-white/70", bgColor: "bg-white/[0.06]" },
-  issue:    { icon: <AlertCircle size={16} />,    color: "text-white/70", bgColor: "bg-white/[0.06]" },
-  calendar: { icon: <Calendar size={16} />,       color: "text-white/70",  bgColor: "bg-white/[0.06]" },
-  document: { icon: <FileText size={16} />,       color: "text-white/70",  bgColor: "bg-white/[0.06]" },
-  task:     { icon: <CheckSquare size={16} />,    color: "text-white/70", bgColor: "bg-white/[0.06]" },
+  email:    { icon: <Mail size={16} />,           color: "text-[#EA4335]",   bgColor: "bg-[#EA4335]/10" },
+  pr:       { icon: <GitPullRequest size={16} />, color: "text-[#181717] dark:text-white", bgColor: "bg-white/10" },
+  issue:    { icon: <AlertCircle size={16} />,    color: "text-[#181717] dark:text-white", bgColor: "bg-white/10" },
+  calendar: { icon: <Calendar size={16} />,       color: "text-[#4285F4]",  bgColor: "bg-[#4285F4]/10" },
+  document: { icon: <FileText size={16} />,       color: "text-[#000000] dark:text-white",  bgColor: "bg-white/10" },
+  task:     { icon: <CheckSquare size={16} />,    color: "text-[#E01E5A]", bgColor: "bg-[#E01E5A]/10" },
 };
 
 function getActionUrl(item: BriefingItemData): string | null {
@@ -137,7 +137,7 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
     >
       {/* Header: icon + source + time */}
       <div className="flex items-center gap-2 mb-2.5">
-        <span className="text-white/40">
+        <span className={config.color}>
           {config.icon}
         </span>
         <span className="text-[12px] font-medium text-white/50">

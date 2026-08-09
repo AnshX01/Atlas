@@ -68,15 +68,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <OfflineBanner />
-      <CommandPalette />
       <div className="app-layout">
         <Sidebar />
-        <main id="main-content" className="app-main" role="main">
-          <ErrorBoundary>
-            <PageTransition>
-              {children}
-            </PageTransition>
-          </ErrorBoundary>
+        <main id="main-content" className="app-main !p-0" role="main">
+          <header className="sticky top-0 z-50 backdrop-blur-md bg-[#09090b]/80 border-b border-white/10 px-6 py-3">
+            <CommandPalette />
+          </header>
+          <div className="p-8">
+            <ErrorBoundary>
+              <PageTransition>
+                {children}
+              </PageTransition>
+            </ErrorBoundary>
+          </div>
         </main>
       </div>
     </>

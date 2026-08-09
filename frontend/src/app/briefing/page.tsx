@@ -91,8 +91,10 @@ function ProactiveActions({ items }: { items: any[] }) {
     <motion.div 
       initial={{ opacity: 0, scale: 0.95, y: 10 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95, position: "absolute" }}
       transition={{ delay: 0.3, type: "spring", stiffness: 300, damping: 25 }}
       className="mb-8 p-5 rounded-2xl border border-white/10 bg-gradient-to-br from-[var(--bg-secondary)]/80 to-[var(--bg-primary)]/40 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] relative overflow-hidden"
+      layout
     >
       <div className="absolute inset-0 bg-gradient-to-r from-[var(--accent)]/10 to-transparent opacity-50" />
       <div className="relative z-10">
@@ -225,9 +227,11 @@ export default function BriefingPage() {
       {isError && <BriefingError onRetry={refetch} />}
 
       {/* Proactive Actions */}
-      {!isLoading && !isError && visibleItems.length > 0 && (
-        <ProactiveActions items={visibleItems} />
-      )}
+      <AnimatePresence>
+        {!isLoading && !isError && visibleItems.length > 0 && visibleItems[0] && (visibleItems[0].priority_score || 0) >= 60 && (
+          <ProactiveActions key="proactive" items={visibleItems} />
+        )}
+      </AnimatePresence>
 
       {/* Briefing Items */}
       {!isLoading && !isError && (
@@ -261,16 +265,21 @@ export default function BriefingPage() {
                 initial="hidden"
                 animate="visible"
               >
-                {visibleItems.map((item, index) => (
-                  <motion.div 
-                    key={item.id}
-                    variants={{
-                      hidden: { opacity: 0, y: 20 },
-                      visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } }
-                    }}
-                    layout
-                  >
-                    <BriefingCard
+                <AnimatePresence>
+                  {visibleItems.map((item, index) => (
+                    <motion.div 
+                      key={item.id}
+                      variants={{
+                        hidden: { opacity: 0, y: 20 },
+                        visible: { opacity: 1, y: 0, transition: { type: "spring", stiffness: 300, damping: 24 } },
+                        exit: { opacity: 0, scale: 0.95, position: "absolute" }
+                      }}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      layout
+                    >
+                      <BriefingCard
                       item={item}
                       index={index}
                       onAction={(item) => {
@@ -278,7 +287,8 @@ export default function BriefingPage() {
                       }}
                     />
                   </motion.div>
-                ))}
+                  ))}
+                </AnimatePresence>
               </motion.div>
             )}
           </AnimatePresence>
