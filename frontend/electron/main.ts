@@ -45,10 +45,11 @@ import {
 } from "./services/token-store";
 import { startGoogleOAuth, handleOAuthCallback, hasPendingOAuth, setOAuthRedirectPort } from "./services/google-oauth";
 import * as http from "http";
+import serve from "electron-serve";
 
 const isDev = !app.isPackaged;
 const NEXT_URL = "http://localhost:3000";
-const PROD_INDEX = path.join(__dirname, "../out/index.html");
+const loadProd = serve({ directory: path.join(__dirname, "../out") });
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -91,7 +92,7 @@ function createWindow(): BrowserWindow {
     win.loadURL(NEXT_URL);
     win.webContents.openDevTools({ mode: "detach" });
   } else {
-    win.loadFile(PROD_INDEX);
+    loadProd(win);
   }
 
   // Open external links in the default OS browser
