@@ -3,7 +3,7 @@ module.exports = {
   productName: "Atlas",
   copyright: "Copyright © 2026 Atlas",
   directories: {
-    output: "release",
+    output: "dist",
     buildResources: "resources",
   },
   files: [

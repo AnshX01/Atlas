@@ -92,7 +92,6 @@ function getActionLabel(item: BriefingItemData): string {
 
 export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const [completed, setCompleted] = useState(false);
   const config = typeConfig[item.type] ?? typeConfig.task;
   const timeAgo = (() => {
     try {
@@ -103,24 +102,7 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
   })();
   const actionUrl = getActionUrl(item);
 
-  if (completed) {
-    return (
-      <motion.div
-        className="p-3 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] opacity-50"
-        initial={{ opacity: 1, height: "auto" }}
-        animate={{ opacity: 0.4, height: "auto" }}
-        exit={{ opacity: 0, height: 0 }}
-        transition={{ duration: 0.3 }}
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-5 h-5 rounded-full bg-white/10 border-2 border-white/40 flex items-center justify-center">
-            <Check size={10} className="text-white/70" />
-          </div>
-          <span className="text-sm text-[var(--text-muted)] line-through">{item.title}</span>
-        </div>
-      </motion.div>
-    );
-  }
+
 
   return (
     <motion.div
@@ -278,7 +260,6 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
           size="sm"
           variant="primary"
           onClick={() => {
-            setCompleted(true);
             onAction?.(item);
           }}
           leftIcon={<Check size={12} />}

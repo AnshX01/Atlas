@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+// using global jest methods
 
 describe('Entity Resolution', () => {
   it('correctly resolves pronouns in conversation turns', () => {

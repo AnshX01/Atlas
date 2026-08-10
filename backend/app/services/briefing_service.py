@@ -53,7 +53,7 @@ def _compute_focus_score(items: list[BriefingItem]) -> tuple[int, str]:
     Uses weighted average biased toward the top-3 highest-priority items.
     """
     if not items:
-        return 0, "Clear Day"
+        return 0, "\u2728 Clear Day"
 
     scores = [item.priority_score for item in items]
     top_3 = sorted(scores, reverse=True)[:3]
@@ -64,13 +64,13 @@ def _compute_focus_score(items: list[BriefingItem]) -> tuple[int, str]:
     weighted = int(top_avg * 0.7 + rest_avg * 0.3)
 
     if weighted >= 80:
-        label = "High Focus Day"
+        label = "\U0001f534 High Focus Day"
     elif weighted >= 55:
-        label = "Moderate Focus Day"
+        label = "\U0001f7e1 Moderate Focus Day"
     elif weighted >= 30:
-        label = "Light Day"
+        label = "\U0001f7e2 Light Day"
     else:
-        label = "Clear Day"
+        label = "\u2728 Clear Day"
 
     return weighted, label
 
@@ -229,8 +229,8 @@ class BriefingService:
                     event_date = datetime.fromisoformat(
                         timestamp_str.replace("Z", "+00:00")
                     ).date()
-                    if event_date != today_date and event_date != tomorrow_date:
-                        continue  # Skip events not happening today/tomorrow
+                    if event_date != today_date:
+                        continue  # Skip events not happening today
                 except (ValueError, TypeError):
                     continue  # Skip if we can't parse the date
 

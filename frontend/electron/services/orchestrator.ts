@@ -381,8 +381,10 @@ export class Orchestrator {
     initDB();
     initRAGStore();
 
-    if (prompt.length > 2000) {
-      prompt = prompt.substring(0, 2000);
+    // Limit prompt to ~500 tokens (whitespace approximation)
+    const promptTokens = prompt.split(/\s+/);
+    if (promptTokens.length > 500) {
+      prompt = promptTokens.slice(0, 500).join(" ");
     }
 
     if (!conversationId) {
@@ -888,11 +890,13 @@ Output JSON only: {"valid": boolean, "feedback": "if invalid, explain why and wh
     context: any[],
     toolSchemaStr: string
   ): { system: string; user: string } {
-    const contextStr = context
+    const rawContextStr = context
       .filter((c) => c.type === "classification" || c.type === "tool_result")
       .map((c) => JSON.stringify(humanizeDates(c.params || c.result)))
-      .join("\n")
-      .slice(0, 2000);
+      .join("\n");
+
+    const contextTokens = rawContextStr.split(/\s+/);
+    const contextStr = contextTokens.length > 500 ? contextTokens.slice(0, 500).join(" ") : rawContextStr;
 
     const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     const nowTime = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
@@ -1473,7 +1477,8 @@ Rules:
             // Humanize ISO dates so LLM outputs natural phrasing
             const humanized = humanizeDates(c.result);
             const str = JSON.stringify(humanized);
-            return str.length > 3000 ? str.slice(0, 3000) + "..." : str;
+            const strTokens = str.split(/\s+/);
+            return strTokens.length > 750 ? strTokens.slice(0, 750).join(" ") + "..." : str;
           }
           return `Error fetching from ${c.server}: ${c.error}`;
         })

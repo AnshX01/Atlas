@@ -146,7 +146,7 @@ MERGE (m:Message {id: $msg_id, user_id: $user_id})
 SET m.subject = $subject, m.timestamp = $timestamp
 MERGE (u)-[:OWNS]->(m)
 WITH m
-MERGE (p:Person {email: $sender_email})
+MERGE (p:Person {email: $sender_email, user_id: $user_id})
 SET p.display_name = $sender_name
 MERGE (m)-[:SENT_BY]->(p)
 """
@@ -186,7 +186,7 @@ MERGE (u)-[:OWNS]->(mt)
 """
     attendee_query = """
 MATCH (mt:Meeting {id: $event_id, user_id: $user_id})
-MERGE (p:Person {email: $email})
+MERGE (p:Person {email: $email, user_id: $user_id})
 MERGE (mt)-[:ATTENDED_BY]->(p)
 """
     try:

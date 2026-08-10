@@ -21,33 +21,6 @@
     "electron-build": "next build && npm run electron-compile && electron-builder build",
     "postinstall": "electron-builder install-app-deps"
   },
-  "build": {
-    "appId": "com.atlas.app",
-    "productName": "Atlas",
-    "directories": {
-      "output": "dist"
-    },
-    "files": [
-      "dist-electron/**/*",
-      "out/**/*",
-      "package.json"
-    ],
-    "mac": {
-      "target": [
-        "dmg"
-      ]
-    },
-    "win": {
-      "target": [
-        "nsis"
-      ]
-    },
-    "linux": {
-      "target": [
-        "AppImage"
-      ]
-    }
-  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@modelcontextprotocol/server-filesystem": "^2026.7.10",

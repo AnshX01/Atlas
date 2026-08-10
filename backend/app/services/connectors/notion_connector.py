@@ -14,6 +14,7 @@ from app.domain.interfaces.base_connector import BaseConnector
 from app.domain.models.connector import Connector, ConnectorStatus, OAuthToken
 from app.infrastructure.database import get_session_factory
 from app.workers.embedding_tasks import batch_embed_chunks
+from app.infrastructure.neo4j_client import upsert_document_node, upsert_task_node
 from sqlalchemy import select
 
 logger = get_logger(__name__)
@@ -54,6 +55,7 @@ class NotionConnector(BaseConnector):
                 resp = await client.get(f"{NOTION_API}{path}", headers=headers)
             else:
                 resp = await client.post(f"{NOTION_API}{path}", headers=headers, json=json_body or {})
+            resp.raise_for_status()
             return resp.json()
 
     async def authenticate(self, auth_code: str) -> None:
@@ -109,6 +111,23 @@ class NotionConnector(BaseConnector):
                     },
                 })
                 synced += 1
+
+                try:
+                    if item_type == "document":
+                        await upsert_document_node(str(self.user_id), page["id"], "notion_page", last_edited)
+                    elif item_type == "task":
+                        await upsert_task_node(
+                            user_id=str(self.user_id),
+                            issue_id=page["id"],
+                            title=title,
+                            url=page_url,
+                            state="open",
+                            repo="Notion",
+                            assignee=None,
+                            updated_at=last_edited,
+                        )
+                except Exception as e:
+                    logger.warning("Neo4j upsert failed for Notion item %s: %s", page["id"], str(e))
 
         except Exception as e:
             logger.warning("Notion sync error: %s", str(e))

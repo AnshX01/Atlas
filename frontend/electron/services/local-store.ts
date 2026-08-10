@@ -212,6 +212,8 @@ export function closeDB(): void {
 
 // ── Conversation Operations ────────────────────────────────────────────────────
 
+import { syncManager } from "./cloud-sync";
+
 export function createConversation(title: string, userId: string = "local"): Conversation {
   if (!db) throw new Error("Database not initialized");
   const id = randomUUID();
@@ -230,7 +232,15 @@ export function createConversation(title: string, userId: string = "local"): Con
   }
   persistToDisk();
 
-  return { id, user_id: userId, created_at: createdAt, title };
+  const conv = { id, user_id: userId, created_at: createdAt, title };
+  syncManager.queueDelta({
+    table: "conversations",
+    operation: "INSERT",
+    data: conv,
+    timestamp: createdAt
+  });
+
+  return conv;
 }
 
 export function listConversations(limit: number = 50): Conversation[] {
@@ -274,7 +284,15 @@ export function saveMessage(
 
   messagesCache.clear();
 
-  return { id, conversation_id: conversationId, role, content, timestamp };
+  const msg = { id, conversation_id: conversationId, role, content, timestamp };
+  syncManager.queueDelta({
+    table: "messages",
+    operation: "INSERT",
+    data: msg,
+    timestamp
+  });
+
+  return msg;
 }
 
 export function getConversationHistory(
@@ -331,7 +349,7 @@ export function saveToolExecution(
   }
   persistToDisk();
 
-  return {
+  const exec = {
     id,
     conversation_id: conversationId,
     server,
@@ -340,6 +358,14 @@ export function saveToolExecution(
     result: resultJson,
     timestamp,
   };
+  syncManager.queueDelta({
+    table: "tool_executions",
+    operation: "INSERT",
+    data: exec,
+    timestamp
+  });
+
+  return exec;
 }
 
 

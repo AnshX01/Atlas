@@ -49,14 +49,35 @@ export class SyncManager {
 
     console.log(`[SyncManager] Flushing ${this.syncQueue.length} items to Supabase...`);
 
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      console.warn("[SyncManager] Supabase URL or Key is not configured.");
+      return;
+    }
+
     // Process a snapshot of the queue
     const queueToProcess = [...this.syncQueue];
     this.syncQueue = [];
 
     for (const delta of queueToProcess) {
       try {
-        // In a real implementation:
-        // await this.supabase.from(delta.table).upsert(delta.data);
+        if (delta.operation === "INSERT" || delta.operation === "UPDATE") {
+          const res = await fetch(`${supabaseUrl}/rest/v1/${delta.table}`, {
+            method: 'POST',
+            headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'resolution=merge-duplicates'
+            },
+            body: JSON.stringify(delta.data)
+          });
+          if (!res.ok) {
+            throw new Error(`HTTP error! status: ${res.status} - ${await res.text()}`);
+          }
+        }
         console.log(`[SyncManager] Synced ${delta.operation} on ${delta.table} to cloud.`);
       } catch (err) {
         console.error(`[SyncManager] Failed to sync delta for ${delta.table}:`, err);
@@ -76,9 +97,29 @@ export class SyncManager {
     }
 
     console.log(`[SyncManager] Pulling latest changes from Supabase since ${lastSyncTime}...`);
-    // In a real implementation:
-    // const { data } = await this.supabase.from('conversations').select('*').gt('updated_at', lastSyncTime);
-    // if (data) { apply to localStore }
+    
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${supabaseUrl}/rest/v1/conversations?updated_at=gt.${encodeURIComponent(lastSyncTime)}`, {
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // apply to localStore (simplified for stub)
+        console.log(`[SyncManager] Pulled ${data.length} conversations from cloud.`);
+      }
+    } catch (err) {
+      console.error("[SyncManager] Pull failed:", err);
+    }
   }
 }
 

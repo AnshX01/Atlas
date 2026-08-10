@@ -1,16 +1,6 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type { BriefingItemData } from "@/components/composite/BriefingCard";
-
-const DISMISSED_STORAGE_KEY = "atlas-dismissed-items";
-
-function loadDismissedIds(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    return JSON.parse(localStorage.getItem(DISMISSED_STORAGE_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
 
 interface BriefingState {
   // ── Data ─────────────────────────────────────────────────────────
@@ -44,17 +34,19 @@ interface BriefingState {
   resetBriefing: () => void;
 }
 
-export const useBriefingStore = create<BriefingState>()((set, get) => ({
-  // ── Initial State ──────────────────────────────────────────────────
-  items: [],
-  focusScore: 0,
-  focusScoreLabel: "",
-  totalUnread: 0,
-  generatedAt: null,
-  dismissedIds: loadDismissedIds(),
-  loading: false,
-  error: null,
-  isSummarizing: false,
+export const useBriefingStore = create<BriefingState>()(
+  persist(
+    (set, get) => ({
+      // ── Initial State ──────────────────────────────────────────────────
+      items: [],
+      focusScore: 0,
+      focusScoreLabel: "",
+      totalUnread: 0,
+      generatedAt: null,
+      dismissedIds: [],
+      loading: false,
+      error: null,
+      isSummarizing: false,
 
   // ── Actions ─────────────────────────────────────────────────────────
   setLoading: (loading) => set(loading ? { loading, error: null } : { loading }),
@@ -82,9 +74,6 @@ export const useBriefingStore = create<BriefingState>()((set, get) => ({
     set((state) => {
       if (state.dismissedIds.includes(id)) return state;
       const updated = [...state.dismissedIds, id];
-      try {
-        localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(updated));
-      } catch { /* private browsing or quota exceeded */ }
       return {
         dismissedIds: updated,
         items: state.items.filter((item) => item.id !== id),
@@ -95,9 +84,6 @@ export const useBriefingStore = create<BriefingState>()((set, get) => ({
   isDismissed: (id) => get().dismissedIds.includes(id),
 
   clearDismissed: () => {
-    try {
-      localStorage.setItem(DISMISSED_STORAGE_KEY, "[]");
-    } catch { /* private browsing or quota exceeded */ }
     set({ dismissedIds: [] });
   },
 
@@ -111,4 +97,9 @@ export const useBriefingStore = create<BriefingState>()((set, get) => ({
       error: null,
       isSummarizing: false,
     }),
-}));
+    {
+      name: "atlas-briefing-store",
+      partialize: (state) => ({ dismissedIds: state.dismissedIds }),
+    }
+  )
+);

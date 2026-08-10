@@ -120,8 +120,10 @@ async def semantic_search(
     client = get_qdrant_client()
     query_filter = None
 
+    from qdrant_client.models import FieldCondition
+
     if source_filter:
-        query_filter = Filter(must=[{"key": "type", "match": MatchValue(value=source_filter)}])
+        query_filter = Filter(must=[FieldCondition(key="type", match=MatchValue(value=source_filter))])
 
     try:
         response = await client.query_points(

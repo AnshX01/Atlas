@@ -28,10 +28,19 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from tenacity import (
     retry,
+    retry_if_exception,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential_jitter,
 )
+
+def _is_retryable_http_error(e: BaseException) -> bool:
+    if isinstance(e, HttpError):
+        # Do not retry 401 or 403
+        if e.resp.status in (401, 403):
+            return False
+        return True
+    return False
 
 logger = get_logger(__name__)
 
@@ -174,7 +183,7 @@ class GoogleWorkspaceConnector(BaseConnector):
         logger.info("Google Workspace authenticated", connector_id=str(self.connector.id))
 
     @retry(
-        retry=retry_if_exception_type(HttpError),
+        retry=retry_if_exception(_is_retryable_http_error),
         wait=wait_exponential_jitter(initial=2, max=60),
         stop=stop_after_attempt(5),
     )
@@ -317,7 +326,7 @@ class GoogleWorkspaceConnector(BaseConnector):
         return {"synced": synced, "failed": 0, "skipped": 0}, chunks, neo4j_data
 
     @retry(
-        retry=retry_if_exception_type(HttpError),
+        retry=retry_if_exception(_is_retryable_http_error),
         wait=wait_exponential_jitter(initial=2, max=60),
         stop=stop_after_attempt(5),
     )
@@ -475,6 +484,7 @@ class GoogleWorkspaceConnector(BaseConnector):
         except HttpError as e:
             if e.resp.status in (403, 401):
                 logger.warning("Google Tasks access denied - scope may need re-granting: %s", str(e))
+                raise
             else:
                 logger.warning("Google Tasks sync error: %s", str(e))
         except Exception as e:
@@ -491,15 +501,25 @@ class GoogleWorkspaceConnector(BaseConnector):
         calendar_service = build("calendar", "v3", credentials=creds)
         tasks_service = build("tasks", "v1", credentials=creds)
 
-        gmail_result, gmail_chunks, gmail_neo4j = await asyncio.to_thread(
-            self._sync_gmail, gmail_service, since
-        )
-        cal_result, cal_chunks, cal_neo4j = await asyncio.to_thread(
-            self._sync_calendar, calendar_service, since
-        )
-        tasks_result, tasks_chunks = await asyncio.to_thread(
-            self._sync_tasks, tasks_service
-        )
+        try:
+            gmail_result, gmail_chunks, gmail_neo4j = await asyncio.to_thread(
+                self._sync_gmail, gmail_service, since
+            )
+            cal_result, cal_chunks, cal_neo4j = await asyncio.to_thread(
+                self._sync_calendar, calendar_service, since
+            )
+            tasks_result, tasks_chunks = await asyncio.to_thread(
+                self._sync_tasks, tasks_service
+            )
+        except HttpError as e:
+            if e.resp.status == 401:
+                await self._mark_requires_reauth()
+                raise ValueError("Google Workspace authentication expired. Please re-connect.") from e
+            if e.resp.status == 403:
+                raise ValueError("Google Workspace permission denied. Re-connect and grant required scopes.") from e
+            if e.resp.status == 429:
+                raise ValueError("Google Workspace rate limit exceeded. Please try again later.") from e
+            raise
 
         # Write Neo4j nodes asynchronously (failures are silently logged inside helpers)
         await asyncio.gather(

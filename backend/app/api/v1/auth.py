@@ -460,11 +460,18 @@ async def google_oauth_callback(
 
 @router.get("/oauth/github/callback", summary="GitHub OAuth callback")
 async def github_oauth_callback(
-    code: str,
+    code: str | None = None,
     state: str | None = None,
+    error: str | None = None,
     session: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
     """Handle GitHub OAuth redirect. Exchange code for tokens and activate connector."""
+    if error or not code:
+        return RedirectResponse(
+            "http://localhost:3000/settings?error=github_auth_failed",
+            status_code=302,
+        )
+
     if state is None:
         return RedirectResponse(
             "http://localhost:3000/settings?error=github_auth_failed",
@@ -532,10 +539,13 @@ async def slack_oauth_initiate(
 
 @router.get("/oauth/slack/callback", summary="Slack OAuth callback")
 async def slack_oauth_callback(
-    code: str,
+    code: str | None = None,
     state: str | None = None,
+    error: str | None = None,
     session: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
+    if error or not code:
+        return RedirectResponse("http://localhost:3000/settings?error=slack_auth_failed", status_code=302)
     if state is None:
         return RedirectResponse("http://localhost:3000/settings?error=slack_auth_failed", status_code=302)
     try:
@@ -629,10 +639,13 @@ async def notion_oauth_initiate(
 
 @router.get("/oauth/notion/callback", summary="Notion OAuth callback")
 async def notion_oauth_callback(
-    code: str,
+    code: str | None = None,
     state: str | None = None,
+    error: str | None = None,
     session: AsyncSession = Depends(get_db),
 ) -> RedirectResponse:
+    if error or not code:
+        return RedirectResponse("http://localhost:3000/settings?error=notion_auth_failed", status_code=302)
     if state is None:
         return RedirectResponse("http://localhost:3000/settings?error=notion_auth_failed", status_code=302)
     try:

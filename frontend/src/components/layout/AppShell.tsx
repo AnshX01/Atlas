@@ -13,6 +13,8 @@ const CommandPalette = dynamic(
   { ssr: false }
 );
 
+import { useWebSocket } from "@/lib/hooks/useWebSocket";
+
 function HydrationSpinner() {
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-[var(--bg-primary)]">
@@ -26,6 +28,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, isHydrated } = useAuthStore();
   const [isMounted, setIsMounted] = useState(false);
+
+  useWebSocket();
 
   useEffect(() => {
     setIsMounted(true);

@@ -293,7 +293,8 @@ export async function classifyIntent(input: string): Promise<ClassificationResul
     const now = Date.now();
     if (ollamaAvailableCache === null || (now - lastHealthCheck) >= HEALTH_CHECK_INTERVAL_MS) {
       // Cache expired or never set — do a real health check
-      ollamaAvailableCache = await checkOllamaHealth();
+      const health = await checkOllamaHealth();
+      ollamaAvailableCache = health.available;
       lastHealthCheck = now;
     }
     if (ollamaAvailableCache) {

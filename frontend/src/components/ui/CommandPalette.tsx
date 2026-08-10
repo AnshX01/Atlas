@@ -58,7 +58,7 @@ export function CommandPalette() {
     if (action.route) {
       router.push(action.route);
     } else if (action.action === "theme") {
-      document.documentElement.classList.toggle("dark");
+      useAppStore.getState().toggleTheme();
     } else if (action.action === "exit") {
       if (typeof window !== "undefined") {
          window.close();

@@ -130,44 +130,61 @@ class GitHubConnector(BaseConnector):
         failed = 0
 
         try:
-            user = await asyncio.to_thread(gh.get_user)
-            repos = await asyncio.to_thread(user.get_repos, type="owner")
+            def fetch_prs():
+                user = gh.get_user()
+                res = []
+                for repo in user.get_repos(type="owner"):
+                    prs_for_repo = []
+                    for pr in repo.get_pulls(state="open", sort="updated", direction="desc"):
+                        if pr.updated_at.replace(tzinfo=UTC) < since:
+                            break
+                        prs_for_repo.append({
+                            "id": pr.id,
+                            "number": pr.number,
+                            "title": pr.title,
+                            "body": pr.body,
+                            "updated_at": pr.updated_at,
+                            "html_url": pr.html_url,
+                            "user_login": pr.user.login,
+                            "state": pr.state,
+                            "repo_full_name": repo.full_name
+                        })
+                    if prs_for_repo:
+                        res.append(prs_for_repo)
+                return res
 
-            for repo in repos:
-                pulls = await asyncio.to_thread(
-                    repo.get_pulls, state="open", sort="updated", direction="desc"
-                )
+            repos_prs = await asyncio.to_thread(fetch_prs)
+
+            for prs in repos_prs:
                 chunks: list[dict] = []
-                for pr in pulls:
-                    if pr.updated_at.replace(tzinfo=UTC) < since:
-                        break
+                for pr in prs:
                     chunks.append(
                         {
-                            "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"ghpr:{pr.id}")),
-                            "source_id": str(pr.id),
+                            "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"ghpr:{pr['id']}")),
+                            "source_id": str(pr['id']),
                             "type": "pr",
-                            "text": f"PR #{pr.number}: {pr.title}\n\n{pr.body or ''}",
-                            "timestamp": pr.updated_at.isoformat(),
+                            "text": f"PR #{pr['number']}: {pr['title']}\n\n{pr['body'] or ''}",
+                            "timestamp": pr['updated_at'].isoformat(),
                             "metadata": {
-                                "repo": repo.full_name,
-                                "pr_number": pr.number,
-                                "url": pr.html_url,
-                                "author": pr.user.login,
-                                "state": pr.state,
+                                "repo": pr['repo_full_name'],
+                                "pr_number": pr['number'],
+                                "url": pr['html_url'],
+                                "author": pr['user_login'],
+                                "state": pr['state'],
                             },
                         }
                     )
                     await upsert_pr_node(
                         str(self.user_id),
-                        str(pr.id),
-                        pr.title,
-                        pr.html_url,
-                        pr.state,
-                        repo.full_name,
-                        pr.user.login,
-                        pr.updated_at.isoformat(),
+                        str(pr['id']),
+                        pr['title'],
+                        pr['html_url'],
+                        pr['state'],
+                        pr['repo_full_name'],
+                        pr['user_login'],
+                        pr['updated_at'].isoformat(),
                     )
-                    logger.debug("PR synced", repo=repo.full_name, pr=pr.number)
+                    logger.debug("PR synced", repo=pr['repo_full_name'], pr=pr['number'])
                     synced += 1
                 if chunks:
                     batch_embed_chunks.delay(str(self.user_id), chunks)
@@ -183,42 +200,56 @@ class GitHubConnector(BaseConnector):
         """Sync GitHub Issues assigned to or created by the user."""
         synced = 0
         try:
-            user = await asyncio.to_thread(gh.get_user)
-            issues = await asyncio.to_thread(
-                gh.search_issues,
-                query=f"assignee:{user.login} updated:>{since.strftime('%Y-%m-%d')} is:open",
-            )
+            def fetch_issues():
+                user = gh.get_user()
+                issues_list = []
+                for issue in gh.search_issues(
+                    query=f"assignee:{user.login} updated:>{since.strftime('%Y-%m-%d')} is:open"
+                ):
+                    issues_list.append({
+                        "id": issue.id,
+                        "number": issue.number,
+                        "title": issue.title,
+                        "body": issue.body,
+                        "updated_at": issue.updated_at,
+                        "html_url": issue.html_url,
+                        "state": issue.state,
+                        "repo_full_name": issue.repository.full_name if hasattr(issue, "repository") and issue.repository else "",
+                        "author": issue.user.login if issue.user else "",
+                        "assignee": issue.assignee.login if issue.assignee else None,
+                    })
+                return issues_list
+
+            issues_data = await asyncio.to_thread(fetch_issues)
             chunks: list[dict] = []
-            for issue in issues:
+            for issue in issues_data:
                 chunks.append(
                     {
-                        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"ghissue:{issue.id}")),
-                        "source_id": str(issue.id),
+                        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"ghissue:{issue['id']}")),
+                        "source_id": str(issue['id']),
                         "type": "issue",
-                        "text": f"Issue #{issue.number}: {issue.title}\n\n{issue.body or ''}",
-                        "timestamp": issue.updated_at.isoformat(),
+                        "text": f"Issue #{issue['number']}: {issue['title']}\n\n{issue['body'] or ''}",
+                        "timestamp": issue['updated_at'].isoformat(),
                         "metadata": {
-                            "repo": issue.repository.full_name
-                            if hasattr(issue, "repository")
-                            else "",
-                            "issue_number": issue.number,
-                            "url": issue.html_url,
-                            "author": issue.user.login if issue.user else "",
-                            "state": issue.state,
+                            "repo": issue['repo_full_name'],
+                            "issue_number": issue['number'],
+                            "url": issue['html_url'],
+                            "author": issue['author'],
+                            "state": issue['state'],
                         },
                     }
                 )
                 await upsert_task_node(
                     str(self.user_id),
-                    str(issue.id),
-                    issue.title,
-                    issue.html_url,
-                    issue.state,
-                    issue.repository.full_name if hasattr(issue, "repository") else "",
-                    issue.assignee.login if issue.assignee else None,
-                    issue.updated_at.isoformat(),
+                    str(issue['id']),
+                    issue['title'],
+                    issue['html_url'],
+                    issue['state'],
+                    issue['repo_full_name'],
+                    issue['assignee'],
+                    issue['updated_at'].isoformat(),
                 )
-                logger.debug("Issue synced", issue=issue.number)
+                logger.debug("Issue synced", issue=issue['number'])
                 synced += 1
             if chunks:
                 batch_embed_chunks.delay(str(self.user_id), chunks)

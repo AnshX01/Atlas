@@ -481,30 +481,34 @@ export class MCPServerManager {
   }
 
   private async callNotionTool(tool: string, params: Record<string, any>): Promise<any> {
-    if (!(await this.notionConnector.init())) {
-      return { error: 'Notion not configured. Add your Integration Token in Settings.' };
-    }
-    switch (tool) {
-      // Read operations
-      case 'search_pages':
-      case 'search': return await this.notionConnector.searchPages(params.query || '');
-      case 'get_page': return await this.notionConnector.getPage(params.pageId);
-      case 'list_databases': return await this.notionConnector.listDatabases();
-      // Write operations
-      case 'create_page':
-      case 'update_page': {
-        let parentId = params.parentId || params.parent_id || (tool === 'update_page' ? params.pageId || params.page_id : '');
-        if (!parentId) {
-          // Attempt to resolve a default parent page
-          const defaultParent = await this.notionConnector.getDefaultParent();
-          if (!defaultParent) {
-            return { error: 'No Notion page found to use as parent. Please share at least one page with your integration in Notion settings.' };
-          }
-          parentId = defaultParent;
-        }
-        return await this.notionConnector.createPage(parentId, params.title, params.content || params.body);
+    try {
+      if (!(await this.notionConnector.init())) {
+        return { error: 'Notion not configured. Add your Integration Token in Settings.' };
       }
-      default: return { error: `Unknown Notion tool: ${tool}` };
+      switch (tool) {
+        // Read operations
+        case 'search_pages':
+        case 'search': return await this.notionConnector.searchPages(params.query || '');
+        case 'get_page': return await this.notionConnector.getPage(params.pageId);
+        case 'list_databases': return await this.notionConnector.listDatabases();
+        // Write operations
+        case 'create_page':
+        case 'update_page': {
+          let parentId = params.parentId || params.parent_id || (tool === 'update_page' ? params.pageId || params.page_id : '');
+          if (!parentId) {
+            // Attempt to resolve a default parent page
+            const defaultParent = await this.notionConnector.getDefaultParent();
+            if (!defaultParent) {
+              return { error: 'No Notion page found to use as parent. Please share at least one page with your integration in Notion settings.' };
+            }
+            parentId = defaultParent;
+          }
+          return await this.notionConnector.createPage(parentId, params.title, params.content || params.body);
+        }
+        default: return { error: `Unknown Notion tool: ${tool}` };
+      }
+    } catch (err: any) {
+      return { error: `Notion API Error: ${err.message}` };
     }
   }
 
