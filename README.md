@@ -2,7 +2,6 @@
   <img src="Atlas logo1.png" alt="Atlas Logo" width="200" />
   
   # Atlas
-  **Your True AI Chief of Staff — 100% Local Processing, Cloud-Synced, Infinite Capability.**
 </div>
 
 ---
@@ -24,7 +23,7 @@ You do not need to be a developer to run Atlas. Just follow this step-by-step tu
 
 ### Step 1: Download the App
 1. Navigate to the [Releases](../../releases) tab on this GitHub repository.
-2. Download the latest installer for your operating system (e.g., `Atlas-Setup.exe` for Windows, `.dmg` for Mac).
+2. Download the latest installer for your operating system (e.g., `Atlas Setup.exe` for Windows, `.dmg` for Mac).
 3. Double-click to install and launch Atlas.
 
 ### Step 2: The Onboarding Wizard
@@ -63,9 +62,9 @@ To enable the Cloud Sync (Supabase) architecture for your end-users, you must pr
 ### Releasing a New Version
 Once your secrets are set:
 1. Push your code to the `main` branch.
-2. Create and push a new git tag (e.g., `v2.0.0`):
+2. Create and push a new git tag (e.g., `v0.1.0-beta`):
    ```bash
-   git tag v2.0.0
-   git push origin v2.0.0
+   git tag v0.1.0-beta
+   git push origin v0.1.0-beta
    ```
 3. GitHub Actions will automatically spin up Windows, Mac, and Linux runners, cross-compile the application, and publish the `.exe`, `.dmg`, and `.AppImage` files to your Releases page!
