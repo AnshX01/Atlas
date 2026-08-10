@@ -90,3 +90,4 @@ Atlas_logo_line.png
 atlas.ps1
 .env.example
 Makefile
+frontend/coverage/
