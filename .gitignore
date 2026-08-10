@@ -75,3 +75,18 @@ postgres_data/
 neo4j_data/
 qdrant_data/
 redis_data/
+
+
+.kiro/
+docs/
+AUDIT_INVENTORY.md
+AUDIT_REPORT.md
+docker-compose.yml
+error.jpeg
+files.txt
+install-docker.ps1
+Atlas logo1.png
+Atlas_logo_line.png
+atlas.ps1
+.env.example
+Makefile
