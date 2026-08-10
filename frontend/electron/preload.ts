@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld("atlasElectron", {
   parseFile: (filePath: string): Promise<{ type: 'text' | 'image', content: string, mimeType?: string, filename: string }> =>
     ipcRenderer.invoke("parse-file", filePath),
 
+  /** Window controls */
+  windowMinimize: (): Promise<void> => ipcRenderer.invoke("window-minimize"),
+  windowMaximize: (): Promise<void> => ipcRenderer.invoke("window-maximize"),
+  windowClose: (): Promise<void> => ipcRenderer.invoke("window-close"),
+
+
   /**
    * Subscribe to the global Cmd+Space command bar toggle event.
    * Returns an unsubscribe function.
@@ -281,6 +287,9 @@ export type AtlasElectronAPI = {
   setTheme: (theme: "dark" | "light") => Promise<void>;
   selectDirectory: () => Promise<string[]>;
   parseFile: (filePath: string) => Promise<{ type: 'text' | 'image', content: string, mimeType?: string, filename: string }>;
+  windowMinimize: () => Promise<void>;
+  windowMaximize: () => Promise<void>;
+  windowClose: () => Promise<void>;
   onToggleCommandBar: (callback: () => void) => () => void;
   checkOllamaHealth: () => Promise<{ available: boolean; models?: string[] }>;
   sendChatMessage: (

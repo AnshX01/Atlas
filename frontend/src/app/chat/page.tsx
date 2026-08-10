@@ -556,9 +556,9 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   return (
     <motion.div
       className={cn("flex gap-3 max-w-[85%]", isUser ? "ml-auto flex-row-reverse" : "mr-auto")}
-      initial={{ opacity: 0, y: 12, scale: 0.95 }}
+      initial={{ opacity: 0, y: 10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
+      exit={{ opacity: 0, scale: 0.98 }}
       transition={snappySpring}
       layout
     >
@@ -1392,9 +1392,9 @@ function ChatPageInner() {
         </div>
       )}
       <div className="flex-1 w-full overflow-y-auto scroll-smooth scrollbar-hide flex flex-col" onScroll={handleScroll}>
-        <div ref={contentRef} className={cn("w-full flex-1 transition-all duration-500", messages.length === 0 ? "flex flex-col items-center justify-center" : "pt-6 pb-48 px-4")}>
+        <div ref={contentRef} className={cn("w-full flex-1 transition-all duration-500", messages.length === 0 ? "flex flex-col items-center justify-center pt-12 pb-48" : "pt-6 pb-48 px-4")}>
         {messages.length === 0 ? (
-          <div className="-mt-32 w-full max-w-3xl">
+          <div className="w-full max-w-3xl">
             <EmptyState onSuggestionClick={handleSuggestionClick} />
           </div>
         ) : (
@@ -1424,12 +1424,7 @@ function ChatPageInner() {
       <motion.div 
         layout
         transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        className={cn(
-          "pointer-events-none flex flex-col items-center z-10 w-full",
-          messages.length === 0 
-            ? "absolute top-1/2 left-0 right-0 mx-auto mt-16 max-w-3xl px-6" 
-            : "absolute bottom-0 left-0 right-0 px-6 lg:px-12 pb-8 pt-20 bg-gradient-to-t from-[var(--bg-primary)] via-[var(--bg-primary)]/90 to-transparent"
-        )}
+        className="pointer-events-none absolute bottom-0 left-0 right-0 z-10 w-full flex flex-col items-center px-6 lg:px-12 pb-8 pt-20 bg-gradient-to-t from-[var(--bg-primary)] via-[var(--bg-primary)]/90 to-transparent"
       >
         {isAutoScrollPaused && messages.length > 0 && (
           <div className="mb-4 pointer-events-auto">

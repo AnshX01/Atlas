@@ -196,7 +196,7 @@ export async function initDB(): Promise<void> {
     throw err;
   }
 
-  persistToDisk();
+  await persistToDisk();
 }
 
 /**
@@ -208,6 +208,14 @@ export function closeDB(): void {
     db.close();
     db = null;
   }
+}
+
+export function getDB(): any {
+  return db;
+}
+
+export function forcePersist(): void {
+  persistToDisk();
 }
 
 // ── Conversation Operations ────────────────────────────────────────────────────

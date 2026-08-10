@@ -8,9 +8,7 @@
  */
 
 import { randomUUID, pbkdf2Sync, randomBytes } from "crypto";
-import { app } from "electron";
-import * as path from "path";
-import * as fs from "fs";
+import { getDB, forcePersist } from "./local-store";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -34,51 +32,23 @@ interface UserRow {
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
-const PBKDF2_ITERATIONS = 100_000;
+const PBKDF2_ITERATIONS = 10_000;
 const PBKDF2_KEY_LENGTH = 64;
 const PBKDF2_DIGEST = "sha512";
 const SESSION_KEY = "auth_current_user_id";
 
-// ── Database ───────────────────────────────────────────────────────────────────
-
-let db: any = null;
-let dbPath: string = "";
-
-function getDbPath(): string {
-  try {
-    return path.join(app.getPath("userData"), "atlas-workflows.db");
-  } catch {
-    return path.join(process.cwd(), "atlas-workflows.db");
-  }
-}
-
 function persist(): void {
-  if (!db) return;
-  try {
-    const data = db.export();
-    fs.writeFileSync(dbPath, Buffer.from(data));
-  } catch (err) {
-    console.error("[Atlas Auth] Failed to persist:", err);
-  }
+  forcePersist();
 }
 
 /**
  * Initialize auth tables. Must be called after initDB() from local-store.
  */
 export async function initAuthTables(): Promise<void> {
-  const initSqlJs = require("sql.js");
-  const SQL = await initSqlJs();
-
-  dbPath = getDbPath();
-
-  try {
-    if (fs.existsSync(dbPath)) {
-      db = new SQL.Database(fs.readFileSync(dbPath));
-    } else {
-      db = new SQL.Database();
-    }
-  } catch {
-    db = new SQL.Database();
+  const db = getDB();
+  if (!db) {
+    console.error("[Atlas Auth] Database not initialized. Call initDB() from local-store first.");
+    return;
   }
 
   db.run(`
@@ -93,7 +63,21 @@ export async function initAuthTables(): Promise<void> {
     );
   `);
 
-  persist();
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        deleted INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+  } catch (err) {
+    console.warn("[Atlas Auth] Notice: config table creation skipped/failed", err);
+  }
+
+  // Force persist through the shared instance
+  forcePersist();
 }
 
 // ── Password Hashing ───────────────────────────────────────────────────────────
@@ -117,6 +101,7 @@ function verifyPassword(password: string, storedHash: string, salt: string): boo
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function queryOne(sql: string, params: any[] = []): any {
+  const db = getDB();
   if (!db) return null;
   const stmt = db.prepare(sql);
   stmt.bind(params);
@@ -130,9 +115,10 @@ function queryOne(sql: string, params: any[] = []): any {
 }
 
 function setConfig(key: string, value: string): void {
+  const db = getDB();
   if (!db) return;
   db.run("INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)", [key, value]);
-  persist();
+  forcePersist();
 }
 
 function getConfigVal(key: string): string | null {
@@ -141,9 +127,10 @@ function getConfigVal(key: string): string | null {
 }
 
 function deleteConfigKey(key: string): void {
+  const db = getDB();
   if (!db) return;
   db.run("DELETE FROM config WHERE key = ?", [key]);
-  persist();
+  forcePersist();
 }
 
 function toPublicUser(row: UserRow): LocalUser {
@@ -153,6 +140,7 @@ function toPublicUser(row: UserRow): LocalUser {
 // ── Public API ─────────────────────────────────────────────────────────────────
 
 export function register(email: string, password: string, fullName: string): LocalUser {
+  const db = getDB();
   if (!db) throw new Error("Auth not initialized");
   if (!email || !email.includes("@")) throw new Error("Invalid email address");
   if (!password || password.length < 6) throw new Error("Password must be at least 6 characters");
@@ -169,13 +157,14 @@ export function register(email: string, password: string, fullName: string): Loc
     "INSERT INTO users (id, email, full_name, password_hash, salt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
     [id, email.toLowerCase(), fullName.trim(), hash, salt, now, now]
   );
-  persist();
+  forcePersist();
 
   setConfig(SESSION_KEY, id);
   return { id, email: email.toLowerCase(), full_name: fullName.trim(), created_at: now, updated_at: now };
 }
 
 export function login(email: string, password: string): LocalUser {
+  const db = getDB();
   if (!db) throw new Error("Auth not initialized");
   if (!email || !password) throw new Error("Email and password are required");
 
@@ -207,6 +196,7 @@ export function updateProfile(data: { email?: string; full_name?: string; passwo
   const current = getCurrentUser();
   if (!current) throw new Error("Not authenticated");
 
+  const db = getDB();
   const now = new Date().toISOString();
   if (data.email) {
     const existing = queryOne("SELECT id FROM users WHERE email = ? AND id != ?", [data.email.toLowerCase(), current.id]);
@@ -220,7 +210,7 @@ export function updateProfile(data: { email?: string; full_name?: string; passwo
     const { hash, salt } = hashPassword(data.password);
     db.run("UPDATE users SET password_hash = ?, salt = ?, updated_at = ? WHERE id = ?", [hash, salt, now, current.id]);
   }
-  persist();
+  forcePersist();
 
   const updated = queryOne("SELECT * FROM users WHERE id = ?", [current.id]) as UserRow;
   return toPublicUser(updated);

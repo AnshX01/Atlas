@@ -18,13 +18,11 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Atlas",
-  description:
-    "Atlas is the world's first AI Chief of Staff for knowledge workers. Connect Gmail, GitHub, Slack, and more into a single unified briefing.",
-  keywords: ["AI", "productivity", "knowledge management", "personal assistant"],
-  authors: [{ name: "Atlas" }],
+  description: "Atlas",
+  keywords: ["AI", "productivity"],
   openGraph: {
     title: "Atlas",
-    description: "Your AI Chief of Staff — unified, prioritized, proactive.",
+    description: "Atlas",
     type: "website",
   },
   metadataBase: new URL("http://localhost:3000"),
@@ -44,8 +42,9 @@ export default function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="theme-color" content="#09090b" />
       </head>
-      <body className={`${inter.className} antialiased`}>
-        <OfflineBanner />
+      <body className={`${inter.className} antialiased flex flex-col h-screen overflow-hidden`}>
+        <div className="flex-1 overflow-auto relative">
+          <OfflineBanner />
         {/* Skip to main content — WCAG 2.1 AA */}
         <a
           href="#main-content"
@@ -61,6 +60,7 @@ export default function RootLayout({
             </AppShell>
           </OnboardingWizard>
         </Providers>
+        </div>
       </body>
     </html>
   );

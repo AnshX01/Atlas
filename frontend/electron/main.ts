@@ -77,14 +77,11 @@ function createWindow(): BrowserWindow {
     height: 820,
     minWidth: 900,
     minHeight: 600,
-    titleBarStyle: "hidden",          // macOS native title bar
-    frame: false,                     // Frameless window
-    alwaysOnTop: true,                // Always on top
-    transparent: true,
-    vibrancy: "under-window",         // macOS vibrancy / blur effect
-    backgroundMaterial: "mica",       // Windows 11 mica effect
-    visualEffectState: "active",
-    backgroundColor: "#00000000",     // Transparent background
+    // titleBarStyle: "hidden",          // macOS native title bar
+    frame: true,
+    alwaysOnTop: false,               // Do not force always on top for normal app feel
+    transparent: false,
+    backgroundColor: "#09090b",       // Dark mode match
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -133,12 +130,16 @@ app.whenReady().then(async () => {
   });
 
   mainWindow = createWindow();
+  Menu.setApplicationMenu(null);
 
   // OS Auto-start
   app.setLoginItemSettings({
-    openAtLogin: true,
+    openAtLogin: false,
     openAsHidden: true,
   });
+
+  // Force dark mode to sync title bar
+  nativeTheme.themeSource = 'dark';
 
   const iconPath = path.join(__dirname, "../public/icon.png");
   tray = new Tray(iconPath);
@@ -215,7 +216,7 @@ app.whenReady().then(async () => {
       if (code && state === "connector_oauth" && hasPendingOAuth()) {
         try {
           await handleOAuthCallback(code);
-          res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Connected successfully</h2><p style="color:#aaa">You can close this tab and return to Atlas.</p></div></body></html>`);
+          res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Connected successfully</h2><p style="color:#aaa">You can safely close this tab or it will close automatically.</p></div><script>setTimeout(()=>window.close(), 2000);</script></body></html>`);
           if (mainWindow) {
             mainWindow.webContents.send("connector-oauth-success", { provider: "google_workspace" });
             mainWindow.show();
@@ -234,7 +235,7 @@ app.whenReady().then(async () => {
 
       // ── Login OAuth callback (has access_token + refresh_token from backend) ──
       if (accessToken && refreshToken) {
-        res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Signed in successfully</h2><p style="color:#aaa">You can close this tab and return to Atlas.</p></div></body></html>`);
+        res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Signed in successfully</h2><p style="color:#aaa">You can safely close this tab or it will close automatically.</p></div><script>setTimeout(()=>window.close(), 2000);</script></body></html>`);
         if (mainWindow) {
           mainWindow.webContents.send("oauth-callback", { access_token: accessToken, refresh_token: refreshToken });
           mainWindow.show();
@@ -342,6 +343,23 @@ ipcMain.handle("open-external", async (_event, url: string) => {
 
 ipcMain.handle("set-theme", (_event, theme: "dark" | "light") => {
   nativeTheme.themeSource = theme;
+});
+
+ipcMain.handle("window-minimize", () => {
+  if (mainWindow) mainWindow.minimize();
+});
+
+ipcMain.handle("window-maximize", () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize();
+  } else {
+    mainWindow.maximize();
+  }
+});
+
+ipcMain.handle("window-close", () => {
+  if (mainWindow) mainWindow.close();
 });
 
 // Local file system access (for LocalFSConnector path selection)

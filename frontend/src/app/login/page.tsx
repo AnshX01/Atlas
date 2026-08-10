@@ -23,9 +23,6 @@ export default function LoginPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState(0);
   const [syncText, setSyncText] = useState("");
-  const [otpStep, setOtpStep] = useState(false);
-  const [generatedOtp, setGeneratedOtp] = useState("");
-  const [otpInput, setOtpInput] = useState("");
   const [offlineToast, setOfflineToast] = useState(false);
   const router = useRouter();
   const setUser = useAuthStore((state) => state.setUser);
@@ -35,9 +32,6 @@ export default function LoginPage() {
   const switchMode = useCallback((register: boolean) => {
     setIsRegister(register);
     setError(null);
-    setOtpStep(false);
-    setOtpInput("");
-    setGeneratedOtp("");
   }, []);
 
   const handleLoginSuccess = useCallback(async (user: any) => {
@@ -125,26 +119,6 @@ export default function LoginPage() {
       }
     }
 
-    if (isRegister && !otpStep) {
-      // Step 1: Send OTP (Mocked for now since backend is non-functional)
-      const code = "000000"; // Mock OTP for development
-      setGeneratedOtp(code);
-      setOtpStep(true);
-      setLoading(false);
-      submittingRef.current = false;
-      return;
-    }
-
-    if (isRegister && otpStep) {
-      // Step 2: Verify OTP then register
-      if (generatedOtp && otpInput !== generatedOtp) {
-        setError("Invalid verification code.");
-        setLoading(false);
-        submittingRef.current = false;
-        return;
-      }
-    }
-
     try {
       // Try backend first
       if (isRegister) {
@@ -160,17 +134,23 @@ export default function LoginPage() {
       // If backend is unreachable, try local auth
       const isNetworkError = !err?.response;
 
-      if (isNetworkError && (window as any).atlasElectron?.localAuth) {
+      if (isNetworkError && (window as any).atlasElectron) {
         try {
-          const localAuth = (window as any).atlasElectron.localAuth;
+          const electron = (window as any).atlasElectron;
           const localUser = isRegister
-            ? await localAuth.register(currentEmail, currentPassword, currentFullName)
-            : await localAuth.login(currentEmail, currentPassword);
+            ? await electron.localAuth.register(currentEmail, currentPassword, currentFullName)
+            : await electron.localAuth.login(currentEmail, currentPassword);
           setUser({ ...localUser, is_active: true, avatar_url: null } as any);
           setOfflineToast(true);
           router.push("/briefing");
         } catch (localErr: any) {
-          setError(localErr.message || "Authentication failed. Please check your credentials.");
+          let msg = localErr.message || "Authentication failed.";
+          // Strip Electron IPC prefix
+          if (msg.includes("Error invoking remote method")) {
+            const parts = msg.split("Error:");
+            msg = parts[parts.length - 1].trim();
+          }
+          setError(msg);
         }
       } else if (err?.response?.data?.detail) {
         const detail = err.response.data.detail;
@@ -385,15 +365,74 @@ export default function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Full Name (register only) */}
+            {/* Email */}
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.5)" }}>
+                Email Address
+              </label>
+              <div className="relative">
+                <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,0.3)" }} />
+                <input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/20 transition-all duration-200 outline-none"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Password */}
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.5)" }}>
+                Password
+              </label>
+              <div className="relative">
+                <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,0.3)" }} />
+                <input
+                  type={showPassword ? "text" : "password"}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-11 py-3 rounded-xl text-sm text-white placeholder-white/20 transition-all duration-200 outline-none"
+                  style={{
+                    background: "rgba(255,255,255,0.04)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 transition-colors"
+                  style={{ color: "rgba(255,255,255,0.3)" }}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              {isRegister && (
+                <p className="mt-1.5 text-[11px]" style={{ color: "rgba(255,255,255,0.25)" }}>
+                  Min 8 characters, one uppercase, one digit.
+                </p>
+              )}
+            </div>
+            
+            {/* Full Name (register only) */}
             <AnimatePresence>
-              {isRegister && !otpStep && (
+              {isRegister && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
                   transition={{ type: "spring", stiffness: 400, damping: 30 }}
                 >
-                  <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.5)" }}>
+                  <label className="block text-xs font-medium mt-4 mb-1.5" style={{ color: "rgba(255,255,255,0.5)" }}>
                     Full Name
                   </label>
                   <div className="relative">
@@ -414,103 +453,6 @@ export default function LoginPage() {
               )}
             </AnimatePresence>
 
-            {/* Email */}
-            {!otpStep && (
-              <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.5)" }}>
-                  Email Address
-                </label>
-                <div className="relative">
-                  <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,0.3)" }} />
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/20 transition-all duration-200 outline-none"
-                    style={{
-                      background: "rgba(255,255,255,0.04)",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Password */}
-            {!otpStep && (
-              <div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.5)" }}>
-                  Password
-                </label>
-                <div className="relative">
-                  <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2" style={{ color: "rgba(255,255,255,0.3)" }} />
-                  <input
-                    type={showPassword ? "text" : "password"}
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full pl-10 pr-11 py-3 rounded-xl text-sm text-white placeholder-white/20 transition-all duration-200 outline-none"
-                    style={{
-                      background: "rgba(255,255,255,0.04)",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3.5 top-1/2 -translate-y-1/2 transition-colors"
-                    style={{ color: "rgba(255,255,255,0.3)" }}
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-                {isRegister && (
-                  <p className="mt-1.5 text-[11px]" style={{ color: "rgba(255,255,255,0.25)" }}>
-                    Min 8 characters, one uppercase, one digit.
-                  </p>
-                )}
-              </div>
-            )}
-
-
-            {/* OTP Verification Step */}
-            {isRegister && otpStep && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                transition={{ type: "spring", stiffness: 400, damping: 30 }}
-              >
-                <div className="p-3 rounded-xl mb-4" style={{ background: "rgba(255, 255, 255, 0.05)", border: "1px solid rgba(255, 255, 255, 0.1)" }}>
-                  <p className="text-xs text-white/70 mb-1 font-medium">Verification Code</p>
-                  {generatedOtp ? (
-                    <>
-                      <p className="text-[11px] text-white/50">Dev mode code: <span className="font-mono text-white/90 select-all">{generatedOtp}</span></p>
-                      <p className="text-[10px] text-white/30 mt-1">In production, this would be sent to your email.</p>
-                    </>
-                  ) : (
-                    <p className="text-[11px] text-white/50">A 6-digit code has been sent to <span className="text-white/90">{email}</span></p>
-                  )}
-                </div>
-                <label className="block text-xs font-medium mb-1.5" style={{ color: "rgba(255,255,255,0.5)" }}>
-                  Enter 6-digit code
-                </label>
-                <input
-                  type="text"
-                  maxLength={6}
-                  value={otpInput}
-                  onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                  placeholder="000000"
-                  className="w-full px-4 py-3 rounded-xl text-sm text-white text-center font-mono tracking-[0.5em] placeholder-white/20 outline-none"
-                  style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}
-                  autoFocus
-                />
-              </motion.div>
-            )}
-
             {/* Submit button */}
             <motion.button
               type="submit"
@@ -526,7 +468,7 @@ export default function LoginPage() {
                 <span className="w-4 h-4 border-2 border-[#09090b]/30 border-t-[#09090b] rounded-full animate-spin" />
               ) : (
                 <>
-                  {isRegister ? (otpStep ? "Verify & Create Account" : "Send Verification Code") : "Continue"}
+                  {isRegister ? "Create Account" : "Continue"}
                   <ArrowRight size={15} />
                 </>
               )}
@@ -566,7 +508,7 @@ export default function LoginPage() {
 
         {/* Version tag */}
         <p className="mt-6 text-center text-[11px]" style={{ color: "rgba(255,255,255,0.15)" }}>
-          Atlas v0.1.0 · Beta
+          Atlas v0.1.0 (beta)
         </p>
       </motion.div>
 

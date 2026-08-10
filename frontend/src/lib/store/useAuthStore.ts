@@ -50,10 +50,24 @@ export const useAuthStore = create<AuthState>()(
       name: "atlas-auth-storage",
       onRehydrateStorage: () => {
         return () => {
-          // This fires after rehydration completes
-          // We use setTimeout to ensure it runs after the store is fully initialized
-          setTimeout(() => {
-            useAuthStore.getState().setHydrated();
+          setTimeout(async () => {
+            const store = useAuthStore.getState();
+            // In Electron, localStorage wipes across restarts on file://
+            // We must re-hydrate the session from SQLite localAuth if available
+            if (typeof window !== "undefined" && (window as any).atlasElectron?.localAuth) {
+              try {
+                const localUser = await (window as any).atlasElectron.localAuth.getCurrentUser();
+                if (localUser) {
+                  store.setUser({ ...localUser, is_active: true, avatar_url: null });
+                } else {
+                  // Explicitly clear memory if the DB says we aren't logged in
+                  store.logout();
+                }
+              } catch (e) {
+                console.warn("[AuthStore] Failed to rehydrate from Electron:", e);
+              }
+            }
+            store.setHydrated();
           }, 0);
         };
       },

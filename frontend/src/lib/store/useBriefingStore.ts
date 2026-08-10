@@ -97,6 +97,7 @@ export const useBriefingStore = create<BriefingState>()(
       error: null,
       isSummarizing: false,
     }),
+  }),
     {
       name: "atlas-briefing-store",
       partialize: (state) => ({ dismissedIds: state.dismissedIds }),

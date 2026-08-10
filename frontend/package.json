@@ -1,10 +1,11 @@
 {
-  "name": "atlas-frontend",
-  "version": "0.1.0",
+  "name": "atlas",
+  "productName": "Atlas",
+  "version": "0.1.0-beta",
   "private": true,
   "repository": "https://github.com/AnshX01/Atlas",
   "author": "AnshX01",
-  "description": "Your True AI Chief of Staff",
+  "description": "Atlas",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "next dev",
