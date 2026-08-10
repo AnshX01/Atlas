@@ -24,6 +24,7 @@ module.exports = {
   win: {
     target: [{ target: "nsis", arch: ["x64"] }],
     icon: "public/icon.png",
+    artifactName: "Atlas Setup.exe",
   },
   linux: {
     target: ["AppImage", "deb"],
