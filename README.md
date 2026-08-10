@@ -1,4 +1,4 @@
-#Atlas
+##Atlas
 
 Atlas is a personal assistant running entirely on your local machine using Ollama. It reads your email, manages your calendar, controls your GitHub, and acts on your behalf.
 
