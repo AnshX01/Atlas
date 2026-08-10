@@ -116,26 +116,19 @@ export default function LoginPage() {
       return;
     }
 
-    if (isRegister && !otpStep) {
-      // Step 1: Send OTP
-      try {
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/v1/auth/send-otp`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email: currentEmail }),
-            signal: AbortSignal.timeout(5000),
-          }
-        );
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || "Failed to send code");
-        if (data.dev_otp) setGeneratedOtp(data.dev_otp);
-      } catch {
-        // Backend unavailable — generate OTP locally for dev
-        const code = Math.floor(100000 + Math.random() * 900000).toString();
-        setGeneratedOtp(code);
+    if (isRegister) {
+      if (!/(?=.*[A-Z])(?=.*\d).{8,}/.test(currentPassword)) {
+        setError("Password must be at least 8 characters long and contain at least one uppercase letter and one digit.");
+        setLoading(false);
+        submittingRef.current = false;
+        return;
       }
+    }
+
+    if (isRegister && !otpStep) {
+      // Step 1: Send OTP (Mocked for now since backend is non-functional)
+      const code = "000000"; // Mock OTP for development
+      setGeneratedOtp(code);
       setOtpStep(true);
       setLoading(false);
       submittingRef.current = false;
@@ -205,11 +198,22 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
 
-    const oauthUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/v1/auth/oauth/google/login/initiate`;
+    let oauthUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/v1/auth/oauth/google/login/initiate`;
     const electron = (window as any).atlasElectron;
 
+    if (electron) {
+      try {
+        const port = await electron.getOAuthPort?.() ?? 19876;
+        oauthUrl += `?redirect_uri=${encodeURIComponent(`http://localhost:${port}/oauth/callback`)}`;
+      } catch {
+        oauthUrl += `?redirect_uri=${encodeURIComponent(`http://localhost:19876/oauth/callback`)}`;
+      }
+    } else if (typeof window !== "undefined") {
+      oauthUrl += `?redirect_uri=${encodeURIComponent(window.location.origin + '/oauth-callback')}`;
+    }
+
     if (electron?.openExternal) {
-      electron.openExternal(oauthUrl);
+      electron.openExternal(oauthUrl).catch(console.error);
     } else {
       window.open(oauthUrl, "_blank");
     }

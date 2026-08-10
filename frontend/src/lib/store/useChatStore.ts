@@ -114,17 +114,14 @@ function backgroundSync(conversationId: string, getState: () => ChatState): void
   }, 1000);
 }
 
+/** Shallow JSON comparison — safe against circular references */
 function deepEqual(a: any, b: any): boolean {
   if (a === b) return true;
-  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-  const keysA = Object.keys(a);
-  const keysB = Object.keys(b);
-  if (keysA.length !== keysB.length) return false;
-  for (const key of keysA) {
-    if (!keysB.includes(key) || !deepEqual(a[key], b[key])) return false;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
   }
-  return true;
 }
 
 export const useChatStore = create<ChatState>()(
@@ -144,16 +141,32 @@ export const useChatStore = create<ChatState>()(
           createdAt: new Date().toISOString(),
           lastMessage: "",
         };
-        set((state) => ({
-          conversations: [conversation, ...state.conversations].slice(0, 50),
-          activeConversationId: id,
-          messages: { ...state.messages, [id]: [] },
-        }));
+        set((state) => {
+          const conversations = [conversation, ...state.conversations].slice(0, 50);
+          // Prune orphan message arrays for conversations that were sliced off
+          const activeIds = new Set(conversations.map((c) => c.id));
+          const messages: Record<string, ChatMessage[]> = { [id]: [] };
+          for (const cid of Object.keys(state.messages)) {
+            if (activeIds.has(cid)) {
+              messages[cid] = state.messages[cid];
+            }
+          }
+          return {
+            conversations,
+            activeConversationId: id,
+            messages,
+          };
+        });
         backgroundSync(id, get);
         return id;
       },
 
       removeConversation: (id: string) => {
+        // Clean up any pending sync timer for this conversation
+        if (syncTimers[id]) {
+          clearTimeout(syncTimers[id]);
+          delete syncTimers[id];
+        }
         set((state) => {
           const { [id]: _, ...restMessages } = state.messages;
           return {

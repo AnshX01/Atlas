@@ -264,11 +264,13 @@ contextBridge.exposeInMainWorld("atlasElectron", {
       ipcRenderer.invoke("token-list-configured"),
   },
 
-  // ── Google OAuth API ────────────────────────────────────────────────────────
-
   /** Start Google OAuth flow in a popup window */
   startGoogleOAuth: (clientId: string, clientSecret: string): Promise<{ success: boolean; tokens?: any; error?: string }> =>
     ipcRenderer.invoke('google-oauth-start', { clientId, clientSecret }),
+
+  /** Get the dynamically assigned OAuth port for login callbacks */
+  getOAuthPort: (): Promise<number> =>
+    ipcRenderer.invoke('get-oauth-port'),
 });
 
 // TypeScript global declaration (used in renderer)
@@ -352,6 +354,7 @@ export type AtlasElectronAPI = {
   };
   // Google OAuth API
   startGoogleOAuth: (clientId: string, clientSecret: string) => Promise<{ success: boolean; tokens?: any; error?: string }>;
+  getOAuthPort: () => Promise<number>;
 };
 
 declare global {

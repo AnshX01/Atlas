@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { PageTransition } from "@/components/layout/PageTransition";
-import { ErrorBoundary } from "@/components/layout/ErrorBoundary";
-import { OfflineBanner } from "@/components/layout/OfflineBanner";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 
 import dynamic from "next/dynamic";
@@ -57,32 +55,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const isLoginPage = pathname === "/login" || pathname === "/login/";
 
+  // Wait for redirect to finish if unauthorized, preventing flash of dashboard UI
+  if (!user && !isLoginPage) {
+    return <HydrationSpinner />;
+  }
+
   if (isLoginPage) {
     return (
-      <main id="main-content" className="min-h-screen bg-[#09090b]" role="main">
+      <main id="main-content" className="min-h-screen bg-[var(--bg-primary)] relative overflow-hidden" role="main">
+        {/* The login page manages its own specific high-opacity gradients */}
         {children}
       </main>
     );
   }
 
   return (
-    <>
-      <OfflineBanner />
-      <div className="app-layout">
-        <Sidebar />
-        <main id="main-content" className="app-main !p-0" role="main">
-          <header className="sticky top-0 z-50 backdrop-blur-md bg-[#09090b]/80 border-b border-white/10 px-6 py-3">
-            <CommandPalette />
-          </header>
-          <div className="p-8">
-            <ErrorBoundary>
-              <PageTransition>
-                {children}
-              </PageTransition>
-            </ErrorBoundary>
-          </div>
-        </main>
+    <div className="app-layout relative overflow-hidden bg-[var(--bg-primary)]">
+      {/* Global Background Effects */}
+      <div className="absolute inset-0 z-0 pointer-events-none">
+        <div className="absolute top-0 -left-1/4 w-[150%] h-full bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/10 via-transparent to-transparent"></div>
+        <div className="absolute bottom-0 -right-1/4 w-[150%] h-1/2 bg-[radial-gradient(ellipse_at_bottom,_var(--tw-gradient-stops))] from-fuchsia-900/5 via-transparent to-transparent"></div>
       </div>
-    </>
+
+      <Sidebar />
+      <main id="main-content" className="app-main !p-0 z-10 bg-transparent" role="main">
+        <header className="sticky top-0 z-50 backdrop-blur-md bg-[var(--bg-primary)]/80 border-b border-[var(--border-subtle)] px-6 py-3">
+          <CommandPalette />
+        </header>
+        <div className="p-8">
+          <PageTransition>
+            {children}
+          </PageTransition>
+        </div>
+      </main>
+    </div>
   );
 }

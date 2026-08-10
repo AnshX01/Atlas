@@ -57,12 +57,12 @@ export const useBriefingStore = create<BriefingState>()((set, get) => ({
   isSummarizing: false,
 
   // ── Actions ─────────────────────────────────────────────────────────
-  setLoading: (loading) => set({ loading }),
-  setError: (error) => set({ error, loading: false }),
+  setLoading: (loading) => set(loading ? { loading, error: null } : { loading }),
+  setError: (error) => set({ error, loading: false, isSummarizing: false }),
 
   setBriefing: (data) =>
     set((state) => ({
-      items: data.items.filter((item) => !state.dismissedIds.includes(item.id)),
+      items: (data.items || []).filter((item) => !state.dismissedIds.includes(item.id)),
       focusScore: data.focus_score,
       focusScoreLabel: data.focus_score_label,
       totalUnread: data.total_unread,
@@ -80,8 +80,11 @@ export const useBriefingStore = create<BriefingState>()((set, get) => ({
 
   dismissItem: (id) =>
     set((state) => {
+      if (state.dismissedIds.includes(id)) return state;
       const updated = [...state.dismissedIds, id];
-      localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(updated));
+      try {
+        localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify(updated));
+      } catch { /* private browsing or quota exceeded */ }
       return {
         dismissedIds: updated,
         items: state.items.filter((item) => item.id !== id),
@@ -92,7 +95,9 @@ export const useBriefingStore = create<BriefingState>()((set, get) => ({
   isDismissed: (id) => get().dismissedIds.includes(id),
 
   clearDismissed: () => {
-    localStorage.setItem(DISMISSED_STORAGE_KEY, "[]");
+    try {
+      localStorage.setItem(DISMISSED_STORAGE_KEY, "[]");
+    } catch { /* private browsing or quota exceeded */ }
     set({ dismissedIds: [] });
   },
 

@@ -16,7 +16,6 @@ import {
   Loader2,
   ExternalLink,
   ArrowDown,
-  Mic,
   Github,
   Slack,
   BookOpen,
@@ -552,6 +551,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   userAvatar?: string | null;
 }) {
   const isUser = message.role === "user";
+  const user = useAuthStore((state) => state.user);
 
   return (
     <motion.div
@@ -574,10 +574,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
             <img src={userAvatar} alt="You" className="w-full h-full object-cover rounded-full" />
           ) : (
             <span className="text-[10px] font-semibold text-[var(--accent)]">
-              {(() => {
-                const { user } = useAuthStore.getState();
-                return user?.full_name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U';
-              })()}
+              {user?.full_name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
             </span>
           )
         ) : (
@@ -589,8 +586,8 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
       <div className="flex flex-col gap-2 min-w-0 overflow-x-hidden">
         <div
           className={cn(
-            "px-4 py-3 rounded-2xl text-[15px] leading-relaxed break-word w-full",
-            isUser ? "bg-[var(--accent)] text-[var(--bg-primary)] rounded-tr-none" : "bg-[#18181b] text-[var(--text-primary)] rounded-tl-none border border-white/[0.06]",
+            "px-4 py-3 rounded-2xl text-[15px] leading-relaxed break-word w-full max-w-3xl",
+            isUser ? "bg-[var(--accent)] text-[var(--bg-primary)] rounded-tr-sm" : "text-[var(--text-primary)] rounded-tl-sm",
             !isUser && message.streaming && message.content.trim().startsWith('{') && "hidden"
           )}
         >
@@ -608,7 +605,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                         <div className="flex items-center justify-between px-4 py-2 bg-black/40">
                           <span className="text-xs font-mono text-white/50">{match[1]}</span>
                           <button 
-                            onClick={() => navigator.clipboard.writeText(String(children).replace(/\n$/, ""))}
+                            onClick={() => navigator.clipboard.writeText(String(children).replace(/\n$/, "")).catch(() => {})}
                             className="text-xs text-white/50 hover:text-white transition-colors flex items-center gap-1"
                           >
                             Copy
@@ -809,6 +806,7 @@ function ChatInput({
 // ── Main Page Component ─────────────────────────────────────────────────────
 
 export default function ChatPage() {
+
   return (
     <Suspense fallback={<ChatLoadingFallback />}>
       <ChatPageInner />
@@ -825,6 +823,11 @@ function ChatLoadingFallback() {
 }
 
 function ChatPageInner() {
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
   const searchParams = useSearchParams();
   const conversationId = searchParams.get('id');
 
@@ -993,6 +996,7 @@ function ChatPageInner() {
       };
 
       unsubStream = window.atlasElectron!.onWorkflowStream((token: string) => {
+        if (!mountedRef.current) return;
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId ? { ...m, content: m.content + token } : m
@@ -1001,6 +1005,7 @@ function ChatPageInner() {
       });
 
       unsubTool = window.atlasElectron!.onWorkflowToolExecuting((data: any) => {
+        if (!mountedRef.current) return;
         const toolExec: ToolExecution = {
           id: generateId(),
           server: data.server ?? "mcp",
@@ -1017,6 +1022,7 @@ function ChatPageInner() {
       });
 
       unsubApproval = window.atlasElectron!.onWorkflowApprovalNeeded((data: any) => {
+        if (!mountedRef.current) return;
         const action: ActionSuggestion = {
           id: data.executionId ?? generateId(),
           type: data.actionType ?? data.tool ?? "action",
@@ -1035,6 +1041,7 @@ function ChatPageInner() {
 
       // Listen for draft-ready events from the orchestrator
       unsubDraft = window.atlasElectron!.onWorkflowDraftReady((data: any) => {
+        if (!mountedRef.current) return;
         const draft: DraftData = {
           executionId: data.executionId,
           actionType: data.actionType,
@@ -1049,6 +1056,7 @@ function ChatPageInner() {
       });
 
       unsubEnd = window.atlasElectron!.onWorkflowComplete((data: any) => {
+        if (!mountedRef.current) return;
         setMessages((prev) => {
           const updated = prev.map((m) => {
             if (m.id !== assistantId) return m;
@@ -1132,13 +1140,17 @@ function ChatPageInner() {
 
       try {
         // Send attachments to backend by parsing them if in Electron
-        let parsedAttachments = [];
+        const parsedAttachments = [];
         if (files.length > 0 && window.atlasElectron?.parseFile) {
            for (const file of files) {
               const path = (file as any).path;
               if (path) {
-                const parsed = await window.atlasElectron.parseFile(path);
-                parsedAttachments.push(parsed);
+                try {
+                  const parsed = await window.atlasElectron.parseFile(path);
+                  parsedAttachments.push(parsed);
+                } catch (err) {
+                  console.warn("[Atlas] Failed to parse file:", err);
+                }
               }
            }
         }
@@ -1156,6 +1168,7 @@ function ChatPageInner() {
         await window.atlasElectron!.executeWorkflow(finalPrompt);
         // Set a timeout — if workflow-complete doesn't fire within 90s, recover
         setTimeout(() => {
+          if (!mountedRef.current) return;
           setStatus((currentStatus) => {
             if (currentStatus !== "idle") {
               setMessages((prev) =>
@@ -1172,6 +1185,7 @@ function ChatPageInner() {
           });
         }, 90000);
       } catch (err: unknown) {
+        if (!mountedRef.current) return;
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
@@ -1191,6 +1205,7 @@ function ChatPageInner() {
         const apiBase = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
         const token = useAuthStore.getState().accessToken;
 
+        if (!mountedRef.current) return;
         setMessages((prev) =>
           prev.map((m) => (m.id === assistantId ? { ...m, content: "Searching across your sources…" } : m))
         );
@@ -1221,6 +1236,7 @@ function ChatPageInner() {
           responseText = `Found ${resultCount} result${resultCount !== 1 ? "s" : ""} for "${rewrittenQuery}":`;
         }
 
+        if (!mountedRef.current) return;
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
@@ -1256,6 +1272,7 @@ function ChatPageInner() {
         }
       } catch (err: unknown) {
         if ((err as Error)?.name === "AbortError") return;
+        if (!mountedRef.current) return;
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantId
@@ -1264,7 +1281,7 @@ function ChatPageInner() {
           )
         );
       } finally {
-        setStatus("idle");
+        if (mountedRef.current) setStatus("idle");
       }
     }
     setAttachments([]); // Clear attachments after send
@@ -1305,7 +1322,7 @@ function ChatPageInner() {
       }))
     );
     if (hasElectronIPC()) {
-      window.atlasElectron!.approveAction(actionId);
+      window.atlasElectron!.approveAction(actionId).catch(console.error);
     }
   }, []);
 
@@ -1317,7 +1334,7 @@ function ChatPageInner() {
       }))
     );
     if (hasElectronIPC()) {
-      window.atlasElectron!.rejectAction(actionId);
+      window.atlasElectron!.rejectAction(actionId).catch(console.error);
     }
   }, []);
 
@@ -1331,7 +1348,7 @@ function ChatPageInner() {
       }))
     );
     if (hasElectronIPC()) {
-      window.atlasElectron!.approveAction(executionId);
+      window.atlasElectron!.approveAction(executionId).catch(console.error);
     }
   }, []);
 
@@ -1345,7 +1362,7 @@ function ChatPageInner() {
       }))
     );
     if (hasElectronIPC()) {
-      window.atlasElectron!.rejectAction(executionId);
+      window.atlasElectron!.rejectAction(executionId).catch(console.error);
     }
   }, []);
 
@@ -1374,24 +1391,27 @@ function ChatPageInner() {
           </div>
         </div>
       )}
-      <div className="flex-1 w-full max-w-4xl mx-auto overflow-y-auto px-4 py-6 scroll-smooth scrollbar-hide" onScroll={handleScroll}>
-        <div ref={contentRef} className="h-full w-full">
+      <div className="flex-1 w-full overflow-y-auto scroll-smooth scrollbar-hide flex flex-col" onScroll={handleScroll}>
+        <div ref={contentRef} className={cn("w-full flex-1 transition-all duration-500", messages.length === 0 ? "flex flex-col items-center justify-center" : "pt-6 pb-48 px-4")}>
         {messages.length === 0 ? (
-          <EmptyState onSuggestionClick={handleSuggestionClick} />
+          <div className="-mt-32 w-full max-w-3xl">
+            <EmptyState onSuggestionClick={handleSuggestionClick} />
+          </div>
         ) : (
           <div className="w-full max-w-4xl mx-auto flex flex-col gap-5">
             <AnimatePresence mode="popLayout">
               {messages.map((msg) => (
-                <ChatMessageBubble
-                  key={msg.id}
-                  message={msg}
-                  onApproveAction={handleApproveAction}
-                  onRejectAction={handleRejectAction}
-                  onApproveDraft={handleApproveDraft}
-                  onRejectDraft={handleRejectDraft}
-                  onRetryTool={handleRetryTool}
-                  userAvatar={userAvatar}
-                />
+                <ErrorBoundary key={msg.id}>
+                  <ChatMessageBubble
+                    message={msg}
+                    onApproveAction={handleApproveAction}
+                    onRejectAction={handleRejectAction}
+                    onApproveDraft={handleApproveDraft}
+                    onRejectDraft={handleRejectDraft}
+                    onRetryTool={handleRetryTool}
+                    userAvatar={userAvatar}
+                  />
+                </ErrorBoundary>
               ))}
             </AnimatePresence>
             <div ref={messagesEndRef} />
@@ -1400,8 +1420,18 @@ function ChatPageInner() {
         </div>
       </div>
 
-      <div className="absolute bottom-0 left-0 right-0 px-6 lg:px-12 pb-8 pt-4 pointer-events-none flex flex-col items-center z-10">
-        {isAutoScrollPaused && (
+      {/* Floating Chat Input Container */}
+      <motion.div 
+        layout
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        className={cn(
+          "pointer-events-none flex flex-col items-center z-10 w-full",
+          messages.length === 0 
+            ? "absolute top-1/2 left-0 right-0 mx-auto mt-16 max-w-3xl px-6" 
+            : "absolute bottom-0 left-0 right-0 px-6 lg:px-12 pb-8 pt-20 bg-gradient-to-t from-[var(--bg-primary)] via-[var(--bg-primary)]/90 to-transparent"
+        )}
+      >
+        {isAutoScrollPaused && messages.length > 0 && (
           <div className="mb-4 pointer-events-auto">
             <button
               onClick={() => {
@@ -1426,7 +1456,7 @@ function ChatPageInner() {
             />
           </ErrorBoundary>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
@@ -1437,7 +1467,7 @@ function ChatPageInner() {
 function EmptyState({ onSuggestionClick }: { onSuggestionClick: (suggestion: string) => void }) {
   return (
     <motion.div
-      className="flex flex-col items-center justify-center h-full text-center px-4"
+      className="flex flex-col items-center justify-center text-center px-4 w-full"
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 300, damping: 30 }}

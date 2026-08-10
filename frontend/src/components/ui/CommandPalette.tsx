@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, MessageSquare, Settings, Mail, Moon, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAppStore } from "@/lib/store/useAppStore";
 
 const actions = [
   { id: "new-chat", label: "New Chat", icon: MessageSquare, route: "/chat" },
@@ -15,7 +16,7 @@ const actions = [
 ];
 
 export function CommandPalette() {
-  const [open, setOpen] = useState(false);
+  const { commandBarOpen: open, setCommandBarOpen: setOpen } = useAppStore();
   const [search, setSearch] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const router = useRouter();
@@ -36,7 +37,18 @@ export function CommandPalette() {
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [setOpen]);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setOpen(!open);
+      }
+    };
+    document.addEventListener("keydown", handleGlobalKeyDown);
+    return () => document.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [open, setOpen]);
 
   const handleSelect = (action: typeof actions[0]) => {
     setOpen(false);
@@ -65,10 +77,10 @@ export function CommandPalette() {
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelectedIndex((prev) => (prev + 1) % filtered.length);
+      setSelectedIndex((prev) => filtered.length > 0 ? (prev + 1) % filtered.length : 0);
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      setSelectedIndex((prev) => (prev - 1 + filtered.length) % filtered.length);
+      setSelectedIndex((prev) => filtered.length > 0 ? (prev - 1 + filtered.length) % filtered.length : 0);
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (filtered[selectedIndex]) {
@@ -84,7 +96,7 @@ export function CommandPalette() {
   return (
     <div className="relative w-full max-w-2xl mx-auto" ref={containerRef}>
       <div className={cn(
-        "flex items-center gap-3 px-4 py-2.5 bg-[#111113] border border-white/10 rounded-full transition-all duration-200",
+        "flex items-center gap-3 px-4 py-2.5 bg-[var(--bg-secondary)] border border-[var(--border-default)] rounded-full transition-all duration-200",
         open ? "bg-white/5 border-white/20 shadow-lg" : "hover:bg-white/5 hover:border-white/20"
       )}>
         <Search size={18} className="text-white/40" />
@@ -111,7 +123,7 @@ export function CommandPalette() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.15 }}
-            className="absolute top-full left-0 right-0 mt-2 z-50 overflow-hidden rounded-2xl border border-white/10 bg-[#111113] shadow-2xl backdrop-blur-xl"
+            className="absolute top-full left-0 right-0 mt-2 z-50 overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-secondary)] shadow-2xl backdrop-blur-xl"
           >
             <div className="max-h-[300px] overflow-y-auto p-2">
               {filtered.length === 0 ? (

@@ -72,6 +72,7 @@ function getStatusLabel(status: string): string {
 }
 
 function getRelativeTime(dateStr: string): string {
+  if (!dateStr || isNaN(new Date(dateStr).getTime())) return "";
   const now = Date.now();
   const date = new Date(dateStr).getTime();
   const diffMs = now - date;
@@ -299,7 +300,7 @@ export function Sidebar() {
                   </span>
                   <button
                     onClick={(e) => { e.stopPropagation(); removeConversation(conv.id); }}
-                    className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity text-[var(--text-muted)] hover:text-red-400"
+                    className="flex-shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-[var(--text-muted)] hover:text-red-400"
                     aria-label="Delete conversation"
                   >
                     <Trash2 size={11} />

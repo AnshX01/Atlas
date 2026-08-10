@@ -73,6 +73,7 @@ export class MCPServerManager {
   private servers: Map<string, MCPServer> = new Map();
   private pendingRequests: Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; timeout: NodeJS.Timeout }> = new Map();
   private buffers: Map<string, string> = new Map();
+  private heartbeatInterval: NodeJS.Timeout | null = null;
 
   // Direct API connectors for services without MCP servers
   private gmailConnector = new GmailConnector();
@@ -131,7 +132,7 @@ export class MCPServerManager {
     });
 
     // Keep-Alive heartbeat for MCP subprocesses
-    setInterval(() => {
+    this.heartbeatInterval = setInterval(() => {
       for (const [name, server] of this.servers) {
         if (server.status === 'running' && (name === 'github' || name === 'slack')) {
           this.sendRequest(name, 'tools/list').catch(() => {});
@@ -160,6 +161,7 @@ export class MCPServerManager {
     }
 
     if (server.status === 'running' && server.process) return true;
+    if (server.status === 'starting') return false;
 
     const env = server.config.getEnv();
     if (!env) {
@@ -302,6 +304,17 @@ export class MCPServerManager {
       console.error(`[MCP Manager] Failed to start ${name}:`, err.message);
       server.status = 'error';
       server.lastError = err.message;
+      if (server.process) {
+        try {
+          if (process.platform === 'win32') {
+            const { exec } = require('child_process');
+            exec(`taskkill /pid ${server.process.pid} /T /F`);
+          } else {
+            server.process.kill();
+          }
+        } catch {}
+        server.process = null;
+      }
       return false;
     }
   }
@@ -323,7 +336,12 @@ export class MCPServerManager {
 
     // Try graceful shutdown first
     try {
-      server.process.kill();
+      if (process.platform === 'win32') {
+        const { exec } = require('child_process');
+        exec(`taskkill /pid ${server.process.pid} /T /F`);
+      } else {
+        server.process.kill();
+      }
     } catch {
       // Already dead
     }
@@ -333,6 +351,10 @@ export class MCPServerManager {
   }
 
   async stopAll(): Promise<void> {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
     for (const [name] of this.servers) {
       await this.stopServer(name);
     }
@@ -492,8 +514,53 @@ export class MCPServerManager {
         { name: 'list_emails', description: 'List recent emails' },
         { name: 'search_emails', description: 'Search emails by query' },
         { name: 'get_email', description: 'Get email details by ID' },
-        { name: 'send_email', description: 'Send an email' },
+        { 
+          name: 'send_email', 
+          description: 'Send an email to a user. Use this to compose and deliver emails. Always populate the to, subject, and body.',
+          inputSchema: {
+            type: "object",
+            properties: {
+              _thinking: { type: "string", description: "Use this field to think step-by-step about who the recipient is, what the subject should be, and what the body should contain before generating the final fields." },
+              to: { type: "string", description: "The recipient's email address" },
+              subject: { type: "string", description: "The subject line of the email" },
+              body: { type: "string", description: "The main content/body of the email" }
+            },
+            required: ["_thinking", "to", "subject", "body"]
+          }
+        },
+        {
+          name: 'reply_email',
+          description: 'Reply to an email thread. You must fetch the thread details first to get the messageId and threadId.',
+          inputSchema: {
+            type: "object",
+            properties: {
+              _thinking: { type: "string", description: "Think step-by-step about the context of the reply and verify you have the correct messageId before generating the fields." },
+              to: { type: "string", description: "The recipient's email address" },
+              subject: { type: "string", description: "The subject line of the email, starting with Re:" },
+              body: { type: "string", description: "The body of the reply" },
+              messageId: { type: "string", description: "The ID of the message being replied to" },
+              threadId: { type: "string", description: "The thread ID of the conversation" }
+            },
+            required: ["_thinking", "to", "subject", "body", "messageId"]
+          }
+        },
         { name: 'list_calendar', description: 'List today\'s calendar events' },
+        {
+          name: 'create_event',
+          description: 'Create a calendar event. Ensure the times are valid ISO 8601 strings.',
+          inputSchema: {
+            type: "object",
+            properties: {
+              _thinking: { type: "string", description: "Think step-by-step to calculate the correct start and end times based on the user's relative prompt (e.g., 'tomorrow at 3pm')." },
+              title: { type: "string", description: "Title of the event" },
+              startTime: { type: "string", description: "ISO 8601 start time" },
+              endTime: { type: "string", description: "ISO 8601 end time" },
+              description: { type: "string", description: "Event description/details" },
+              attendees: { type: "string", description: "Comma-separated list of attendee emails" }
+            },
+            required: ["_thinking", "title", "startTime", "endTime"]
+          }
+        }
       ];
     }
     if (name === 'notion') {
@@ -501,7 +568,19 @@ export class MCPServerManager {
         { name: 'search_pages', description: 'Search Notion pages' },
         { name: 'get_page', description: 'Get a specific page' },
         { name: 'list_databases', description: 'List Notion databases' },
-        { name: 'create_page', description: 'Create a new Notion page' },
+        { 
+          name: 'create_page', 
+          description: 'Create a new Notion page with a title and content block.',
+          inputSchema: {
+            type: "object",
+            properties: {
+              _thinking: { type: "string", description: "Think step-by-step about what the user wants to document and structure it clearly." },
+              title: { type: "string", description: "Title of the new Notion page" },
+              content: { type: "string", description: "The content/body of the new page" }
+            },
+            required: ["_thinking", "title", "content"]
+          }
+        },
       ];
     }
     return [];

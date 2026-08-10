@@ -82,7 +82,9 @@ async function persistToDisk(): Promise<void> {
   try {
     const data = db.export();
     const buffer = Buffer.from(data);
-    await fs.promises.writeFile(dbPath, buffer);
+    const tmpPath = dbPath + '.tmp';
+    await fs.promises.writeFile(tmpPath, buffer);
+    await fs.promises.rename(tmpPath, dbPath);
   } catch (err) {
     console.error("[Atlas Store] Failed to persist database:", err);
   } finally {
@@ -98,7 +100,9 @@ function persistToDiskSync(): void {
   try {
     const data = db.export();
     const buffer = Buffer.from(data);
-    fs.writeFileSync(dbPath, buffer);
+    const tmpPath = dbPath + '.tmp';
+    fs.writeFileSync(tmpPath, buffer);
+    fs.renameSync(tmpPath, dbPath);
   } catch (err) {
     console.error("[Atlas Store] Failed to persist database synchronously:", err);
   }
@@ -125,7 +129,12 @@ export async function initDB(): Promise<void> {
     } else {
       db = new SQL.Database();
     }
-  } catch {
+  } catch (err) {
+    console.error("[Atlas Store] CRITICAL: Database load failed, creating backup:", err);
+    try {
+      const backupPath = dbPath + `.backup-${Date.now()}`;
+      fs.copyFileSync(dbPath, backupPath);
+    } catch (e) {}
     db = new SQL.Database();
   }
 
@@ -227,53 +236,19 @@ export function createConversation(title: string, userId: string = "local"): Con
 export function listConversations(limit: number = 50): Conversation[] {
   if (!db) return [];
   const stmt = db.prepare("SELECT * FROM conversations ORDER BY created_at DESC LIMIT ?");
-  stmt.bind([limit]);
-  const results: Conversation[] = [];
-  while (stmt.step()) {
-    results.push(stmt.getAsObject() as unknown as Conversation);
-  }
-  stmt.free();
-  return results;
-}
-
-export function getConversation(id: string): Conversation | undefined {
-  if (!db) return undefined;
-
-  const cached = conversationCache.get(id);
-  if (cached) return cached;
-
-  const stmt = db.prepare("SELECT * FROM conversations WHERE id = ?");
-  stmt.bind([id]);
-  if (stmt.step()) {
-    const row = stmt.getAsObject() as unknown as Conversation;
-    stmt.free();
-    conversationCache.set(id, row);
-    return row;
-  }
-  stmt.free();
-  return undefined;
-}
-
-export function updateConversationTitle(id: string, title: string): void {
-  if (!db) return;
-  db.run("BEGIN IMMEDIATE");
   try {
-    db.run("UPDATE conversations SET title = ? WHERE id = ?", [title, id]);
-    db.run("COMMIT");
-  } catch (err) {
-    db.run("ROLLBACK");
-    throw err;
-  }
-  persistToDisk();
-  
-  const cached = conversationCache.get(id);
-  if (cached) {
-    cached.title = title;
-    conversationCache.set(id, cached);
+    stmt.bind([limit]);
+    const results: Conversation[] = [];
+    while (stmt.step()) {
+      results.push(stmt.getAsObject() as unknown as Conversation);
+    }
+    return results;
+  } finally {
+    stmt.free();
   }
 }
 
-// ── Message Operations ─────────────────────────────────────────────────────────
+
 
 export function saveMessage(
   conversationId: string,
@@ -315,15 +290,17 @@ export function getConversationHistory(
   const stmt = db.prepare(
     "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC LIMIT ?"
   );
-  stmt.bind([conversationId, limit]);
-  const results: Message[] = [];
-  while (stmt.step()) {
-    results.push(stmt.getAsObject() as unknown as Message);
+  try {
+    stmt.bind([conversationId, limit]);
+    const results: Message[] = [];
+    while (stmt.step()) {
+      results.push(stmt.getAsObject() as unknown as Message);
+    }
+    messagesCache.set(cacheKey, results);
+    return results;
+  } finally {
+    stmt.free();
   }
-  stmt.free();
-
-  messagesCache.set(cacheKey, results);
-  return results;
 }
 
 // ── Tool Execution Operations ──────────────────────────────────────────────────
@@ -365,63 +342,4 @@ export function saveToolExecution(
   };
 }
 
-export function getToolExecutions(
-  conversationId: string,
-  limit: number = 50
-): ToolExecution[] {
-  if (!db) return [];
-  const stmt = db.prepare(
-    "SELECT * FROM tool_executions WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT ?"
-  );
-  stmt.bind([conversationId, limit]);
-  const results: ToolExecution[] = [];
-  while (stmt.step()) {
-    results.push(stmt.getAsObject() as unknown as ToolExecution);
-  }
-  stmt.free();
-  return results;
-}
 
-// ── Config Operations ──────────────────────────────────────────────────────────
-
-export function getConfig(key: string): string | undefined {
-  if (!db) return undefined;
-  const stmt = db.prepare("SELECT value FROM config WHERE key = ?");
-  stmt.bind([key]);
-  if (stmt.step()) {
-    const row = stmt.getAsObject() as unknown as { value: string };
-    stmt.free();
-    return row.value;
-  }
-  stmt.free();
-  return undefined;
-}
-
-export function setConfig(key: string, value: string): void {
-  if (!db) return;
-  db.run("BEGIN IMMEDIATE");
-  try {
-    db.run(
-      "INSERT OR REPLACE INTO config (key, value) VALUES (?, ?)",
-      [key, value]
-    );
-    db.run("COMMIT");
-  } catch (err) {
-    db.run("ROLLBACK");
-    throw err;
-  }
-  persistToDisk();
-}
-
-export function deleteConfig(key: string): void {
-  if (!db) return;
-  db.run("BEGIN IMMEDIATE");
-  try {
-    db.run("DELETE FROM config WHERE key = ?", [key]);
-    db.run("COMMIT");
-  } catch (err) {
-    db.run("ROLLBACK");
-    throw err;
-  }
-  persistToDisk();
-}

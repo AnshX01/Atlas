@@ -5,6 +5,10 @@ import { AppShell } from "@/components/layout/AppShell";
 import "@/styles/globals.css";
 import "@/styles/animations.css";
 
+import { OnboardingWizard } from "@/components/layout/OnboardingWizard";
+import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import { OfflineBanner } from "@/components/ui/OfflineBanner";
+
 const inter = Inter({
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700"],
@@ -23,11 +27,10 @@ export const metadata: Metadata = {
     description: "Your AI Chief of Staff — unified, prioritized, proactive.",
     type: "website",
   },
+  metadataBase: new URL("http://localhost:3000"),
 };
 
-import { OnboardingWizard } from "@/components/layout/OnboardingWizard";
-import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
-import { OfflineBanner } from "@/components/ui/OfflineBanner";
+
 
 export default function RootLayout({
   children,
@@ -52,13 +55,11 @@ export default function RootLayout({
         </a>
 
         <Providers>
-          <ErrorBoundary>
-            <OnboardingWizard>
-              <AppShell>
-                {children}
-              </AppShell>
-            </OnboardingWizard>
-          </ErrorBoundary>
+          <OnboardingWizard>
+            <AppShell>
+              {children}
+            </AppShell>
+          </OnboardingWizard>
         </Providers>
       </body>
     </html>

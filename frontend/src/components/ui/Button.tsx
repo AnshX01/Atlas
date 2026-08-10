@@ -80,7 +80,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <motion.button
         ref={ref}
-        whileTap={{ scale: 0.97 }}
+        whileTap={disabled || isLoading ? undefined : { scale: 0.97 }}
         transition={{ duration: 0.1 }}
         className={cn(
           "inline-flex items-center justify-center select-none",
@@ -89,7 +89,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           "disabled:opacity-40 disabled:cursor-not-allowed",
           variantStyles[variant],
           sizeStyles[size],
-          (isLoading || disabled) && "pointer-events-none opacity-50",
+          (isLoading || disabled) && "opacity-50 cursor-not-allowed",
           className
         )}
         disabled={disabled || isLoading}

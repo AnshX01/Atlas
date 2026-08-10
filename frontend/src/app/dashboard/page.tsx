@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { Plug, Search, CheckSquare, Calendar, Activity, ArrowRight, Mail, GitPullRequest, FileText, LayoutDashboard, Settings, MessageSquare } from "lucide-react";
+import { Plug, CheckSquare, Calendar, Activity, ArrowRight, Mail, GitPullRequest, FileText, LayoutDashboard, Settings, MessageSquare } from "lucide-react";
 import {
   GoogleLogo,
   GitHubLogo,
@@ -189,7 +189,7 @@ export default function DashboardPage() {
         <h2 className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wider mb-3">
           Quick Actions
         </h2>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <QuickActionCard
             icon={<LayoutDashboard size={16} className="text-[var(--accent)]" />}
             label="View Briefing"
@@ -256,7 +256,7 @@ export default function DashboardPage() {
                 initial={{ opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.45 + index * 0.06 }}
-                onClick={() => router.push("/briefing")}
+                onClick={() => item.action_url ? window.open(item.action_url, '_blank') : router.push("/briefing")}
                 whileHover={{ y: -1, boxShadow: "0 4px 16px rgba(0,0,0,0.08)" }}
               >
                 <div className="w-7 h-7 rounded-lg bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
@@ -267,7 +267,7 @@ export default function DashboardPage() {
                     {item.title}
                   </p>
                   <p className="text-xs text-[var(--text-muted)] truncate">
-                    {item.source === "gmail" ? "Google Workspace" : item.source === "github" ? "GitHub" : item.source === "calendar" ? "Google Workspace" : item.source === "tasks" ? "Google Workspace" : item.source === "slack" ? "Slack" : item.source === "notion" ? "Notion" : item.source?.charAt(0).toUpperCase() + item.source?.slice(1)}
+                    {item.source === "gmail" ? "Google Workspace" : item.source === "github" ? "GitHub" : item.source === "calendar" ? "Google Workspace" : item.source === "tasks" ? "Google Workspace" : item.source === "slack" ? "Slack" : item.source === "notion" ? "Notion" : (item.source ? item.source.charAt(0).toUpperCase() + item.source.slice(1) : "Source")}
                   </p>
                 </div>
                 <ArrowRight size={12} className="text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors shrink-0" />

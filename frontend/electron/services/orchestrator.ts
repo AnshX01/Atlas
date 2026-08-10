@@ -492,7 +492,7 @@ export class Orchestrator {
           const clarificationMsg = `I need a bit more info before I can do that: ${error.message}`;
           combinedResponse += (combinedResponse ? "\n\n" : "") + clarificationMsg;
           isCancelled = true;
-          break;
+          continue;
         }
 
         const errorMsg = error instanceof Error ? error.message : "Unknown error";
@@ -501,7 +501,7 @@ export class Orchestrator {
 
         const errorResponse = `I encountered an error while processing your request: ${errorMsg}`;
         combinedResponse += (combinedResponse ? "\n\n" : "") + errorResponse;
-        break;
+        continue;
       }
     }
 
@@ -556,61 +556,64 @@ export class Orchestrator {
       return;
     }
 
-    for (const tool of toolsToCall) {
-      this.safeSend(mainWindow, "workflow-tool-executing", {
-        server: tool.server,
-        tool: tool.tool,
-        params: tool.params,
-      });
+    // Anthropic Workflow: Parallelization (Sectioning)
+    await Promise.all(
+      toolsToCall.map(async (tool) => {
+        this.safeSend(mainWindow, "workflow-tool-executing", {
+          server: tool.server,
+          tool: tool.tool,
+          params: tool.params,
+        });
 
-      try {
-        const result = await this.mcpManager.callTool(
-          tool.server,
-          tool.tool,
-          tool.params as Record<string, any>
-        );
+        try {
+          const result = await this.mcpManager.callTool(
+            tool.server,
+            tool.tool,
+            tool.params as Record<string, any>
+          );
 
-        // Check if the result is an error response from the connector
-        if (result && typeof result === 'object' && result.error) {
-          console.warn(`[Orchestrator] Tool returned error: ${tool.server}/${tool.tool}: ${result.error}`);
+          // Check if the result is an error response from the connector
+          if (result && typeof result === "object" && result.error) {
+            console.warn(`[Orchestrator] Tool returned error: ${tool.server}/${tool.tool}: ${result.error}`);
+            state.context.push({
+              type: "tool_error",
+              server: tool.server,
+              tool: tool.tool,
+              error: result.error,
+            });
+          } else {
+            tool.result = result;
+            state.toolCalls.push(tool);
+
+            saveToolExecution(
+              state.conversationId,
+              tool.server,
+              tool.tool,
+              tool.params,
+              result
+            );
+
+            state.context.push({
+              type: "tool_result",
+              server: tool.server,
+              tool: tool.tool,
+              result,
+            });
+          }
+        } catch (error) {
+          const errorMsg = error instanceof Error ? error.message : "Tool call failed";
+          console.warn(
+            `[Orchestrator] Tool call failed: ${tool.server}/${tool.tool}: ${errorMsg}`
+          );
           state.context.push({
             type: "tool_error",
             server: tool.server,
             tool: tool.tool,
-            error: result.error,
-          });
-        } else {
-          tool.result = result;
-          state.toolCalls.push(tool);
-
-          saveToolExecution(
-            state.conversationId,
-            tool.server,
-            tool.tool,
-            tool.params,
-            result
-          );
-
-          state.context.push({
-            type: "tool_result",
-            server: tool.server,
-            tool: tool.tool,
-            result,
+            error: errorMsg,
           });
         }
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : "Tool call failed";
-        console.warn(
-          `[Orchestrator] Tool call failed: ${tool.server}/${tool.tool}: ${errorMsg}`
-        );
-        state.context.push({
-          type: "tool_error",
-          server: tool.server,
-          tool: tool.tool,
-          error: errorMsg,
-        });
-      }
-    }
+      })
+    );
   }
 
   private async actionNode(
@@ -710,12 +713,35 @@ export class Orchestrator {
     } catch(e) {}
 
     const abortController = new AbortController();
+    const existing = this.activeStreams.get(state.conversationId);
+    if (existing) existing.abort();
     this.activeStreams.set(state.conversationId, abortController);
 
-    let fields: Record<string, string>;
+    let fields: Record<string, string> = {};
     try {
-      // Generate draft content with Ollama
-      fields = await this.generateDraft(actionType, state.input, state.context, toolSchemaStr, abortController.signal);
+      // Anthropic Workflow: Evaluator-Optimizer
+      let evaluationPass = false;
+      let attempts = 0;
+      let evalContext = "";
+
+      while (!evaluationPass && attempts < 2) {
+        this.safeSend(mainWindow, "workflow-stream", {
+          conversationId: state.conversationId,
+          role: "assistant",
+          content: attempts === 0 ? "\n*Drafting action...*" : "\n*Self-correcting draft...*"
+        });
+
+        fields = await this.generateDraft(actionType, state.input, state.context, toolSchemaStr, evalContext, abortController.signal);
+        
+        // Evaluate draft
+        const evalResult = await this.evaluateDraft(actionType, fields, state.input, toolSchemaStr, abortController.signal);
+        if (evalResult.valid) {
+          evaluationPass = true;
+        } else {
+          evalContext += `\nError in previous draft: ${evalResult.feedback}. Please fix this.`;
+          attempts++;
+        }
+      }
       
       // Check for placeholders in required fields
       for (const [key, value] of Object.entries(fields)) {
@@ -787,9 +813,14 @@ export class Orchestrator {
     userInput: string,
     context: any[],
     toolSchemaStr: string,
+    evalContext?: string,
     abortSignal?: AbortSignal
   ): Promise<Record<string, string>> {
     const draftPrompt = this.buildDraftPrompt(actionType, userInput, context, toolSchemaStr);
+
+    if (evalContext) {
+      draftPrompt.user += `\n\nEVALUATOR FEEDBACK:\n${evalContext}`;
+    }
 
     const messages = [
       { role: "system" as const, content: draftPrompt.system },
@@ -812,6 +843,43 @@ export class Orchestrator {
 
     // Fallback: return basic fields based on action type
     return this.getFallbackDraftFields(actionType, userInput);
+  }
+
+  /**
+   * Evaluate a generated draft against the tool schema and user input.
+   */
+  private async evaluateDraft(
+    actionType: string,
+    draftFields: Record<string, string>,
+    userInput: string,
+    toolSchemaStr: string,
+    abortSignal?: AbortSignal
+  ): Promise<{ valid: boolean; feedback: string }> {
+    if (!toolSchemaStr) return { valid: true, feedback: "" };
+
+    const messages = [
+      { role: "system" as const, content: `You are an evaluator checking a generated JSON draft against a tool schema.
+The user requested: "${userInput}"
+The tool schema is:
+${toolSchemaStr}
+
+The generated draft fields are:
+${JSON.stringify(draftFields, null, 2)}
+
+Does the draft correctly and completely satisfy the user's intent without hallucinating arguments? Is it missing any required parameters from the schema?
+Output JSON only: {"valid": boolean, "feedback": "if invalid, explain why and what to fix"}` }
+    ];
+
+    let fullResponse = "";
+    try {
+      for await (const token of streamChat(messages, undefined, abortSignal)) {
+        fullResponse += token;
+      }
+      const result = repairAndParseJson(fullResponse);
+      return { valid: result.valid === true, feedback: result.feedback || "" };
+    } catch {
+      return { valid: true, feedback: "" }; // Fallback to passing
+    }
   }
 
   private buildDraftPrompt(
@@ -927,7 +995,7 @@ Rules:
 
       default:
         basePrompt = {
-          system: `You interpret action requests. Extract all relevant details from the user's message. Output ONLY a JSON object with the appropriate fields for a "${actionType}" action. No explanation, no markdown.`,
+          system: `You interpret action requests. CRITICAL: You MUST extract ALL relevant context from the user's message (descriptions, times, subjects, participants, repositories) and seamlessly inject them as arguments into the appropriate tool fields. Output ONLY a JSON object with the fields for a "${actionType}" action. No explanation, no markdown.`,
           user: `User request: "${userInput}"\nToday: ${today}\nContext: ${contextStr}`,
         };
         break;
@@ -1168,6 +1236,8 @@ Rules:
 
     let fullResponse = "";
     const abortController = new AbortController();
+    const existing = this.activeStreams.get(state.conversationId);
+    if (existing) existing.abort();
     this.activeStreams.set(state.conversationId, abortController);
 
     try {
@@ -1928,13 +1998,5 @@ Rules:
     }
 
     return pending;
-  }
-
-  abort(conversationId: string): void {
-    const controller = this.activeStreams.get(conversationId);
-    if (controller) {
-      controller.abort();
-      this.activeStreams.delete(conversationId);
-    }
   }
 }

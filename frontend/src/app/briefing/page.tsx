@@ -21,7 +21,15 @@ function EmptyBriefing() {
     queryFn: connectorsAPI.listConnectors,
   });
 
-  if (connectorsLoading) return null;
+  if (connectorsLoading) {
+    return (
+      <div className="flex flex-col gap-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <BriefingCardSkeleton key={i} />
+        ))}
+      </div>
+    );
+  }
 
   const activeConnectors = connectors?.filter((c) => c.status === "active") ?? [];
   const hasConnectors = activeConnectors.length > 0;
@@ -108,7 +116,7 @@ function ProactiveActions({ items }: { items: any[] }) {
         <p className="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
           Highly prioritized item: <strong className="text-[var(--text-primary)]">{topItem.title}</strong>. 
           <br className="hidden sm:block" />
-          {topItem.summary.slice(0, 120)}{topItem.summary.length > 120 ? '...' : ''}
+          {topItem.summary?.slice(0, 120) ?? ""}{(topItem.summary?.length ?? 0) > 120 ? '...' : ''}
         </p>
         {topItem.action_label && topItem.action_url && (
           <Button 
@@ -131,19 +139,20 @@ export default function BriefingPage() {
   const { setBriefing, setLoading, setError, items, isDismissed, dismissItem, isSummarizing } =
     useBriefingStore();
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: ["briefing", "daily"],
     queryFn: () => briefingAPI.getDaily({
       onFallback: (fallbackData) => setBriefing(fallbackData)
     }),
     staleTime: 1000 * 60 * 5,
     retry: 2,
+    refetchInterval: isSummarizing ? 3000 : false,
   });
 
   useEffect(() => {
     if (isLoading) { setLoading(true); return; }
     if (isError)   { setError("Failed to load briefing"); return; }
-    if (data)      { setBriefing(data); }
+    if (data)      { setBriefing(data); setLoading(false); }
   }, [data, isLoading, isError, setBriefing, setLoading, setError]);
 
   const getGreeting = () => {
@@ -179,7 +188,7 @@ export default function BriefingPage() {
             variant="ghost"
             id="refresh-briefing-btn"
             onClick={() => refetch()}
-            isLoading={isLoading}
+            isLoading={isLoading || isFetching}
             leftIcon={<RefreshCw size={12} />}
             aria-label="Refresh briefing"
           >

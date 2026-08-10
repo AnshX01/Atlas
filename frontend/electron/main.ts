@@ -7,7 +7,9 @@ import {
   shell,
   session,
   Tray,
+  Tray,
   Menu,
+  dialog,
 } from "electron";
 import * as path from "path";
 import { MCPServerManager } from "./services/mcp-manager";
@@ -75,10 +77,14 @@ function createWindow(): BrowserWindow {
     height: 820,
     minWidth: 900,
     minHeight: 600,
-    titleBarStyle: "hiddenInset",     // macOS native title bar
+    titleBarStyle: "hidden",          // macOS native title bar
+    frame: false,                     // Frameless window
+    alwaysOnTop: true,                // Always on top
+    transparent: true,
     vibrancy: "under-window",         // macOS vibrancy / blur effect
+    backgroundMaterial: "mica",       // Windows 11 mica effect
     visualEffectState: "active",
-    backgroundColor: "#09090b",       // Match --bg-primary dark
+    backgroundColor: "#00000000",     // Transparent background
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -115,7 +121,8 @@ function createWindow(): BrowserWindow {
 
 // ── App lifecycle ──────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
-  // Automatically grant permissions for media/microphone
+  try {
+    // Automatically grant permissions for media/microphone
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     const allowedPermissions = ['media', 'mediaKeySystem', 'display-capture'];
     if (allowedPermissions.includes(permission)) {
@@ -126,6 +133,12 @@ app.whenReady().then(async () => {
   });
 
   mainWindow = createWindow();
+
+  // OS Auto-start
+  app.setLoginItemSettings({
+    openAtLogin: true,
+    openAsHidden: true,
+  });
 
   const iconPath = path.join(__dirname, "../public/icon.png");
   tray = new Tray(iconPath);
@@ -246,6 +259,8 @@ app.whenReady().then(async () => {
 
   // Try ports 19876, 19877, 19878 with fallback
   const OAUTH_PORTS = [19876, 19877, 19878];
+  let activeOAuthPort = OAUTH_PORTS[0];
+
   function tryListenOAuth(portIndex: number): void {
     if (portIndex >= OAUTH_PORTS.length) {
       console.warn("[Atlas] OAuth callback server failed to bind on any port (19876-19878)");
@@ -261,11 +276,16 @@ app.whenReady().then(async () => {
       }
     });
     oauthServer.listen(port, "127.0.0.1", () => {
+      activeOAuthPort = port;
       setOAuthRedirectPort(port);
       console.log(`[Atlas] OAuth callback server listening on http://localhost:${port}`);
     });
   }
   tryListenOAuth(0);
+
+  ipcMain.handle("get-oauth-port", () => {
+    return activeOAuthPort;
+  });
 
   // ── Global shortcut: Alt+Space → Show and focus app ─────────────────
   const registered = globalShortcut.register("Alt+Space", () => {
@@ -285,6 +305,9 @@ app.whenReady().then(async () => {
       mainWindow?.show();
     }
   });
+  } catch (err) {
+    console.error("[Atlas] FATAL: App initialization failed:", err);
+  }
 });
 
 // keep app running when all windows are closed
@@ -297,6 +320,8 @@ app.on("will-quit", () => {
 
   // Close local SQLite database
   closeDB();
+
+  if (cronEngine) cronEngine.stop();
 
   // Gracefully stop all MCP server subprocesses
   if (mcpManager) {
@@ -311,8 +336,8 @@ ipcMain.handle("get-platform", () => process.platform);
 
 ipcMain.handle("get-app-version", () => app.getVersion());
 
-ipcMain.handle("open-external", (_event, url: string) => {
-  shell.openExternal(url);
+ipcMain.handle("open-external", async (_event, url: string) => {
+  await shell.openExternal(url);
 });
 
 ipcMain.handle("set-theme", (_event, theme: "dark" | "light") => {
@@ -321,7 +346,6 @@ ipcMain.handle("set-theme", (_event, theme: "dark" | "light") => {
 
 // Local file system access (for LocalFSConnector path selection)
 ipcMain.handle("select-directory", async () => {
-  const { dialog } = await import("electron");
   const result = await dialog.showOpenDialog({
     properties: ["openDirectory", "multiSelections"],
     title: "Select directories for Atlas to watch",
@@ -358,7 +382,7 @@ ipcMain.handle(
       mainWindow.webContents.send("chat-stream-end");
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown streaming error";
-      mainWindow.webContents.send("chat-stream-end", { error: errorMessage });
+      try { mainWindow?.webContents.send("chat-stream-end", { error: errorMessage }); } catch {}
       throw error;
     }
   }

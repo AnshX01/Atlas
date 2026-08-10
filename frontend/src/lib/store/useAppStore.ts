@@ -18,19 +18,9 @@ interface AppState {
   syncProgress: string | null; // connector name currently syncing, or null
   setSyncProgress: (progress: string | null) => void;
 
-  // ── Auth ─────────────────────────────────────────────────────────
-  accessToken: string | null;
-  setAccessToken: (token: string | null) => void;
-
   // ── WebSocket ────────────────────────────────────────────────────
   wsConnected: boolean;
   setWsConnected: (connected: boolean) => void;
-
-  // ── User ─────────────────────────────────────────────────────────
-  userId: string | null;
-  userEmail: string | null;
-  setUser: (id: string, email: string) => void;
-  clearUser: () => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -59,30 +49,22 @@ export const useAppStore = create<AppState>()(
       syncProgress: null,
       setSyncProgress: (progress) => set({ syncProgress: progress }),
 
-      // ── Auth ───────────────────────────────────────────────────────
-      accessToken: null,
-      setAccessToken: (token) => set({ accessToken: token }),
-
       // ── WebSocket ──────────────────────────────────────────────────
       wsConnected: false,
       setWsConnected: (connected) => set({ wsConnected: connected }),
-
-      // ── User ───────────────────────────────────────────────────────
-      userId: null,
-      userEmail: null,
-      setUser: (id, email) => set({ userId: id, userEmail: email }),
-      clearUser: () =>
-        set({ userId: null, userEmail: null, accessToken: null }),
     }),
     {
       name: "atlas-app-store",
       // Only persist these fields to localStorage
       partialize: (state) => ({
         theme: state.theme,
-        accessToken: state.accessToken,
-        userId: state.userId,
-        userEmail: state.userEmail,
       }),
+      onRehydrateStorage: () => (state) => {
+        // Sync DOM dark class on rehydration so CSS variables apply immediately
+        if (state && typeof document !== "undefined") {
+          document.documentElement.classList.toggle("dark", state.theme === "dark");
+        }
+      },
     }
   )
 );

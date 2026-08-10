@@ -457,11 +457,11 @@ export default function SettingsPage() {
       if (!electron?.tokenStore?.listConfigured) return;
 
       try {
-        const configured: string[] = await electron.tokenStore.listConfigured();
+        const configured: string[] = (await electron.tokenStore.listConfigured()) ?? [];
         setStatuses((prev) => {
           const next = { ...prev };
           for (const id of Object.keys(next) as ConnectorId[]) {
-            next[id] = { ...next[id], configured: configured.includes(id) };
+            next[id] = { ...next[id], configured: configured?.includes(id) || false };
           }
           return next;
         });

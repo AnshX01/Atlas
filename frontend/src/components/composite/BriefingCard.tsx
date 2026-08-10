@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { formatDistanceToNow } from "date-fns";
 import {
   Mail, GitPullRequest, AlertCircle, Calendar, FileText, CheckSquare,
-  Clock, ArrowUpRight, Check, X, Loader2, Github, Slack, BookOpen
+  Clock, ArrowUpRight, Check, X, Loader2, Github, Slack, BookOpen,
+  ExternalLink, ChevronUp, ChevronDown
 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { cn } from "@/lib/utils";
@@ -123,55 +124,49 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
 
   return (
     <motion.div
-      className="briefing-card group"
+      className="p-4 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] hover:border-gray-400 dark:hover:border-white/20 transition-all duration-150 group flex flex-col relative"
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{
-        delay: index * 0.06,
-        type: "spring",
-        stiffness: 400,
-        damping: 30,
-      }}
+      transition={{ delay: index * 0.06, type: "spring", stiffness: 400, damping: 30 }}
+      whileHover={{ y: -1, boxShadow: "0 4px 16px rgba(0,0,0,0.12)" }}
       role="article"
       aria-label={`${item.type} from ${item.source}: ${item.title}`}
     >
       {/* Header: icon + source + time */}
-      <div className="flex items-center gap-2 mb-2.5">
-        <span className={config.color}>
-          {config.icon}
-        </span>
-        <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/50">
-            {item.source === "gmail" ? <Mail size={12} className="text-[#EA4335]" /> : 
-             item.source === "github" ? <Github size={12} className="text-white" /> : 
-             item.source === "slack" ? <Slack size={12} className="text-[#E01E5A]" /> : 
-             item.source === "notion" ? <BookOpen size={12} className="text-white" /> : 
-             item.source === "calendar" ? <Calendar size={12} className="text-[#4285F4]" /> : 
-             item.source === "tasks" ? <CheckSquare size={12} className="text-[#4285F4]" /> : null}
-            {item.source === "gmail" ? "Google Workspace" : item.source === "github" ? "GitHub" : item.source === "calendar" ? "Google Workspace" : item.source === "tasks" ? "Google Workspace" : item.source === "slack" ? "Slack" : item.source === "notion" ? "Notion" : item.source === "filesystem" ? "Local Files" : item.source?.charAt(0).toUpperCase() + item.source?.slice(1)}
-        </span>
-        {item.type === "email" && !!item.metadata?.sender && (
-          <>
-            <span className="text-white/20">·</span>
-            <span className="text-[12px] text-white/40">{String(item.metadata.sender).split('<')[0].trim()}</span>
-          </>
-        )}
-        {(item.type === "pr" || item.type === "issue") && !!item.metadata?.repo && (
-          <>
-            <span className="text-white/20">·</span>
-            <span className="text-[12px] text-white/40">{String(item.metadata.repo)}</span>
-          </>
-        )}
-        <span className="text-[11px] text-white/25 ml-auto">{timeAgo}</span>
+      <div className="flex items-start gap-3 mb-2">
+        <div className="w-8 h-8 rounded-lg bg-[var(--bg-tertiary)] border border-[var(--border-default)] flex items-center justify-center shrink-0">
+          <span className={config.color}>
+            {config.icon}
+          </span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between mb-0.5">
+            <span className="text-[11px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider flex items-center gap-1.5">
+              {item.source === "gmail" ? "Google Workspace" : item.source === "github" ? "GitHub" : item.source === "calendar" ? "Google Workspace" : item.source === "tasks" ? "Google Workspace" : item.source === "slack" ? "Slack" : item.source === "notion" ? "Notion" : item.source === "filesystem" ? "Local Files" : (item.source ? item.source.charAt(0).toUpperCase() + item.source.slice(1) : "Unknown")}
+            </span>
+            <span className="text-[11px] text-[var(--text-muted)]">{timeAgo}</span>
+          </div>
+          <h3 className="text-sm font-semibold text-[var(--text-primary)] leading-snug line-clamp-2">
+            {item.title}
+          </h3>
+        </div>
       </div>
 
-      {/* Title */}
-      <h3 className="text-[14px] font-medium text-white/90 leading-snug mb-1.5 line-clamp-2">
-        {item.title}
-      </h3>
+      {/* Meta context (e.g. sender, repo) */}
+      {(item.type === "email" && !!item.metadata?.sender) || ((item.type === "pr" || item.type === "issue") && !!item.metadata?.repo) ? (
+        <div className="flex items-center gap-2 mb-2 ml-11">
+          {item.type === "email" && !!item.metadata?.sender && (
+            <span className="text-[12px] text-[var(--text-muted)]">From: {String(item.metadata.sender).split('<')[0].trim()}</span>
+          )}
+          {(item.type === "pr" || item.type === "issue") && !!item.metadata?.repo && (
+            <span className="text-[12px] text-[var(--text-muted)]">Repo: {String(item.metadata.repo)}</span>
+          )}
+        </div>
+      ) : null}
 
       {/* Summary */}
       <p className={cn(
-        "text-[12px] text-white/45 leading-relaxed mb-3",
+        "text-[13px] text-[var(--text-secondary)] leading-relaxed mb-3 ml-11",
         !expanded && "line-clamp-2"
       )}>
         {item.summary}
@@ -186,7 +181,7 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
             className="mb-3 overflow-hidden"
           >
-            <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-3">
+            <div className="p-3 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] space-y-3 ml-11">
               {item.type === "email" && (
                 <div className="space-y-2">
                   {!!item.metadata?.subject && (
@@ -203,7 +198,7 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
                       </span>
                     </div>
                   )}
-                  <div className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-line border-t border-white/[0.06] pt-2 mt-2">
+                  <div className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-line border-t border-[var(--border-subtle)] pt-2 mt-2">
                     {item.summary.split("\n").slice(0, 6).join("\n") || item.title}
                   </div>
                 </div>
@@ -223,7 +218,7 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
                   {!!item.metadata?.issue_number && (
                     <div className="text-xs text-[var(--text-muted)]">Issue #{String(item.metadata.issue_number)}</div>
                   )}
-                  <div className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-line border-t border-white/[0.06] pt-2 mt-2">
+                  <div className="text-xs text-[var(--text-secondary)] leading-relaxed whitespace-pre-line border-t border-[var(--border-subtle)] pt-2 mt-2">
                     {item.summary}
                   </div>
                 </div>
@@ -255,8 +250,8 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium
-                             text-[var(--accent)] bg-white/[0.02]
-                             hover:bg-[var(--accent)]/10 border border-white/[0.06] transition-colors"
+                             text-[var(--accent)] bg-[var(--bg-primary)]
+                             hover:bg-[var(--accent)] hover:text-[var(--bg-primary)] border border-[var(--border-default)] transition-colors"
                 >
                   <ExternalLink size={12} />
                   {getActionLabel(item)}
@@ -267,10 +262,10 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
         )}
       </AnimatePresence>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 ml-11">
         <Button
           size="sm"
-          variant="ghost"
+          variant="secondary"
           id={`expand-${item.id}`}
           onClick={() => setExpanded(!expanded)}
           rightIcon={expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
@@ -279,20 +274,18 @@ export function BriefingCard({ item, index, onAction }: BriefingCardProps) {
           {expanded ? "Less" : "Details"}
         </Button>
 
-        <button
+        <Button
+          size="sm"
+          variant="primary"
           onClick={() => {
             setCompleted(true);
             onAction?.(item);
           }}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium
-                     text-[var(--text-secondary)] hover:text-white hover:bg-white/10
-                     border border-[var(--border-default)] hover:border-white/30
-                     transition-all duration-150"
+          leftIcon={<Check size={12} />}
           aria-label={`Mark "${item.title}" as completed`}
         >
-          <Check size={12} />
           Done
-        </button>
+        </Button>
       </div>
     </motion.div>
   );

@@ -37,7 +37,9 @@ export function initRAGStore() {
 function persistStore() {
   if (!storePath) return;
   try {
-    fs.writeFileSync(storePath, JSON.stringify(ragStore));
+    const tmpPath = storePath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(ragStore));
+    fs.renameSync(tmpPath, storePath);
   } catch (e) {
     console.error("[Atlas RAG] Failed to persist store:", e);
   }
@@ -84,6 +86,7 @@ export async function searchContext(query: string, topK: number = 3): Promise<st
 }
 
 function cosineSimilarity(vecA: number[], vecB: number[]): number {
+  if (vecA.length !== vecB.length) return 0; // dimension mismatch guard
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;

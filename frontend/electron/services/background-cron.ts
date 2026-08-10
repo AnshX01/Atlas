@@ -4,6 +4,7 @@ import { MCPServerManager } from './mcp-manager';
 export class CronEngine {
   private timer: NodeJS.Timeout | null = null;
   private isChecking = false;
+  private notifiedIds = new Set<string>();
 
   constructor(private mcpManager: MCPServerManager) {}
 
@@ -39,15 +40,21 @@ export class CronEngine {
       });
       
       if (Array.isArray(emailResult)) {
-        for (const email of emailResult) {
+        const newEmails = emailResult.filter(e => e.id && !this.notifiedIds.has(e.id));
+        newEmails.forEach(e => this.notifiedIds.add(e.id));
+        for (const email of newEmails) {
           const subject = email.subject || '';
           const from = email.from || '';
           // Identify urgent items based on heuristic
           if (subject.toLowerCase().includes('urgent') || from.toLowerCase().includes('sarah')) {
-             new Notification({
-                title: `Urgent email from ${from.split('<')[0].trim()}`,
-                body: subject
-             }).show();
+             try {
+               new Notification({
+                  title: `Urgent email from ${from.split('<')[0].trim()}`,
+                  body: subject
+               }).show();
+             } catch (e) {
+               console.warn("Failed to show notification", e);
+             }
           }
         }
       }
@@ -68,10 +75,18 @@ export class CronEngine {
           const timeUntil = startTime - now;
           // Notify if an event is starting in the next 15 minutes
           if (timeUntil > 0 && timeUntil <= 15 * 60 * 1000) {
-            new Notification({
-              title: 'Upcoming Meeting',
-              body: `${event.title} starts in ${Math.ceil(timeUntil / 60000)} minutes.`
-            }).show();
+            const eventId = event.id || event.title;
+            if (eventId && !this.notifiedIds.has(eventId)) {
+              this.notifiedIds.add(eventId);
+              try {
+                new Notification({
+                  title: 'Upcoming Meeting',
+                  body: `${event.title} starts in ${Math.ceil(timeUntil / 60000)} minutes.`
+                }).show();
+              } catch (e) {
+                console.warn("Failed to show notification", e);
+              }
+            }
           }
         }
       }

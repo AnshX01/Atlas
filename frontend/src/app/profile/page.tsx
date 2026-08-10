@@ -100,6 +100,10 @@ export default function ProfilePage() {
   // ── Handlers ────────────────────────────────────────────────────────
   const handleProfileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!fullName.trim()) {
+      setToast({ message: "Display name cannot be empty", type: "error" });
+      return;
+    }
     updateProfile.mutate({ full_name: fullName });
   };
 
@@ -122,6 +126,7 @@ export default function ProfilePage() {
 
     const reader = new FileReader();
     reader.onloadend = () => {
+      if (!reader.result) return;
       const base64 = reader.result as string;
       setAvatar(base64);
       localStorage.setItem(AVATAR_STORAGE_KEY, base64);

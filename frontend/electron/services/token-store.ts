@@ -95,8 +95,15 @@ function writeStore(data: TokenStoreData): void {
     const raw = JSON.stringify(data, null, 2);
     const pwd = getEncryptionKey();
     
-    const out = pwd ? encryptData(raw, pwd) : raw;
-    fs.writeFileSync(storePath, out, "utf-8");
+    if (!pwd) {
+      console.warn("[Atlas] Cannot write token store: no encryption key available");
+      return; // NEVER write with empty key — prevents credential wipeout
+    }
+    
+    const out = encryptData(raw, pwd);
+    const tmpPath = storePath + '.tmp';
+    fs.writeFileSync(tmpPath, out, "utf-8");
+    fs.renameSync(tmpPath, storePath);
   } catch (err) {
     console.error("[Token Store] Failed to write token store:", err);
     throw new Error("Failed to save credentials to disk");
