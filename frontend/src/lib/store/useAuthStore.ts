@@ -40,10 +40,10 @@ export const useAuthStore = create<AuthState>()(
       setHydrated: () => set({ isHydrated: true }),
 
       logout: () => {
-        set({ accessToken: null, refreshToken: null, user: null });
-        if (typeof window !== "undefined") {
-          window.location.href = "/login";
+        if (typeof window !== "undefined" && (window as any).atlasElectron?.localAuth) {
+          (window as any).atlasElectron.localAuth.logout().catch(console.error);
         }
+        set({ accessToken: null, refreshToken: null, user: null });
       },
     }),
     {

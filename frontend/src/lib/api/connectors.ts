@@ -70,4 +70,35 @@ export const connectorsAPI = {
       created_at: new Date().toISOString(),
     }));
   },
+
+  async executeAction(item: any, action: 'done' | 'read' | 'archive' | 'reply'): Promise<void> {
+    if (typeof window === "undefined" || !window.atlasElectron) return;
+
+    try {
+      if (item.type === "task" && action === "done") {
+        const taskId = item.metadata?.source_id || item.metadata?.id;
+        if (taskId) {
+          await window.atlasElectron.mcpCallTool("google_workspace", "markTaskDone", { taskId });
+        }
+      } else if (item.type === "email" && action === "read") {
+        const messageId = item.metadata?.source_id || item.metadata?.msg_id;
+        if (messageId) {
+          await window.atlasElectron.mcpCallTool("google_workspace", "modifyMessage", { 
+            messageId, 
+            removeLabelIds: ["UNREAD"] 
+          });
+        }
+      } else if (item.type === "email" && action === "archive") {
+        const messageId = item.metadata?.source_id || item.metadata?.msg_id;
+        if (messageId) {
+          await window.atlasElectron.mcpCallTool("google_workspace", "modifyMessage", { 
+            messageId, 
+            removeLabelIds: ["INBOX"] 
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[Action Execution] Failed to execute remote action:", err);
+    }
+  },
 };

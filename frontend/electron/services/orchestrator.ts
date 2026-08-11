@@ -121,6 +121,9 @@ const TOOL_ROUTING: Record<string, { server: string; tool: string }[]> = {
   email: [
     { server: "google_workspace", tool: "search_emails" },
   ],
+  emails: [
+    { server: "google_workspace", tool: "search_emails" },
+  ],
   inbox: [
     { server: "google_workspace", tool: "search_emails" },
   ],
@@ -1315,7 +1318,8 @@ Rules:
 
     // Issue #5: Optimize keyword matching — split input into a word Set for O(1) single-word
     // lookups; only do substring search for multi-word keys.
-    const inputWords = new Set(input.split(/\s+/));
+    const cleanInput = input.replace(/[.,!?]/g, '');
+    const inputWords = new Set(cleanInput.split(/\s+/));
     // Separate single-word and multi-word keys for efficient matching
     const matchedKeywords: string[] = [];
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect, Suspense, type KeyboardEvent, memo } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Send,
@@ -19,6 +19,8 @@ import {
   Github,
   Slack,
   BookOpen,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 
@@ -157,8 +159,8 @@ const ToolExecutionCard = memo(function ToolExecutionCard({ tool, onRetry }: { t
   return (
     <motion.div
       className={cn(
-        "flex items-center justify-between gap-2 px-3 py-2 rounded-lg",
-        tool.status === "failed" ? "border-red-500/20 bg-red-500/5" : "glass-panel"
+        "flex items-center justify-between gap-2 px-3 py-2 rounded-lg w-full max-w-2xl",
+        tool.status === "failed" ? "border-red-500/20 bg-red-500/5 border" : "bg-[var(--bg-secondary)] border border-[var(--border-default)]"
       )}
       initial={{ opacity: 0, height: 0, scale: 0.95 }}
       animate={{ opacity: 1, height: "auto", scale: 1 }}
@@ -166,13 +168,13 @@ const ToolExecutionCard = memo(function ToolExecutionCard({ tool, onRetry }: { t
     >
       <div className="flex items-center gap-2">
         {tool.status === "executing" ? (
-          <Loader2 size={12} className="text-white/40 animate-spin" />
+          <Loader2 size={12} className="text-[var(--text-muted)] animate-spin" />
         ) : tool.status === "failed" ? (
           <X size={12} className="text-red-400" />
         ) : (
-          <Check size={12} className="text-white/50" />
+          <Check size={12} className="text-[var(--text-muted)]" />
         )}
-        <span className={cn("text-[12px]", tool.status === "failed" ? "text-red-400/90" : "text-white/50")}>
+        <span className={cn("text-[12px]", tool.status === "failed" ? "text-red-400/90" : "text-[var(--text-muted)]")}>
           {formatServerName(tool.server)} {tool.status === "failed" ? "Failed" : ""}
         </span>
       </div>
@@ -224,7 +226,7 @@ const ResultCard = memo(function ResultCard({ result }: { result: SearchResult }
 
   return (
     <motion.div
-      className="group cursor-pointer rounded-xl glass-panel hover:bg-white/[0.04] transition-all duration-300"
+      className="group cursor-pointer rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-default)] hover:bg-[var(--bg-tertiary)] transition-all duration-300 w-full max-w-2xl"
       initial={{ opacity: 0, y: 10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       whileHover={{ y: -2, scale: 1.01 }}
@@ -235,12 +237,12 @@ const ResultCard = memo(function ResultCard({ result }: { result: SearchResult }
       <div className="px-4 py-3">
         {/* Top row: icon + source name + timestamp */}
         <div className="flex items-center gap-2 mb-2">
-          <span className="text-white/50">{icon}</span>
-          <span className="text-[12px] font-medium text-white/50">
+          <span className="text-[var(--text-muted)]">{icon}</span>
+          <span className="text-[12px] font-medium text-[var(--text-muted)]">
             {formatSourceName(result.source)}
           </span>
           {result.timestamp && (
-            <span className="text-[11px] text-white/30 ml-auto">
+            <span className="text-[11px] text-[var(--text-muted)] opacity-70 ml-auto">
               {(() => {
                 try {
                   return formatDistanceToNow(new Date(result.timestamp), { addSuffix: true });
@@ -251,18 +253,18 @@ const ResultCard = memo(function ResultCard({ result }: { result: SearchResult }
             </span>
           )}
           {result.url && (
-            <ExternalLink size={11} className="text-white/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+            <ExternalLink size={11} className="text-[var(--text-muted)] opacity-50 opacity-0 group-hover:opacity-100 transition-opacity" />
           )}
         </div>
 
         {/* Title */}
-        <h4 className="text-[13px] font-medium text-white/90 leading-snug line-clamp-1 mb-1">
+        <h4 className="text-[13px] font-medium text-[var(--text-primary)] leading-snug line-clamp-1 mb-1">
           {result.title}
         </h4>
 
         {/* Excerpt */}
         {result.excerpt && (
-          <p className="text-[12px] text-white/40 leading-relaxed line-clamp-2">
+          <p className="text-[12px] text-[var(--text-muted)] leading-relaxed line-clamp-2">
             {result.excerpt}
           </p>
         )}
@@ -270,6 +272,69 @@ const ResultCard = memo(function ResultCard({ result }: { result: SearchResult }
     </motion.div>
   );
 }, (prev, next) => JSON.stringify(prev.result) === JSON.stringify(next.result));
+
+const ReferencesAccordion = memo(function ReferencesAccordion({
+  tools,
+  results,
+  isStreaming,
+  onRetryTool,
+}: {
+  tools?: ToolExecution[];
+  results?: SearchResult[];
+  isStreaming?: boolean;
+  onRetryTool?: (toolId: string) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  const hasTools = tools && tools.length > 0;
+  const hasResults = results && results.length > 0;
+
+  if (!hasTools && !hasResults) return null;
+
+  const expanded = Boolean(isStreaming || isOpen);
+  const ChevronIcon = expanded ? ChevronDown : ChevronRight;
+
+  return (
+    <div className="flex flex-col gap-2 my-1 w-full max-w-2xl">
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="flex items-center gap-1.5 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors w-fit"
+      >
+        <span>Show references</span>
+        <ChevronIcon size={14} />
+      </button>
+
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+            className="flex flex-col gap-2 overflow-hidden w-full"
+          >
+            {hasTools && (
+              <div className="flex flex-col gap-1.5 w-full">
+                {tools.map((tool) => (
+                  <ToolExecutionCard key={tool.id} tool={tool} onRetry={onRetryTool} />
+                ))}
+              </div>
+            )}
+
+            {hasResults && (
+              <div className="flex flex-col gap-2 w-full">
+                {results.map((result) => (
+                  <ResultCard key={result.id} result={result} />
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
 
 
 function getActionIcon(actionType: string): React.ReactNode {
@@ -308,7 +373,7 @@ const ActionCard = memo(function ActionCard({
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2.5 min-w-0">
-          <span className="text-white/50">
+          <span className="text-[var(--text-muted)]">
             {getActionIcon(action.type)}
           </span>
           <div className="min-w-0">
@@ -380,26 +445,23 @@ const DraftCard = memo(function DraftCard({
 
   return (
     <motion.div
-      className="relative group"
+      className="relative group w-full"
       initial={{ opacity: 0, y: 8, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
     >
-      {/* Gradient border */}
-      <div className="absolute -inset-[1px] rounded-2xl bg-gradient-to-b from-white/[0.08] to-white/[0.02]" />
-
-      <div className="relative rounded-2xl bg-[#111113]/90 backdrop-blur-xl overflow-hidden">
+      <div className="relative rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06]">
-          <span className="text-white/70">{getActionIcon(draft.actionType)}</span>
-          <span className="text-xs font-semibold text-white/70 uppercase tracking-wide">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-default)]">
+          <span className="text-[var(--text-secondary)]">{getActionIcon(draft.actionType)}</span>
+          <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
             {getDraftTypeLabel(draft.actionType)}
           </span>
         </div>
 
         {/* Meta fields */}
         {metaFields.length > 0 && (
-          <div className="px-4 py-2.5 space-y-1.5 border-b border-white/[0.04]">
+          <div className="px-4 py-2.5 space-y-1.5 border-b border-[var(--border-subtle)]">
             {metaFields.map(([key, value]) => (
               <div key={key} className="flex items-center gap-2">
                 <span className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wider w-14 flex-shrink-0">
@@ -423,7 +485,7 @@ const DraftCard = memo(function DraftCard({
         )}
 
         {/* Action buttons */}
-        <div className="px-4 py-3 border-t border-white/[0.06]">
+        <div className="px-4 py-3 border-t border-[var(--border-default)]">
           {isPending && (
             <div className="flex items-center gap-2">
               <button
@@ -502,29 +564,28 @@ function DraftCardSkeleton() {
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
     >
-      <div className="absolute -inset-[1px] rounded-2xl bg-gradient-to-b from-white/[0.08] to-white/[0.02]" />
-      <div className="relative rounded-2xl bg-[#111113]/90 backdrop-blur-xl overflow-hidden p-4">
+      <div className="relative rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] overflow-hidden p-4">
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-5 h-5 rounded-md bg-white/10 animate-pulse" />
-          <div className="w-24 h-4 rounded-md bg-white/10 animate-pulse" />
+          <div className="w-5 h-5 rounded-md bg-[var(--bg-tertiary)] animate-pulse" />
+          <div className="w-24 h-4 rounded-md bg-[var(--bg-tertiary)] animate-pulse" />
         </div>
-        <div className="space-y-3 mb-4 pb-4 border-b border-white/[0.04]">
+        <div className="space-y-3 mb-4 pb-4 border-b border-[var(--border-subtle)]">
           <div className="flex items-center gap-2">
-             <div className="w-12 h-3 rounded bg-white/5 animate-pulse" />
-             <div className="w-48 h-3 rounded bg-white/10 animate-pulse" />
+             <div className="w-12 h-3 rounded bg-[var(--bg-secondary)] animate-pulse" />
+             <div className="w-48 h-3 rounded bg-[var(--bg-tertiary)] animate-pulse" />
           </div>
           <div className="flex items-center gap-2">
-             <div className="w-12 h-3 rounded bg-white/5 animate-pulse" />
-             <div className="w-32 h-3 rounded bg-white/10 animate-pulse" />
+             <div className="w-12 h-3 rounded bg-[var(--bg-secondary)] animate-pulse" />
+             <div className="w-32 h-3 rounded bg-[var(--bg-tertiary)] animate-pulse" />
           </div>
         </div>
         <div className="space-y-2 mb-4">
-          <div className="w-full h-3 rounded bg-white/10 animate-pulse" />
-          <div className="w-[90%] h-3 rounded bg-white/10 animate-pulse" />
-          <div className="w-[95%] h-3 rounded bg-white/10 animate-pulse" />
-          <div className="w-[80%] h-3 rounded bg-white/10 animate-pulse" />
+          <div className="w-full h-3 rounded bg-[var(--bg-tertiary)] animate-pulse" />
+          <div className="w-[90%] h-3 rounded bg-[var(--bg-tertiary)] animate-pulse" />
+          <div className="w-[95%] h-3 rounded bg-[var(--bg-tertiary)] animate-pulse" />
+          <div className="w-[80%] h-3 rounded bg-[var(--bg-tertiary)] animate-pulse" />
         </div>
-        <div className="flex items-center gap-2 pt-2 border-t border-white/[0.06]">
+        <div className="flex items-center gap-2 pt-2 border-t border-[var(--border-default)]">
           <Loader2 size={12} className="text-[var(--accent)] animate-spin" />
           <span className="text-[11px] text-[var(--text-secondary)]">Generating draft...</span>
         </div>
@@ -540,7 +601,6 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   onApproveDraft,
   onRejectDraft,
   onRetryTool,
-  userAvatar,
 }: {
   message: ChatMessage;
   onApproveAction: (actionId: string) => void;
@@ -548,10 +608,8 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
   onApproveDraft: (executionId: string) => void;
   onRejectDraft: (executionId: string) => void;
   onRetryTool?: (toolId: string) => void;
-  userAvatar?: string | null;
 }) {
   const isUser = message.role === "user";
-  const user = useAuthStore((state) => state.user);
 
   return (
     <motion.div
@@ -560,27 +618,13 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, scale: 0.98 }}
       transition={snappySpring}
-      layout
     >
       {/* Avatar */}
-      <div
-        className={cn(
-          "flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-1",
-          isUser ? "bg-[var(--accent)]/15" : "bg-white"
-        )}
-      >
-        {isUser ? (
-          userAvatar ? (
-            <img src={userAvatar} alt="You" className="w-full h-full object-cover rounded-full" />
-          ) : (
-            <span className="text-[10px] font-semibold text-[var(--accent)]">
-              {user?.full_name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
-            </span>
-          )
-        ) : (
+      {!isUser && (
+        <div className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-1 bg-[var(--bg-primary)]">
           <img src="/logo.png" alt="Atlas" className="w-5 h-5" />
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Content */}
       <div className="flex flex-col gap-2 min-w-0 overflow-x-hidden">
@@ -601,12 +645,12 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                   code({ node, inline, className, children, ...props }: any) {
                     const match = /language-(\w+)/.exec(className || "");
                     return !inline && match ? (
-                      <div className="rounded-xl overflow-hidden my-4 border border-white/10 bg-[#282c34]">
+                      <div className="rounded-xl overflow-hidden my-4 border border-[var(--border-default)] bg-[#282c34]">
                         <div className="flex items-center justify-between px-4 py-2 bg-black/40">
-                          <span className="text-xs font-mono text-white/50">{match[1]}</span>
+                          <span className="text-xs font-mono text-[var(--text-muted)]">{match[1]}</span>
                           <button 
                             onClick={() => navigator.clipboard.writeText(String(children).replace(/\n$/, "")).catch(() => {})}
-                            className="text-xs text-white/50 hover:text-white transition-colors flex items-center gap-1"
+                            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex items-center gap-1"
                           >
                             Copy
                           </button>
@@ -622,7 +666,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                         </SyntaxHighlighter>
                       </div>
                     ) : (
-                      <code {...props} className="bg-white/10 rounded-md px-1.5 py-0.5 text-[0.9em] font-mono text-white/90">
+                      <code {...props} className="bg-[var(--bg-tertiary)] rounded-md px-1.5 py-0.5 text-[0.9em] font-mono text-[var(--text-primary)]">
                         {children}
                       </code>
                     );
@@ -632,14 +676,14 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                   ul: ({ children }) => <ul className="list-disc list-outside ml-5 mb-4 space-y-1">{children}</ul>,
                   ol: ({ children }) => <ol className="list-decimal list-outside ml-5 mb-4 space-y-1">{children}</ol>,
                   li: ({ children }) => <li className="pl-1 text-[15px]">{children}</li>,
-                  h1: ({ children }) => <h1 className="text-xl font-bold mb-4 mt-6 text-white">{children}</h1>,
-                  h2: ({ children }) => <h2 className="text-lg font-bold mb-3 mt-5 text-white">{children}</h2>,
-                  h3: ({ children }) => <h3 className="text-base font-bold mb-2 mt-4 text-white">{children}</h3>,
-                  table: ({ children }) => <div className="overflow-x-auto mb-4 border border-white/10 rounded-lg"><table className="min-w-full divide-y divide-white/10">{children}</table></div>,
-                  thead: ({ children }) => <thead className="bg-white/5">{children}</thead>,
-                  th: ({ children }) => <th className="px-4 py-2 text-left text-xs font-medium text-white/70 uppercase tracking-wider">{children}</th>,
-                  td: ({ children }) => <td className="px-4 py-2 text-sm text-white/90 border-t border-white/10">{children}</td>,
-                  blockquote: ({ children }) => <blockquote className="border-l-4 border-[var(--accent)] pl-4 italic text-white/60 mb-4">{children}</blockquote>,
+                  h1: ({ children }) => <h1 className="text-xl font-bold mb-4 mt-6 text-[var(--text-primary)]">{children}</h1>,
+                  h2: ({ children }) => <h2 className="text-lg font-bold mb-3 mt-5 text-[var(--text-primary)]">{children}</h2>,
+                  h3: ({ children }) => <h3 className="text-base font-bold mb-2 mt-4 text-[var(--text-primary)]">{children}</h3>,
+                  table: ({ children }) => <div className="overflow-x-auto mb-4 border border-[var(--border-default)] rounded-lg"><table className="min-w-full divide-y divide-white/10">{children}</table></div>,
+                  thead: ({ children }) => <thead className="bg-[var(--bg-secondary)]">{children}</thead>,
+                  th: ({ children }) => <th className="px-4 py-2 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">{children}</th>,
+                  td: ({ children }) => <td className="px-4 py-2 text-sm text-[var(--text-primary)] border-t border-[var(--border-default)]">{children}</td>,
+                  blockquote: ({ children }) => <blockquote className="border-l-4 border-[var(--accent)] pl-4 italic text-[var(--text-primary)]/60 mb-4">{children}</blockquote>,
                 }}
               >
                 {message.content}
@@ -649,23 +693,13 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
           {message.streaming && <StreamingIndicator />}
         </div>
 
-        {/* Tool Execution Cards */}
-        {message.toolExecutions && message.toolExecutions.length > 0 && (
-          <div className="flex flex-col gap-1">
-            {message.toolExecutions.map((tool) => (
-              <ToolExecutionCard key={tool.id} tool={tool} onRetry={onRetryTool} />
-            ))}
-          </div>
-        )}
-
-        {/* Result Cards */}
-        {message.results && message.results.length > 0 && (
-          <div className="flex flex-col gap-2">
-            {message.results.map((result) => (
-              <ResultCard key={result.id} result={result} />
-            ))}
-          </div>
-        )}
+        {/* References Accordion */}
+        <ReferencesAccordion
+          tools={message.toolExecutions}
+          results={message.results}
+          isStreaming={message.streaming}
+          onRetryTool={onRetryTool}
+        />
 
         {/* Action Cards */}
         {message.actions && message.actions.length > 0 && (
@@ -694,7 +728,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
       </div>
     </motion.div>
   );
-}, (prev, next) => JSON.stringify(prev.message) === JSON.stringify(next.message) && prev.userAvatar === next.userAvatar);
+}, (prev, next) => JSON.stringify(prev.message) === JSON.stringify(next.message));
 
 function ChatInput({
   onSend,
@@ -748,13 +782,13 @@ function ChatInput({
   }, [text, autoResize]);
 
   return (
-    <div className="flex flex-col gap-2 px-4 py-2 rounded-2xl glass-panel shadow-lg border border-[var(--border-default)] transition-all duration-200">
+    <div className="flex flex-col gap-2 px-4 py-2 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] transition-all duration-200">
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 pt-1 pb-1">
           {attachments.map((file, i) => (
-            <div key={i} className="flex items-center gap-1 bg-white/10 rounded-md px-2 py-1 text-xs text-white">
+            <div key={i} className="flex items-center gap-1 bg-[var(--bg-tertiary)] rounded-md px-2 py-1 text-xs text-[var(--text-primary)]">
               <span className="truncate max-w-[150px]">{file.name}</span>
-              <button onClick={() => onRemoveAttachment?.(i)} className="text-white/50 hover:text-white transition-colors">
+              <button onClick={() => onRemoveAttachment?.(i)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
                 <X size={12} />
               </button>
             </div>
@@ -829,7 +863,9 @@ function ChatPageInner() {
     return () => { mountedRef.current = false; };
   }, []);
   const searchParams = useSearchParams();
+  const router = useRouter();
   const conversationId = searchParams.get('id');
+  const t = searchParams.get('t');
 
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     if (conversationId) {
@@ -919,11 +955,18 @@ function ChatPageInner() {
       }
     } else {
       // New chat — reset everything
+      abortRef.current?.abort();
+      unsubscribersRef.current.forEach((fn) => fn());
+      unsubscribersRef.current = [];
+      if (typeof window !== "undefined" && window.atlasElectron) {
+        window.atlasElectron.abortWorkflow().catch(() => {});
+      }
+
       setMessages([]);
       setStatus("idle");
       isFirstMessageRef.current = true;
     }
-  }, [conversationId]);
+  }, [conversationId, t]);
 
   useEffect(() => {
     const content = contentRef.current;
@@ -975,6 +1018,26 @@ function ChatPageInner() {
     setStatus("streaming");
 
     if (hasElectronIPC()) {
+      let convId = conversationIdRef.current;
+      if (isFirstMessageRef.current) {
+        isFirstMessageRef.current = false;
+        const title = text.slice(0, 50);
+        convId = useChatStore.getState().addConversation(title);
+        conversationIdRef.current = convId;
+        useChatStore.getState().setActiveConversation(convId);
+        router.replace(`/chat?id=${convId}`, { scroll: false });
+      }
+
+      if (convId) {
+        const userStoreMsg = {
+          id: userMsg.id,
+          role: "user" as const,
+          content: userMsg.content,
+          timestamp: userMsg.timestamp.toISOString(),
+        };
+        useChatStore.getState().addMessage(convId, userStoreMsg);
+      }
+
       // ── Electron IPC path ──
       // Clear previous unsubscribers (shouldn't be any, but defensive)
       unsubscribersRef.current.forEach((fn) => fn());
@@ -1057,6 +1120,7 @@ function ChatPageInner() {
 
       unsubEnd = window.atlasElectron!.onWorkflowComplete((data: any) => {
         if (!mountedRef.current) return;
+        let sideEffectScheduled = false;
         setMessages((prev) => {
           const updated = prev.map((m) => {
             if (m.id !== assistantId) return m;
@@ -1097,34 +1161,27 @@ function ChatPageInner() {
             };
           });
 
-          // Save messages to store with full card data
-          let convId = conversationIdRef.current;
-          if (isFirstMessageRef.current) {
-            isFirstMessageRef.current = false;
-            const title = text.slice(0, 50);
-            convId = useChatStore.getState().addConversation(title);
-            conversationIdRef.current = convId;
-          }
-          if (convId) {
+          if (!sideEffectScheduled) {
+            sideEffectScheduled = true;
             const finalAssistant = updated.find((m) => m.id === assistantId);
-            const userStoreMsg: StoredChatMessage = {
-              id: userMsg.id,
-              role: "user",
-              content: userMsg.content,
-              timestamp: userMsg.timestamp.toISOString(),
-            };
-            const assistantStoreMsg: StoredChatMessage = {
-              id: assistantId,
-              role: "assistant",
-              content: finalAssistant?.content ?? "",
-              timestamp: new Date().toISOString(),
-              results: finalAssistant?.results,
-              actions: finalAssistant?.actions,
-              toolExecutions: finalAssistant?.toolExecutions,
-              draft: finalAssistant?.draft,
-            };
-            useChatStore.getState().addMessage(convId, userStoreMsg);
-            useChatStore.getState().addMessage(convId, assistantStoreMsg);
+            
+            setTimeout(() => {
+              // Save assistant messages to store with full card data
+              const convId = conversationIdRef.current;
+              if (convId && finalAssistant) {
+                const assistantStoreMsg = {
+                  id: assistantId,
+                  role: "assistant" as const,
+                  content: finalAssistant.content,
+                  timestamp: new Date().toISOString(),
+                  results: finalAssistant.results,
+                  actions: finalAssistant.actions,
+                  toolExecutions: finalAssistant.toolExecutions,
+                  draft: finalAssistant.draft,
+                };
+                useChatStore.getState().addMessage(convId, assistantStoreMsg);
+              }
+            }, 0);
           }
 
           return updated;
@@ -1166,7 +1223,7 @@ function ChatPageInner() {
         }
 
         await window.atlasElectron!.executeWorkflow(finalPrompt);
-        // Set a timeout — if workflow-complete doesn't fire within 90s, recover
+        // Set a timeout — if workflow-complete doesn't fire within 5 minutes, recover
         setTimeout(() => {
           if (!mountedRef.current) return;
           setStatus((currentStatus) => {
@@ -1183,7 +1240,7 @@ function ChatPageInner() {
             }
             return currentStatus;
           });
-        }, 90000);
+        }, 300000);
       } catch (err: unknown) {
         if (!mountedRef.current) return;
         setMessages((prev) =>
@@ -1197,6 +1254,26 @@ function ChatPageInner() {
         cleanupAll();
       }
     } else {
+      let convId = conversationIdRef.current;
+      if (isFirstMessageRef.current) {
+        isFirstMessageRef.current = false;
+        const title = text.slice(0, 50);
+        convId = useChatStore.getState().addConversation(title);
+        conversationIdRef.current = convId;
+        useChatStore.getState().setActiveConversation(convId);
+        router.replace(`/chat?id=${convId}`, { scroll: false });
+      }
+
+      if (convId) {
+        const userStoreMsg = {
+          id: userMsg.id,
+          role: "user" as const,
+          content: userMsg.content,
+          timestamp: userMsg.timestamp.toISOString(),
+        };
+        useChatStore.getState().addMessage(convId, userStoreMsg);
+      }
+
       // ── HTTP fallback (dev mode / browser) ──
       abortRef.current?.abort();
       abortRef.current = new AbortController();
@@ -1246,28 +1323,15 @@ function ChatPageInner() {
         );
 
         // Save to store with results
-        let convId = conversationIdRef.current;
-        if (isFirstMessageRef.current) {
-          isFirstMessageRef.current = false;
-          const title = text.slice(0, 50);
-          convId = useChatStore.getState().addConversation(title);
-          conversationIdRef.current = convId;
-        }
+        const convId = conversationIdRef.current;
         if (convId) {
-          const userStoreMsg: StoredChatMessage = {
-            id: userMsg.id,
-            role: "user",
-            content: userMsg.content,
-            timestamp: userMsg.timestamp.toISOString(),
-          };
-          const assistantStoreMsg: StoredChatMessage = {
+          const assistantStoreMsg = {
             id: assistantId,
-            role: "assistant",
+            role: "assistant" as const,
             content: responseText,
             timestamp: new Date().toISOString(),
             results,
           };
-          useChatStore.getState().addMessage(convId, userStoreMsg);
           useChatStore.getState().addMessage(convId, assistantStoreMsg);
         }
       } catch (err: unknown) {
@@ -1370,10 +1434,6 @@ function ChatPageInner() {
     sendMessage("Retry that tool");
   }, [sendMessage]);
 
-  const handleSuggestionClick = useCallback((suggestion: string) => {
-    sendMessage(suggestion);
-  }, [sendMessage]);
-
   // ── Render ─────────────────────────────────────────────────────────────
 
   return (
@@ -1385,73 +1445,82 @@ function ChatPageInner() {
     >
       {isDragging && (
         <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center backdrop-blur-sm rounded-xl border-2 border-dashed border-[var(--accent)]">
-          <div className="text-white text-2xl font-bold flex flex-col items-center gap-4">
+          <div className="text-[var(--text-primary)] text-2xl font-bold flex flex-col items-center gap-4">
             <FileText size={48} className="text-[var(--accent)]" />
             Drop to share with Atlas
           </div>
         </div>
       )}
-      <div className="flex-1 w-full overflow-y-auto scroll-smooth scrollbar-hide flex flex-col" onScroll={handleScroll}>
-        <div ref={contentRef} className={cn("w-full flex-1 transition-all duration-500", messages.length === 0 ? "flex flex-col items-center justify-center pt-12 pb-48" : "pt-6 pb-48 px-4")}>
-        {messages.length === 0 ? (
-          <div className="w-full max-w-3xl">
-            <EmptyState onSuggestionClick={handleSuggestionClick} />
-          </div>
-        ) : (
-          <div className="w-full max-w-4xl mx-auto flex flex-col gap-5">
-            <AnimatePresence mode="popLayout">
-              {messages.map((msg) => (
-                <ErrorBoundary key={msg.id}>
-                  <ChatMessageBubble
-                    message={msg}
-                    onApproveAction={handleApproveAction}
-                    onRejectAction={handleRejectAction}
-                    onApproveDraft={handleApproveDraft}
-                    onRejectDraft={handleRejectDraft}
-                    onRetryTool={handleRetryTool}
-                    userAvatar={userAvatar}
-                  />
-                </ErrorBoundary>
-              ))}
-            </AnimatePresence>
-            <div ref={messagesEndRef} />
-          </div>
-        )}
-        </div>
-      </div>
 
-      {/* Floating Chat Input Container */}
-      <motion.div 
-        layout
-        transition={{ type: "spring", stiffness: 300, damping: 30 }}
-        className="pointer-events-none absolute bottom-0 left-0 right-0 z-10 w-full flex flex-col items-center px-6 lg:px-12 pb-8 pt-20 bg-gradient-to-t from-[var(--bg-primary)] via-[var(--bg-primary)]/90 to-transparent"
-      >
-        {isAutoScrollPaused && messages.length > 0 && (
-          <div className="mb-4 pointer-events-auto">
-            <button
-              onClick={() => {
-                setIsAutoScrollPaused(false);
-                messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-              }}
-              className="flex items-center gap-2 px-4 py-2 rounded-full bg-[var(--accent)] text-[var(--bg-primary)] text-[13px] font-medium shadow-lg hover:shadow-xl hover:scale-105 transition-all"
-            >
-              <ArrowDown size={16} /> New messages
-            </button>
+      {messages.length === 0 ? (
+        <div className="flex-1 flex flex-col justify-center items-center px-4 w-full max-w-3xl mx-auto gap-8 pb-12">
+          <EmptyState />
+          <div className="w-full">
+            <ErrorBoundary>
+              <ChatInput 
+                onSend={sendMessage} 
+                onStop={handleStop} 
+                disabled={status !== "idle"} 
+                isStreaming={status === "streaming"}
+                attachments={attachments}
+                onRemoveAttachment={(i) => setAttachments(prev => prev.filter((_, idx) => idx !== i))}
+              />
+            </ErrorBoundary>
           </div>
-        )}
-        <div className="w-full max-w-3xl mx-auto pointer-events-auto">
-          <ErrorBoundary>
-            <ChatInput 
-              onSend={sendMessage} 
-              onStop={handleStop} 
-              disabled={status !== "idle"} 
-              isStreaming={status === "streaming"}
-              attachments={attachments}
-              onRemoveAttachment={(i) => setAttachments(prev => prev.filter((_, idx) => idx !== i))}
-            />
-          </ErrorBoundary>
         </div>
-      </motion.div>
+      ) : (
+        <>
+          <div className="flex-1 w-full overflow-y-auto scroll-smooth scrollbar-hide flex flex-col" onScroll={handleScroll}>
+            <div ref={contentRef} className="w-full flex-1 transition-all duration-500 pt-6 pb-6 px-4">
+              <div className="w-full max-w-4xl mx-auto flex flex-col gap-5">
+                <AnimatePresence mode="popLayout">
+                  {messages.map((msg) => (
+                    <ErrorBoundary key={msg.id}>
+                      <ChatMessageBubble
+                        message={msg}
+                        onApproveAction={handleApproveAction}
+                        onRejectAction={handleRejectAction}
+                        onApproveDraft={handleApproveDraft}
+                        onRejectDraft={handleRejectDraft}
+                        onRetryTool={handleRetryTool}
+                      />
+                    </ErrorBoundary>
+                  ))}
+                </AnimatePresence>
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+          </div>
+
+          <div className="relative w-full flex flex-col items-center px-4 pb-6 pt-2 bg-gradient-to-t from-[var(--bg-primary)] via-[var(--bg-primary)]/90 to-transparent">
+            {isAutoScrollPaused && (
+              <div className="mb-3">
+                <button
+                  onClick={() => {
+                    setIsAutoScrollPaused(false);
+                    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-[var(--accent)] text-[var(--bg-primary)] text-[13px] font-medium shadow-lg hover:shadow-xl hover:scale-105 transition-all"
+                >
+                  <ArrowDown size={16} /> New messages
+                </button>
+              </div>
+            )}
+            <div className="w-full max-w-3xl mx-auto">
+              <ErrorBoundary>
+                <ChatInput 
+                  onSend={sendMessage} 
+                  onStop={handleStop} 
+                  disabled={status !== "idle"} 
+                  isStreaming={status === "streaming"}
+                  attachments={attachments}
+                  onRemoveAttachment={(i) => setAttachments(prev => prev.filter((_, idx) => idx !== i))}
+                />
+              </ErrorBoundary>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1459,7 +1528,19 @@ function ChatPageInner() {
 
 // ── Empty State ─────────────────────────────────────────────────────────────
 
-function EmptyState({ onSuggestionClick }: { onSuggestionClick: (suggestion: string) => void }) {
+function EmptyState() {
+  const user = useAuthStore((state) => state.user);
+
+  const firstName = user?.full_name
+    ? user.full_name.trim().split(" ")[0]
+    : user?.email
+      ? user.email.split("@")[0]
+      : "";
+
+  const greeting = firstName
+    ? `Hi ${firstName}, how can I help you today?`
+    : "Hi, how can I help you today?";
+
   return (
     <motion.div
       className="flex flex-col items-center justify-center text-center px-4 w-full"
@@ -1467,32 +1548,10 @@ function EmptyState({ onSuggestionClick }: { onSuggestionClick: (suggestion: str
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 300, damping: 30 }}
     >
-      <div className="w-16 h-16 rounded-2xl bg-white flex items-center justify-center mb-5">
-        <img src="/logo.png" alt="Atlas" className="w-9 h-9" />
-      </div>
-      <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-2">Atlas AI</h2>
-      <p className="text-sm text-[var(--text-secondary)] max-w-xs mx-auto mb-6">
-        Ask me anything about your emails, calendar, pull requests, documents, and more.
-      </p>
-      <div className="flex flex-wrap justify-center gap-2.5 w-full max-w-md mx-auto">
-        {[
-          "Summarize today's emails",
-          "Open PRs that need review",
-          "What meetings do I have tomorrow?",
-          "Find docs about onboarding",
-        ].map((suggestion) => (
-          <motion.button
-            key={suggestion}
-            onClick={() => onSuggestionClick(suggestion)}
-            whileHover={{ scale: 1.03, y: -1 }}
-            whileTap={{ scale: 0.97 }}
-            className="px-4 py-2 rounded-2xl text-[13px] font-medium text-[var(--text-secondary)] border border-white/[0.06] hover:border-white/[0.15] hover:text-[var(--text-primary)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.2)] transition-all duration-200 cursor-pointer"
-            style={{ background: "rgba(255,255,255,0.03)", backdropFilter: "blur(8px)" }}
-          >
-            {suggestion}
-          </motion.button>
-        ))}
-      </div>
+      <h1 className="text-2xl md:text-3xl font-semibold text-[var(--text-primary)] tracking-tight">
+        {greeting}
+      </h1>
     </motion.div>
   );
 }
+

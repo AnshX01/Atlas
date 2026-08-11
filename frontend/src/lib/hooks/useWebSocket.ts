@@ -13,7 +13,9 @@ export function useWebSocket() {
   useEffect(() => {
     if (!user || !accessToken) return;
 
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
+    if (!wsUrl) return; // Do not connect to WebSocket if no URL is provided
+
     const ws = new WebSocket(`${wsUrl}/ws/${user.id}?token=${accessToken}`);
 
     ws.onopen = () => {
@@ -43,7 +45,7 @@ export function useWebSocket() {
     };
 
     ws.onerror = (err) => {
-      console.error("[WebSocket] Error:", err);
+      console.debug("[WebSocket] Connection attempt failed (will retry):", err);
     };
 
     wsRef.current = ws;

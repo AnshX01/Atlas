@@ -20,7 +20,8 @@
 import { app } from "electron";
 import * as fs from "fs";
 import * as path from "path";
-import { encryptData, decryptData, getEncryptionKey } from "./crypto";
+import { encryptData, decryptData, getEncryptionKey, getHashedEmailId, getCrossDeviceKey } from "./crypto";
+import { syncManager } from "./cloud-sync";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -69,7 +70,6 @@ function readStore(): TokenStoreData {
     // Otherwise, assume it's encrypted base64
     const pwd = getEncryptionKey();
     if (!pwd) {
-      console.warn("[Token Store] Cannot decrypt token store: Encryption key not set.");
       return {};
     }
 
@@ -104,6 +104,22 @@ function writeStore(data: TokenStoreData): void {
     const tmpPath = storePath + '.tmp';
     fs.writeFileSync(tmpPath, out, "utf-8");
     fs.renameSync(tmpPath, storePath);
+
+    // Push encrypted credentials to Supabase
+    const emailId = getHashedEmailId();
+    if (emailId) {
+      syncManager.queueDelta({
+        table: "user_secrets",
+        operation: "UPDATE",
+        data: {
+          user_id: emailId,
+          secret_key: "token-store",
+          encrypted_value: encryptData(raw, getCrossDeviceKey() || pwd),
+          updated_at: new Date().toISOString()
+        },
+        timestamp: new Date().toISOString()
+      });
+    }
   } catch (err) {
     console.error("[Token Store] Failed to write token store:", err);
     throw new Error("Failed to save credentials to disk");
@@ -188,4 +204,31 @@ export function isConfigured(provider: ProviderName): boolean {
   const store = readStore();
   const credentials = store[provider];
   return !!credentials && Object.keys(credentials).length > 0;
+}
+
+/**
+ * Sync tokens from cloud
+ */
+export async function syncTokensFromCloud(): Promise<void> {
+  const emailId = getHashedEmailId();
+  const crossKey = getCrossDeviceKey();
+  if (!emailId || !crossKey) return;
+
+  const encryptedBlob = await syncManager.pullSecret(emailId, "token-store");
+  if (!encryptedBlob) return;
+
+  try {
+    const decrypted = decryptData(encryptedBlob, crossKey);
+    const data = JSON.parse(decrypted);
+
+    // Re-encrypt with local encryption key
+    const localPwd = getEncryptionKey();
+    if (!localPwd) return;
+
+    const out = encryptData(JSON.stringify(data, null, 2), localPwd);
+    fs.writeFileSync(getStorePath(), out, "utf-8");
+    console.log("[Token Store] Successfully synced cross-device tokens.");
+  } catch (err) {
+    console.error("[Token Store] Failed to decrypt pulled tokens. Key mismatch?", err);
+  }
 }

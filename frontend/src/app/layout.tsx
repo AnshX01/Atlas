@@ -8,6 +8,7 @@ import "@/styles/animations.css";
 import { OnboardingWizard } from "@/components/layout/OnboardingWizard";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { OfflineBanner } from "@/components/ui/OfflineBanner";
+import { Toaster } from "react-hot-toast";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -60,6 +61,7 @@ export default function RootLayout({
             </AppShell>
           </OnboardingWizard>
         </Providers>
+        <Toaster position="bottom-center" />
         </div>
       </body>
     </html>

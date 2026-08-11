@@ -9,6 +9,8 @@
 
 import { randomUUID, pbkdf2Sync, randomBytes } from "crypto";
 import { getDB, forcePersist } from "./local-store";
+import { setEncryptionKey, setCrossDeviceDetails } from "./crypto";
+import { syncTokensFromCloud } from "./token-store";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -160,6 +162,9 @@ export function register(email: string, password: string, fullName: string): Loc
   forcePersist();
 
   setConfig(SESSION_KEY, id);
+  setEncryptionKey(salt);
+  setCrossDeviceDetails(email, password);
+  syncTokensFromCloud().catch(console.error);
   return { id, email: email.toLowerCase(), full_name: fullName.trim(), created_at: now, updated_at: now };
 }
 
@@ -173,6 +178,9 @@ export function login(email: string, password: string): LocalUser {
   if (!verifyPassword(password, row.password_hash, row.salt)) throw new Error("Invalid email or password");
 
   setConfig(SESSION_KEY, row.id);
+  setEncryptionKey(row.salt);
+  setCrossDeviceDetails(email, password);
+  syncTokensFromCloud().catch(console.error);
   return toPublicUser(row);
 }
 
@@ -181,6 +189,7 @@ export function getCurrentUser(): LocalUser | null {
   if (!userId) return null;
   const row = queryOne("SELECT * FROM users WHERE id = ?", [userId]) as UserRow | null;
   if (!row) { deleteConfigKey(SESSION_KEY); return null; }
+  setEncryptionKey(row.salt);
   return toPublicUser(row);
 }
 

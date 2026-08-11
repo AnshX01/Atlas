@@ -44,18 +44,24 @@ export class SyncManager {
   /**
    * Flushes the offline sync queue to the Supabase schema.
    */
+  private hasWarnedSupabase = false;
+
   private async flushSyncQueue() {
     if (this.syncQueue.length === 0) return;
-
-    console.log(`[SyncManager] Flushing ${this.syncQueue.length} items to Supabase...`);
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
-      console.warn("[SyncManager] Supabase URL or Key is not configured.");
+      if (!this.hasWarnedSupabase) {
+        console.warn("[SyncManager] Supabase URL or Key is not configured. Local changes will not be synced.");
+        this.hasWarnedSupabase = true;
+      }
+      this.syncQueue = []; // Clear queue to prevent memory leak
       return;
     }
+
+    console.log(`[SyncManager] Flushing ${this.syncQueue.length} items to Supabase...`);
 
     // Process a snapshot of the queue
     const queueToProcess = [...this.syncQueue];
@@ -120,6 +126,34 @@ export class SyncManager {
     } catch (err) {
       console.error("[SyncManager] Pull failed:", err);
     }
+  }
+
+  public async pullSecret(hashedEmailId: string, secretKey: string): Promise<string | null> {
+    if (!this.isOnline) return null;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseKey) return null;
+
+    try {
+      const res = await fetch(
+        `${supabaseUrl}/rest/v1/user_secrets?user_id=eq.${encodeURIComponent(hashedEmailId)}&secret_key=eq.${encodeURIComponent(secretKey)}`,
+        {
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`,
+          }
+        }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          return data[0].encrypted_value;
+        }
+      }
+    } catch (err) {
+      console.error("[SyncManager] Failed to pull secret:", err);
+    }
+    return null;
   }
 }
 

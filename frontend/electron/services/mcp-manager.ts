@@ -103,8 +103,8 @@ export class MCPServerManager {
       env: {},
       getEnv: () => {
         const creds = getToken('slack') as Record<string, string> | null;
-        if (!creds?.bot_token) return null;
-        return { SLACK_BOT_TOKEN: creds.bot_token };
+        if (!creds?.bot_token || !creds?.team_id) return null;
+        return { SLACK_BOT_TOKEN: creds.bot_token, SLACK_TEAM_ID: creds.team_id };
       },
     });
 

@@ -6,13 +6,6 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { PageTransition } from "@/components/layout/PageTransition";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 
-import dynamic from "next/dynamic";
-
-const CommandPalette = dynamic(
-  () => import("@/components/ui/CommandPalette").then((mod) => mod.CommandPalette),
-  { ssr: false }
-);
-
 import { useWebSocket } from "@/lib/hooks/useWebSocket";
 
 function HydrationSpinner() {
@@ -73,20 +66,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const isChat = pathname?.startsWith('/chat');
+
   return (
     <div className="app-layout relative overflow-hidden bg-[var(--bg-primary)]">
-      {/* Global Background Effects */}
-      <div className="absolute inset-0 z-0 pointer-events-none">
-        <div className="absolute top-0 -left-1/4 w-[150%] h-full bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900/10 via-transparent to-transparent"></div>
-        <div className="absolute bottom-0 -right-1/4 w-[150%] h-1/2 bg-[radial-gradient(ellipse_at_bottom,_var(--tw-gradient-stops))] from-fuchsia-900/5 via-transparent to-transparent"></div>
-      </div>
-
       <Sidebar />
-      <main id="main-content" className="app-main !p-0 z-10 bg-transparent" role="main">
-        <header className="sticky top-0 z-50 backdrop-blur-md bg-[var(--bg-primary)]/80 border-b border-[var(--border-subtle)] px-6 py-3">
-          <CommandPalette />
-        </header>
-        <div className="p-8">
+      <main id="main-content" className="app-main !p-0 z-10 bg-transparent h-screen overflow-hidden flex flex-col relative" role="main">
+        {/* Ambient background */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+          <div
+            className="absolute -top-40 -left-40 w-96 h-96 rounded-full opacity-20"
+            style={{ background: "radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%)" }}
+          />
+          <div
+            className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full opacity-10"
+            style={{ background: "radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%)" }}
+          />
+        </div>
+        
+        <div className={isChat ? "flex-1 overflow-hidden z-10" : "p-8 overflow-y-auto flex-1 z-10"}>
           <PageTransition>
             {children}
           </PageTransition>

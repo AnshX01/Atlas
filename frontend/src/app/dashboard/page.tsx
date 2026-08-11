@@ -41,7 +41,7 @@ function QuickActionCard({
       onMouseEnter={() => { if (prefetchHref) cardRouter.prefetch(prefetchHref); }}
       className="p-4 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] text-left
                  hover:border-[var(--accent)] hover:bg-[var(--bg-tertiary)] transition-all duration-150 group flex flex-col gap-3"
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 10, boxShadow: "0px 0px 0px rgba(0,0,0,0)" }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, type: "spring", stiffness: 400, damping: 30 }}
       whileHover={{ y: -1, boxShadow: "0 4px 16px rgba(0,0,0,0.12)" }}

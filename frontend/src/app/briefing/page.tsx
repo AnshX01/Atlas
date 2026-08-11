@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { briefingAPI } from "@/lib/api/briefing";
 import { connectorsAPI } from "@/lib/api/connectors";
 import { useAuthStore } from "@/lib/store/useAuthStore";
+import toast from "react-hot-toast";
 
 // ── Empty State ────────────────────────────────────────────────────────────────
 function EmptyBriefing() {
@@ -90,10 +91,9 @@ function BriefingError({ onRetry }: { onRetry: () => void }) {
 }
 
 // ── Proactive Actions ──────────────────────────────────────────────────────────
-function ProactiveActions({ items }: { items: any[] }) {
-  if (items.length === 0) return null;
-  const topItem = items[0];
-  if ((topItem.priority_score || 0) < 60) return null; // Only show for important items
+function ProactiveActions({ suggestion }: { suggestion?: { item: any, reasoning: string } }) {
+  if (!suggestion) return null;
+  const topItem = suggestion.item;
   
   return (
     <motion.div 
@@ -114,9 +114,7 @@ function ProactiveActions({ items }: { items: any[] }) {
           Proactive Suggestion
         </h3>
         <p className="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
-          Highly prioritized item: <strong className="text-[var(--text-primary)]">{topItem.title}</strong>. 
-          <br className="hidden sm:block" />
-          {topItem.summary?.slice(0, 120) ?? ""}{(topItem.summary?.length ?? 0) > 120 ? '...' : ''}
+          {suggestion.reasoning}
         </p>
         {topItem.action_label && topItem.action_url && (
           <Button 
@@ -136,8 +134,47 @@ function ProactiveActions({ items }: { items: any[] }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BriefingPage() {
   const { user } = useAuthStore();
-  const { setBriefing, setLoading, setError, items, isDismissed, dismissItem, isSummarizing } =
+  const { setBriefing, setLoading, setError, items, isDismissed, dismissItem, isSummarizing, proactiveSuggestion, restoreItem } =
     useBriefingStore();
+
+  const handleDone = (item: any) => {
+    // 1. Optimistic remove (dismiss hides it from view)
+    dismissItem(item.id);
+    
+    // 2. Setup undo timeout
+    const timeoutId = setTimeout(() => {
+      connectorsAPI.executeAction(item, 'done');
+    }, 5000);
+
+    // 3. Show undo toast
+    toast(
+      (t) => (
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-[var(--text-primary)]">Marked as done</span>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => {
+              clearTimeout(timeoutId);
+              restoreItem(item);
+              toast.dismiss(t.id);
+            }}
+          >
+            Undo
+          </Button>
+        </div>
+      ),
+      {
+        id: item.id, // prevent duplicate toasts for same item
+        duration: 5000,
+        style: {
+          background: 'var(--bg-secondary)',
+          color: 'var(--text-primary)',
+          border: '1px solid var(--border-default)',
+        }
+      }
+    );
+  };
 
   const { data, isLoading, isFetching, isError, refetch } = useQuery({
     queryKey: ["briefing", "daily"],
@@ -237,8 +274,8 @@ export default function BriefingPage() {
 
       {/* Proactive Actions */}
       <AnimatePresence>
-        {!isLoading && !isError && visibleItems.length > 0 && visibleItems[0] && (visibleItems[0].priority_score || 0) >= 60 && (
-          <ProactiveActions key="proactive" items={visibleItems} />
+        {!isLoading && !isError && proactiveSuggestion && (
+          <ProactiveActions key="proactive" suggestion={proactiveSuggestion} />
         )}
       </AnimatePresence>
 
@@ -291,9 +328,7 @@ export default function BriefingPage() {
                       <BriefingCard
                       item={item}
                       index={index}
-                      onAction={(item) => {
-                        dismissItem(item.id);
-                      }}
+                      onDone={(item: any) => handleDone(item)}
                     />
                   </motion.div>
                   ))}

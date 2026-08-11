@@ -8,6 +8,8 @@ const KEY_LENGTH = 32;
 const ITERATIONS = 100000;
 
 let globalEncryptionKey = "";
+let crossDeviceKey = "";
+let hashedEmailId = "";
 
 /**
  * Set the encryption key (derived from auth session token) to be used for encryption/decryption of tokens.
@@ -21,6 +23,21 @@ export function setEncryptionKey(key: string): void {
  */
 export function getEncryptionKey(): string {
   return globalEncryptionKey;
+}
+
+export function setCrossDeviceDetails(email: string, password: string): void {
+  const salt = Buffer.from(email.toLowerCase(), "utf-8");
+  const key = pbkdf2Sync(password, salt, ITERATIONS, KEY_LENGTH, "sha256");
+  crossDeviceKey = key.toString("hex");
+  hashedEmailId = pbkdf2Sync(email.toLowerCase(), "atlas-email-salt", 1000, 32, "sha256").toString("hex");
+}
+
+export function getCrossDeviceKey(): string {
+  return crossDeviceKey;
+}
+
+export function getHashedEmailId(): string {
+  return hashedEmailId;
 }
 
 /**

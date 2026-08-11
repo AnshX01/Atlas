@@ -10,6 +10,7 @@ interface BriefingState {
   totalUnread: number;
   generatedAt: string | null;
   dismissedIds: string[];
+  proactiveSuggestion?: { item: BriefingItemData; reasoning: string };
 
   // ── UI State ──────────────────────────────────────────────────────
   loading: boolean;
@@ -26,12 +27,14 @@ interface BriefingState {
     total_unread: number;
     generated_at: string;
     is_summarizing?: boolean;
+    proactive_suggestion?: { item: BriefingItemData; reasoning: string };
   }) => void;
   markItemActioned: (itemId: string) => void;
   dismissItem: (id: string) => void;
   isDismissed: (id: string) => boolean;
   clearDismissed: () => void;
   resetBriefing: () => void;
+  restoreItem: (item: BriefingItemData) => void;
 }
 
 export const useBriefingStore = create<BriefingState>()(
@@ -44,6 +47,7 @@ export const useBriefingStore = create<BriefingState>()(
       totalUnread: 0,
       generatedAt: null,
       dismissedIds: [],
+      proactiveSuggestion: undefined,
       loading: false,
       error: null,
       isSummarizing: false,
@@ -60,6 +64,7 @@ export const useBriefingStore = create<BriefingState>()(
       totalUnread: data.total_unread,
       generatedAt: data.generated_at,
       isSummarizing: data.is_summarizing ?? false,
+      proactiveSuggestion: data.proactive_suggestion,
       loading: false,
       error: null,
     })),
@@ -96,7 +101,15 @@ export const useBriefingStore = create<BriefingState>()(
       generatedAt: null,
       error: null,
       isSummarizing: false,
+      proactiveSuggestion: undefined,
     }),
+
+  restoreItem: (item) =>
+    set((state) => ({
+      items: [item, ...state.items],
+      totalUnread: state.totalUnread + 1,
+      dismissedIds: state.dismissedIds.filter((id) => id !== item.id),
+    })),
   }),
     {
       name: "atlas-briefing-store",

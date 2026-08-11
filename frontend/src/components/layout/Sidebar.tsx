@@ -37,11 +37,11 @@ const navItems: NavItem[] = [
 ];
 
 const providerMeta: Record<ConnectorProvider, { label: string; icon: React.ReactNode }> = {
-  google_workspace: { label: "Google Workspace", icon: <GoogleLogo size={14} /> },
-  github:           { label: "GitHub",           icon: <GitHubLogo size={14} /> },
-  local_fs:         { label: "Local Files",      icon: <LocalFilesLogo size={14} /> },
-  slack:            { label: "Slack",            icon: <SlackLogo size={14} /> },
-  notion:           { label: "Notion",           icon: <NotionLogo size={14} /> },
+  google_workspace: { label: "Google Workspace", icon: <GoogleLogo size={14} className="text-[#EA4335]" /> },
+  github:           { label: "GitHub",           icon: <GitHubLogo size={14} className="text-[#181717] dark:text-white" /> },
+  local_fs:         { label: "Local Files",      icon: <LocalFilesLogo size={14} className="text-amber-400" /> },
+  slack:            { label: "Slack",            icon: <SlackLogo size={14} className="text-[#E01E5A]" /> },
+  notion:           { label: "Notion",           icon: <NotionLogo size={14} className="text-[#000000] dark:text-white" /> },
   jira:             { label: "Jira",             icon: <JiraLogo size={14} /> },
   linear:           { label: "Linear",           icon: <LinearLogo size={14} /> },
 };
@@ -346,7 +346,6 @@ export function Sidebar() {
           id="logout-btn"
           onClick={() => {
             useAuthStore.getState().logout();
-            router.push('/login');
           }}
           className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-[var(--text-secondary)] hover:bg-red-500/10 hover:text-red-400 transition-colors cursor-pointer w-full"
         >

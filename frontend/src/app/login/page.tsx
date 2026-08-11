@@ -178,18 +178,19 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
 
-    let oauthUrl = `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/v1/auth/oauth/google/login/initiate`;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://your-project.supabase.co";
+    let oauthUrl = `${supabaseUrl}/auth/v1/authorize?provider=google`;
     const electron = (window as any).atlasElectron;
 
     if (electron) {
       try {
         const port = await electron.getOAuthPort?.() ?? 19876;
-        oauthUrl += `?redirect_uri=${encodeURIComponent(`http://localhost:${port}/oauth/callback`)}`;
+        oauthUrl += `&redirect_to=${encodeURIComponent(`http://localhost:${port}/oauth/callback`)}`;
       } catch {
-        oauthUrl += `?redirect_uri=${encodeURIComponent(`http://localhost:19876/oauth/callback`)}`;
+        oauthUrl += `&redirect_to=${encodeURIComponent(`http://localhost:19876/oauth/callback`)}`;
       }
     } else if (typeof window !== "undefined") {
-      oauthUrl += `?redirect_uri=${encodeURIComponent(window.location.origin + '/oauth-callback')}`;
+      oauthUrl += `&redirect_to=${encodeURIComponent(window.location.origin + '/oauth-callback')}`;
     }
 
     if (electron?.openExternal) {

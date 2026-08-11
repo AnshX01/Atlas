@@ -250,6 +250,23 @@ function ConnectorCard({
   const [expanded, setExpanded] = useState(false);
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
 
+  useEffect(() => {
+    if (expanded && status.configured) {
+      const loadCreds = async () => {
+        try {
+          const electron = (window as any).atlasElectron;
+          if (electron?.tokenStore?.get) {
+            const creds = await electron.tokenStore.get(config.id);
+            if (creds) setFieldValues(creds);
+          }
+        } catch (e) {
+          console.error("Failed to load credentials", e);
+        }
+      };
+      loadCreds();
+    }
+  }, [expanded, status.configured, config.id]);
+
   const updateField = (key: string, value: string) => {
     setFieldValues((prev) => ({ ...prev, [key]: value }));
   };

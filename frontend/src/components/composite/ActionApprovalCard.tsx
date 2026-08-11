@@ -61,7 +61,7 @@ export function ActionApprovalCard({ approval, onApprove, onReject }: ActionAppr
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -4, scale: 0.96 }}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
-      className="my-2 rounded-2xl border border-[var(--border-default)] bg-[var(--bg-tertiary)] overflow-hidden"
+      className="my-2 rounded-2xl border border-white/5 bg-gradient-to-br from-[var(--bg-secondary)]/80 to-[var(--bg-primary)]/40 backdrop-blur-xl shadow-[0_4px_24px_rgba(0,0,0,0.06)] relative overflow-hidden transition-all duration-300 group hover:shadow-[0_8px_32px_rgba(0,0,0,0.12)] hover:border-[var(--accent)]/30"
       role="alert"
       aria-live="polite"
       aria-label={`Action requiring approval: ${getActionLabel(action)}`}

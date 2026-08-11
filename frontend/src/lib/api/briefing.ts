@@ -14,6 +14,10 @@ export interface DailyBriefingResponse {
   total_unread: number;
   generated_at: string;
   is_summarizing?: boolean;
+  proactive_suggestion?: {
+    item: BriefingItemData;
+    reasoning: string;
+  };
 }
 
 interface RawDataEntry {
@@ -32,6 +36,7 @@ function emptyBriefing(): DailyBriefingResponse {
     items: [],
     total_unread: 0,
     generated_at: new Date().toISOString(),
+    proactive_suggestion: undefined,
   };
 }
 
@@ -296,6 +301,57 @@ Rules:
   }
 }
 
+async function generateProactiveSuggestion(items: BriefingItemData[]): Promise<{ item: BriefingItemData; reasoning: string } | undefined> {
+  const electron = getElectron();
+  if (!electron?.sendChatMessage || items.length === 0) return undefined;
+
+  const topItems = items.slice(0, 5);
+  const systemPrompt = `You are Atlas, an AI Chief of Staff. Review the following briefing items and pick the SINGLE most important item that requires the user's immediate attention.
+Return ONLY a valid JSON object with this exact shape:
+{
+  "selected_id": "id-of-the-chosen-item",
+  "reasoning": "A concise 1-sentence explanation of why this is the highest priority."
+}`;
+
+  const userPrompt = JSON.stringify(topItems.map(i => ({ id: i.id, title: i.title, summary: i.summary, source: i.source, type: i.type })), null, 2);
+
+  try {
+    const response = await new Promise<string>((resolve, reject) => {
+      let fullResponse = "";
+      let unsubStream: (() => void) | null = null;
+      let unsubEnd: (() => void) | null = null;
+      const cleanup = () => { unsubStream?.(); unsubEnd?.(); };
+      const timeout = setTimeout(() => { cleanup(); reject(new Error("Ollama timeout")); }, 90000);
+      unsubStream = electron.onChatStream((chunk: string) => { fullResponse += chunk; });
+      unsubEnd = electron.onChatStreamEnd(() => { clearTimeout(timeout); cleanup(); resolve(fullResponse); });
+      
+      electron.sendChatMessage(
+        [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+        "llama3:8b"
+      ).catch((err: Error) => { clearTimeout(timeout); cleanup(); reject(err); });
+    });
+
+    let cleaned = response.trim();
+    if (cleaned.startsWith("```")) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+    }
+    
+    const objMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (!objMatch) return undefined;
+    
+    const parsed = JSON.parse(objMatch[0]);
+    if (parsed.selected_id && parsed.reasoning) {
+      const selectedItem = items.find(i => i.id === parsed.selected_id);
+      if (selectedItem) {
+        return { item: selectedItem, reasoning: String(parsed.reasoning).slice(0, 200) };
+      }
+    }
+  } catch (err) {
+    console.error("[Briefing] Proactive suggestion failed:", err);
+  }
+  return undefined;
+}
+
 /**
  * Parse Ollama's response which should be a JSON array of briefing items.
  * Handles common LLM quirks like markdown code fences or extra text.
@@ -480,6 +536,19 @@ export const briefingAPI = {
       ...item,
       priority_score: calculatePriorityScore(item),
     }));
+    
+    // Sort items by calculated priority
+    items.sort((a, b) => b.priority_score - a.priority_score);
+
+    // 5.5 Generate proactive suggestion
+    let proactiveSuggestion = await generateProactiveSuggestion(items);
+    if (!proactiveSuggestion && items.length > 0) {
+      // Fallback: just pick the top priority item
+      proactiveSuggestion = {
+        item: items[0],
+        reasoning: `This ${items[0].type} is currently the highest priority item.`
+      };
+    }
 
     // 6. Compute focus score
     const focusScore = Math.min(100, items.length * 15);
@@ -502,6 +571,7 @@ export const briefingAPI = {
       total_unread: totalUnread,
       generated_at: new Date().toISOString(),
       is_summarizing: false,
+      proactive_suggestion: proactiveSuggestion,
     };
   },
 };

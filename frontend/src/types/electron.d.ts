@@ -45,6 +45,11 @@ interface AtlasElectronAPI {
   onChatStream: (callback: (token: string) => void) => () => void;
   onChatStreamEnd: (callback: () => void) => () => void;
   generateEmbedding: (text: string, model?: string) => Promise<number[]>;
+  mcpGetStatus: () => Promise<Array<{ name: string; status: string; restartCount: number; lastError?: string }>>;
+  mcpStartServer: (name: string) => Promise<void>;
+  mcpStopServer: (name: string) => Promise<void>;
+  mcpCallTool: (server: string, tool: string, params: Record<string, unknown>) => Promise<any>;
+  mcpListTools: (server: string) => Promise<Array<{ name: string; description: string }>>;
   executeWorkflow: (prompt: string, conversationId?: string) => Promise<void>;
   approveAction: (executionId: string) => Promise<void>;
   rejectAction: (executionId: string) => Promise<void>;
