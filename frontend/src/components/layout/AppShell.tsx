@@ -72,8 +72,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <div className="app-layout relative overflow-hidden bg-[var(--bg-primary)]">
       <Sidebar />
       <main id="main-content" className="app-main !p-0 z-10 bg-transparent h-screen overflow-hidden flex flex-col relative" role="main">
-        {/* Ambient background */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+        {/* Ambient background with GPU acceleration to prevent visual tearing */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0" style={{ willChange: "transform", transform: "translateZ(0)" }}>
           <div
             className="absolute -top-40 -left-40 w-96 h-96 rounded-full opacity-20"
             style={{ background: "radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%)" }}

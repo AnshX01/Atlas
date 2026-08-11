@@ -85,9 +85,9 @@ export default function LoginPage() {
       // Smooth transition UX
       await new Promise(resolve => setTimeout(resolve, 800));
 
-      router.push("/briefing");
+      router.push("/dashboard");
     } catch (e) {
-      router.push("/briefing");
+      router.push("/dashboard");
     }
   }, [setUser, router]);
 
@@ -142,7 +142,7 @@ export default function LoginPage() {
             : await electron.localAuth.login(currentEmail, currentPassword);
           setUser({ ...localUser, is_active: true, avatar_url: null } as any);
           setOfflineToast(true);
-          router.push("/briefing");
+          router.push("/dashboard");
         } catch (localErr: any) {
           let msg = localErr.message || "Authentication failed.";
           // Strip Electron IPC prefix
@@ -211,9 +211,39 @@ export default function LoginPage() {
         if (data.access_token && data.refresh_token) {
           try {
             setTokens(data.access_token, data.refresh_token);
-            const user = await authAPI.getMe();
+            let user;
+            if (electron?.localAuth) {
+              let payload: any = {};
+              try {
+                const parts = data.access_token.split('.');
+                if (parts.length !== 3) throw new Error("Malformed token");
+                const base64Url = parts[1];
+                let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                const pad = base64.length % 4;
+                if (pad) {
+                  base64 += '='.repeat(4 - pad);
+                }
+                const payloadStr = window.atob(base64);
+                payload = JSON.parse(decodeURIComponent(payloadStr.split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')));
+                if (!payload || typeof payload !== 'object') throw new Error("Invalid token payload structure");
+              } catch (err) {
+                throw new Error("Invalid JWT token format");
+              }
+              
+              const email = payload.email || payload.user_metadata?.email;
+              const fullName = payload.user_metadata?.full_name || payload.name || "Google User";
+              const sub = payload.sub;
+              
+              if (typeof email !== 'string' || typeof sub !== 'string') {
+                throw new Error("Incomplete token payload");
+              }
+              
+              user = await electron.localAuth.loginWithGoogle(email, fullName, sub);
+            } else {
+              user = await authAPI.getMe();
+            }
             handleLoginSuccess(user);
-          } catch {
+          } catch (err) {
             setError("Google sign-in failed. Please try again.");
             setLoading(false);
           }

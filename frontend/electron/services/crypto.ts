@@ -40,6 +40,12 @@ export function getHashedEmailId(): string {
   return hashedEmailId;
 }
 
+export function clearKeys(): void {
+  globalEncryptionKey = "";
+  crossDeviceKey = "";
+  hashedEmailId = "";
+}
+
 /**
  * Encrypts a string using AES-256-GCM and a derived key from the given encryption key.
  * Format: base64( salt + iv + auth_tag + ciphertext )

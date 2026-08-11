@@ -164,6 +164,9 @@ async def _async_sync_connector(task, user_id: uuid.UUID, connector_id: uuid.UUI
             },
         )
 
+        if isinstance(exc, (NotImplementedError, ValueError, TypeError)):
+            raise  # Bubble up fatal errors
+
         raise task.retry(exc=exc)
 
 
@@ -188,7 +191,8 @@ async def _async_sync_all() -> dict:
 
     enqueued = 0
     for connector in connectors:
-        sync_connector_job.apply_async(
+        await asyncio.to_thread(
+            sync_connector_job.apply_async,
             args=[str(connector.user_id), str(connector.id)],
             countdown=enqueued * 2,  # stagger to avoid thundering herd
         )

@@ -71,7 +71,7 @@ function nextId(): number { return ++requestId; }
 
 export class MCPServerManager {
   private servers: Map<string, MCPServer> = new Map();
-  private pendingRequests: Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; timeout: NodeJS.Timeout }> = new Map();
+  private pendingRequests: Map<number, { serverName: string; resolve: (v: any) => void; reject: (e: Error) => void; timeout: NodeJS.Timeout }> = new Map();
   private buffers: Map<string, string> = new Map();
   private heartbeatInterval: NodeJS.Timeout | null = null;
 
@@ -250,6 +250,14 @@ export class MCPServerManager {
         console.log(`[MCP ${name}] Process exited with code ${code}`);
         server.status = 'stopped';
         server.process = null;
+        this.buffers.delete(name);
+        for (const [id, req] of this.pendingRequests.entries()) {
+          if (req.serverName === name) {
+            clearTimeout(req.timeout);
+            req.reject(new Error(`Server ${name} process exited`));
+            this.pendingRequests.delete(id);
+          }
+        }
       });
 
       proc.on('error', (err: Error) => {
@@ -257,6 +265,14 @@ export class MCPServerManager {
         server.status = 'error';
         server.lastError = err.message;
         server.process = null;
+        this.buffers.delete(name);
+        for (const [id, req] of this.pendingRequests.entries()) {
+          if (req.serverName === name) {
+            clearTimeout(req.timeout);
+            req.reject(new Error(`Server ${name} process error: ${err.message}`));
+            this.pendingRequests.delete(id);
+          }
+        }
       });
 
       // Adaptive startup: poll for readiness with retries instead of blind sleep
@@ -307,8 +323,8 @@ export class MCPServerManager {
       if (server.process) {
         try {
           if (process.platform === 'win32') {
-            const { exec } = require('child_process');
-            exec(`taskkill /pid ${server.process.pid} /T /F`);
+            const { execSync } = require('child_process');
+            execSync(`taskkill /pid ${server.process.pid} /T /F`);
           } else {
             server.process.kill();
           }
@@ -337,8 +353,8 @@ export class MCPServerManager {
     // Try graceful shutdown first
     try {
       if (process.platform === 'win32') {
-        const { exec } = require('child_process');
-        exec(`taskkill /pid ${server.process.pid} /T /F`);
+        const { execSync } = require('child_process');
+        execSync(`taskkill /pid ${server.process.pid} /T /F`);
       } else {
         server.process.kill();
       }
@@ -378,8 +394,21 @@ export class MCPServerManager {
         reject(new Error(`MCP request timeout for ${name}/${method}`));
       }, 30000);
 
-      this.pendingRequests.set(id, { resolve, reject, timeout });
-      server.process.stdin.write(JSON.stringify(request) + '\n');
+      this.pendingRequests.set(id, { serverName: name, resolve, reject, timeout });
+      
+      try {
+        server.process.stdin.write(JSON.stringify(request) + '\n', (error) => {
+          if (error) {
+            clearTimeout(timeout);
+            this.pendingRequests.delete(id);
+            reject(new Error(`Failed to write request: ${error.message}`));
+          }
+        });
+      } catch (err: any) {
+        clearTimeout(timeout);
+        this.pendingRequests.delete(id);
+        reject(new Error(`Exception writing request: ${err.message}`));
+      }
     });
   }
 

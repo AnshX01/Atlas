@@ -19,8 +19,8 @@ from app.core.security import decrypt_token, encrypt_token
 from app.domain.interfaces.base_connector import BaseConnector
 from app.domain.models.connector import Connector, ConnectorStatus, OAuthToken
 from app.infrastructure.database import get_session_factory
-from app.infrastructure.neo4j_client import upsert_meeting_node, upsert_message_node
-from app.workers.embedding_tasks import batch_embed_chunks
+from app.infrastructure.neo4j_client import upsert_meeting_node, upsert_message_node, upsert_document_node
+from app.workers.embedding_tasks import enqueue_embedding_batches
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -88,9 +88,9 @@ class GoogleWorkspaceConnector(BaseConnector):
             scopes=settings.google_scopes_list,
         )
 
-        if creds.expired and creds.refresh_token:
+        if (not creds.valid or creds.expired) and creds.refresh_token:
             try:
-                creds.refresh(Request())
+                await asyncio.to_thread(creds.refresh, Request())
                 # Persist refreshed token
                 async with factory() as session:
                     from sqlalchemy import select as sel
@@ -187,6 +187,67 @@ class GoogleWorkspaceConnector(BaseConnector):
         wait=wait_exponential_jitter(initial=2, max=60),
         stop=stop_after_attempt(5),
     )
+    @retry(
+        retry=retry_if_exception(_is_retryable_http_error),
+        wait=wait_exponential_jitter(initial=2, max=60),
+        stop=stop_after_attempt(5),
+    )
+    def _sync_drive(
+        self, service: Any, since: datetime
+    ) -> tuple[dict[str, int], list[dict[str, Any]], list[dict[str, Any]]]:
+        """Sync Google Drive documents modified since the given datetime."""
+        since_iso = since.isoformat() + "Z" if since.tzinfo is None else since.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+        query = f"modifiedTime > '{since_iso}' and mimeType != 'application/vnd.google-apps.folder' and trashed = false"
+
+        results = service.files().list(q=query, pageSize=50, fields="nextPageToken, files(id, name, mimeType, modifiedTime, webViewLink)").execute()
+        files = results.get("files", [])
+        synced = 0
+        chunks: list[dict[str, Any]] = []
+        neo4j_data: list[dict[str, Any]] = []
+
+        for f in files:
+            file_id = f["id"]
+            name = f.get("name", "")
+            mime_type = f.get("mimeType", "")
+            modified_time = f.get("modifiedTime", "")
+            url = f.get("webViewLink", "")
+            
+            text_content = ""
+            try:
+                if "application/vnd.google-apps.document" in mime_type:
+                    export = service.files().export_media(fileId=file_id, mimeType="text/plain").execute()
+                    text_content = export.decode("utf-8") if isinstance(export, bytes) else export
+                elif "text/plain" in mime_type:
+                    media = service.files().get_media(fileId=file_id).execute()
+                    text_content = media.decode("utf-8") if isinstance(media, bytes) else media
+            except Exception as e:
+                logger.warning("Failed to fetch drive document content", file_id=file_id, error=str(e))
+            
+            text = f"Document: {name}\n\n{text_content}".strip()
+            
+            chunks.append({
+                "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"gdrive:{file_id}")),
+                "source_id": file_id,
+                "type": "drive_file",
+                "text": text,
+                "timestamp": modified_time,
+                "metadata": {
+                    "name": name,
+                    "mime_type": mime_type,
+                    "url": url,
+                },
+            })
+            
+            neo4j_data.append({
+                "file_path": url,
+                "file_type": mime_type,
+                "last_modified": modified_time,
+            })
+            synced += 1
+            logger.debug("Drive file synced", file_id=file_id)
+
+        return {"synced": synced, "failed": 0, "skipped": 0}, chunks, neo4j_data
+
     def _sync_gmail(
         self, service: Any, since: datetime
     ) -> tuple[dict[str, int], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -201,8 +262,8 @@ class GoogleWorkspaceConnector(BaseConnector):
         # (category:primary doesn't work for accounts without inbox tabs)
         query = f"after:{since_ts} -category:promotions -category:social -in:sent"
 
-        results = service.users().messages().list(userId="me", q=query, maxResults=50).execute()
-        messages = results.get("messages", [])
+        results = service.users().threads().list(userId="me", q=query, maxResults=50).execute()
+        threads = results.get("threads", [])
         synced = 0
         chunks: list[dict[str, Any]] = []
         neo4j_data: list[dict[str, Any]] = []
@@ -241,87 +302,95 @@ class GoogleWorkspaceConnector(BaseConnector):
             "docker", "ready for action",  # product onboarding
         ]
 
-        for msg_ref in messages:
+        for thread_ref in threads:
             try:
-                msg = (
+                thread = (
                     service.users()
-                    .messages()
-                    .get(userId="me", id=msg_ref["id"], format="metadata")
+                    .threads()
+                    .get(userId="me", id=thread_ref["id"], format="metadata")
                     .execute()
                 )
-
-                # Extract headers into a lookup dict
-                headers_list = msg.get("payload", {}).get("headers", [])
-                headers = {h["name"]: h["value"] for h in headers_list}
-
-                subject = headers.get("Subject", "")
-                from_header = headers.get("From", "")
-
-                # Parse sender display name and email from "Display Name <email>" or bare "email"
-                if "<" in from_header and ">" in from_header:
-                    sender_name = from_header[: from_header.index("<")].strip().strip('"')
-                    sender_email = from_header[
-                        from_header.index("<") + 1 : from_header.index(">")
-                    ].strip()
-                else:
-                    sender_email = from_header.strip()
-                    sender_name = ""
-
-                # Skip automated service emails that are better handled by their
-                # native connectors (GitHub notifications, JIRA, Linear, etc.)
-                if any(skip in sender_email.lower() for skip in _skip_senders):
+                
+                thread_messages = thread.get("messages", [])
+                if not thread_messages:
                     continue
 
-                # Skip transactional/no-action emails (OTPs, deliveries, receipts)
-                subject_lower = subject.lower()
+                thread_subject = ""
+                thread_text_parts = []
+                last_timestamp = ""
+                participants = set()
+                skip_thread = False
+
+                for msg in thread_messages:
+                    headers_list = msg.get("payload", {}).get("headers", [])
+                    headers = {h["name"]: h["value"] for h in headers_list}
+
+                    subject = headers.get("Subject", "")
+                    if not thread_subject:
+                        thread_subject = subject
+                    from_header = headers.get("From", "")
+
+                    if "<" in from_header and ">" in from_header:
+                        sender_name = from_header[: from_header.index("<")].strip().strip('"')
+                        sender_email = from_header[
+                            from_header.index("<") + 1 : from_header.index(">")
+                        ].strip()
+                    else:
+                        sender_email = from_header.strip()
+                        sender_name = ""
+
+                    participants.add(sender_email)
+                    snippet = msg.get("snippet", "")
+                    internal_date = msg.get("internalDate", "0")
+                    last_timestamp = datetime.fromtimestamp(int(internal_date) / 1000, UTC).isoformat()
+                    
+                    thread_text_parts.append(f"From {sender_name} <{sender_email}>:\n{snippet}")
+
+                # Check skips based on all participants
+                if any(skip in p.lower() for p in participants for skip in _skip_senders):
+                    skip_thread = True
+
+                subject_lower = thread_subject.lower()
                 if any(kw in subject_lower for kw in _skip_subject_keywords):
+                    skip_thread = True
+
+                if skip_thread:
                     continue
 
-                # Skip emails sent BY the user (replies) - we only want received emails
-                # Check if sender matches the user's own email patterns
-                if sender_email and (
-                    sender_email.lower() == 'anshsaxena743@gmail.com'
-                    or 'ansh' in sender_email.lower().split('@')[0]
-                ):
-                    continue
-
-                snippet = msg.get("snippet", "")
-                internal_date = msg.get("internalDate", "0")
-                timestamp_str = datetime.fromtimestamp(int(internal_date) / 1000, UTC).isoformat()
-
+                thread_text = f"Thread: {thread_subject}\n\n" + "\n---\n".join(thread_text_parts)
+                # Note: We keep the id namespace as 'gmail' to preserve backwards compatibility or 'gmail_thread'
                 chunks.append(
                     {
-                        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"gmail:{msg['id']}")),
-                        "source_id": msg["id"],
-                        "type": "email",
-                        "text": f"{subject}\n{snippet}",
-                        "timestamp": timestamp_str,
+                        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"gmail_thread:{thread_ref['id']}")),
+                        "source_id": thread_ref["id"],
+                        "type": "email_thread",
+                        "text": thread_text,
+                        "timestamp": last_timestamp,
                         "metadata": {
-                            "subject": subject,
-                            "sender_email": sender_email,
-                            "sender_name": sender_name,
+                            "subject": thread_subject,
+                            "participants": list(participants),
                         },
                     }
                 )
 
+                # For Neo4j we associate with the latest sender or a thread identifier
+                primary_sender = list(participants)[0] if participants else ""
                 neo4j_data.append(
                     {
-                        "msg_id": msg["id"],
-                        "subject": subject,
-                        "sender_email": sender_email,
-                        "sender_name": sender_name,
-                        "timestamp": timestamp_str,
+                        "msg_id": thread_ref["id"],
+                        "subject": thread_subject,
+                        "sender_email": primary_sender,
+                        "sender_name": "Thread Participants",
+                        "timestamp": last_timestamp,
                     }
                 )
 
-                logger.debug("Gmail message synced", msg_id=msg_ref["id"])
+                logger.debug("Gmail thread synced", thread_id=thread_ref["id"])
                 synced += 1
             except HttpError as e:
                 if e.resp.status == 401:
-                    # Cannot call async _mark_requires_reauth from a sync thread;
-                    # re-raise so the caller can handle it.
                     raise
-                logger.warning("Failed to fetch Gmail message", msg_id=msg_ref["id"], error=str(e))
+                logger.warning("Failed to fetch Gmail thread", thread_id=thread_ref["id"], error=str(e))
 
         return {"synced": synced, "failed": 0, "skipped": 0}, chunks, neo4j_data
 
@@ -425,70 +494,60 @@ class GoogleWorkspaceConnector(BaseConnector):
         synced = 0
         chunks: list[dict[str, Any]] = []
 
-        try:
-            # Get all task lists
-            tasklists_result = service.tasklists().list(maxResults=10).execute()
-            tasklists = tasklists_result.get("items", [])
+        # Get all task lists
+        tasklists_result = service.tasklists().list(maxResults=10).execute()
+        tasklists = tasklists_result.get("items", [])
 
-            for tasklist in tasklists:
-                tasklist_id = tasklist["id"]
-                tasklist_title = tasklist.get("title", "My Tasks")
+        for tasklist in tasklists:
+            tasklist_id = tasklist["id"]
+            tasklist_title = tasklist.get("title", "My Tasks")
 
-                # Get ALL tasks from this list (completed and incomplete)
-                tasks_result = (
-                    service.tasks()
-                    .list(
-                        tasklist=tasklist_id,
-                        showCompleted=True,
-                        showHidden=True,
-                        maxResults=100,
-                    )
-                    .execute()
+            # Get ALL tasks from this list (completed and incomplete)
+            tasks_result = (
+                service.tasks()
+                .list(
+                    tasklist=tasklist_id,
+                    showCompleted=True,
+                    showHidden=True,
+                    maxResults=100,
                 )
-                tasks = tasks_result.get("items", [])
+                .execute()
+            )
+            tasks = tasks_result.get("items", [])
 
-                for task in tasks:
-                    title = task.get("title", "")
-                    if not title.strip():
-                        continue
+            for task in tasks:
+                title = task.get("title", "")
+                if not title.strip():
+                    continue
 
-                    notes = task.get("notes", "")
-                    due = task.get("due", "")
-                    updated = task.get("updated", datetime.now(UTC).isoformat())
-                    status = task.get("status", "needsAction")
+                notes = task.get("notes", "")
+                due = task.get("due", "")
+                updated = task.get("updated", datetime.now(UTC).isoformat())
+                status = task.get("status", "needsAction")
 
-                    text = f"Task: {title}"
-                    if notes:
-                        text += f"\n{notes}"
-                    if status == "completed":
-                        text += "\n[COMPLETED]"
+                text = f"Task: {title}"
+                if notes:
+                    text += f"\n{notes}"
+                if status == "completed":
+                    text += "\n[COMPLETED]"
 
-                    chunks.append(
-                        {
-                            "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"gtask:{task['id']}")),
-                            "source_id": task["id"],
-                            "type": "task",
-                            "text": text.strip(),
-                            "timestamp": due if due else updated,
-                            "metadata": {
-                                "tasklist": tasklist_title,
-                                "due": due,
-                                "url": task.get("selfLink", ""),
-                                "status": status,
-                            },
-                        }
-                    )
-                    synced += 1
-                    logger.debug("Task synced", task_id=task.get("id"))
-
-        except HttpError as e:
-            if e.resp.status in (403, 401):
-                logger.warning("Google Tasks access denied - scope may need re-granting: %s", str(e))
-                raise
-            else:
-                logger.warning("Google Tasks sync error: %s", str(e))
-        except Exception as e:
-            logger.warning("Google Tasks sync error: %s", str(e))
+                chunks.append(
+                    {
+                        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"gtask:{task['id']}")),
+                        "source_id": task["id"],
+                        "type": "task",
+                        "text": text.strip(),
+                        "timestamp": due if due else updated,
+                        "metadata": {
+                            "tasklist": tasklist_title,
+                            "due": due,
+                            "url": task.get("selfLink", ""),
+                            "status": status,
+                        },
+                    }
+                )
+                synced += 1
+                logger.debug("Task synced", task_id=task.get("id"))
 
         return {"synced": synced, "failed": 0, "skipped": 0}, chunks
 
@@ -500,6 +559,7 @@ class GoogleWorkspaceConnector(BaseConnector):
         gmail_service = build("gmail", "v1", credentials=creds)
         calendar_service = build("calendar", "v3", credentials=creds)
         tasks_service = build("tasks", "v1", credentials=creds)
+        drive_service = build("drive", "v3", credentials=creds)
 
         try:
             gmail_result, gmail_chunks, gmail_neo4j = await asyncio.to_thread(
@@ -510,6 +570,9 @@ class GoogleWorkspaceConnector(BaseConnector):
             )
             tasks_result, tasks_chunks = await asyncio.to_thread(
                 self._sync_tasks, tasks_service
+            )
+            drive_result, drive_chunks, drive_neo4j = await asyncio.to_thread(
+                self._sync_drive, drive_service, since
             )
         except HttpError as e:
             if e.resp.status == 401:
@@ -545,16 +608,25 @@ class GoogleWorkspaceConnector(BaseConnector):
                 )
                 for item in cal_neo4j
             ],
+            *[
+                upsert_document_node(
+                    str(self.user_id),
+                    item["file_path"],
+                    item["file_type"],
+                    item["last_modified"],
+                )
+                for item in drive_neo4j
+            ],
         )
 
         # Dispatch all chunks to Qdrant via Celery embedding task
-        all_chunks = gmail_chunks + cal_chunks + tasks_chunks
+        all_chunks = gmail_chunks + cal_chunks + tasks_chunks + drive_chunks
         if all_chunks:
-            batch_embed_chunks.delay(str(self.user_id), all_chunks)
+            enqueue_embedding_batches(str(self.user_id), all_chunks)
 
         total = {
-            "synced": gmail_result["synced"] + cal_result["synced"] + tasks_result["synced"],
-            "failed": gmail_result["failed"] + cal_result["failed"] + tasks_result["failed"],
+            "synced": gmail_result["synced"] + cal_result["synced"] + tasks_result["synced"] + drive_result["synced"],
+            "failed": gmail_result["failed"] + cal_result["failed"] + tasks_result["failed"] + drive_result["failed"],
             "skipped": 0,
         }
         logger.info("Google Workspace sync complete", **total, user_id=str(self.user_id))

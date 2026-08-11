@@ -644,10 +644,10 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                 components={{
                   code({ node, inline, className, children, ...props }: any) {
                     const match = /language-(\w+)/.exec(className || "");
-                    return !inline && match ? (
+                    return !inline ? (
                       <div className="rounded-xl overflow-hidden my-4 border border-[var(--border-default)] bg-[#282c34]">
                         <div className="flex items-center justify-between px-4 py-2 bg-black/40">
-                          <span className="text-xs font-mono text-[var(--text-muted)]">{match[1]}</span>
+                          <span className="text-xs font-mono text-[var(--text-muted)]">{match?.[1] || "text"}</span>
                           <button 
                             onClick={() => navigator.clipboard.writeText(String(children).replace(/\n$/, "")).catch(() => {})}
                             className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex items-center gap-1"
@@ -658,7 +658,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                         <SyntaxHighlighter
                           {...props}
                           style={oneDark}
-                          language={match[1]}
+                          language={match?.[1] || "text"}
                           PreTag="div"
                           customStyle={{ margin: 0, padding: "1rem", backgroundColor: "transparent" }}
                         >
@@ -974,7 +974,7 @@ function ChatPageInner() {
 
     const observer = new ResizeObserver(() => {
       if (!isAutoScrollPausedRef.current) {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+        messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
       }
     });
 
@@ -1070,7 +1070,7 @@ function ChatPageInner() {
       unsubTool = window.atlasElectron!.onWorkflowToolExecuting((data: any) => {
         if (!mountedRef.current) return;
         const toolExec: ToolExecution = {
-          id: generateId(),
+          id: data.id ?? generateId(),
           server: data.server ?? "mcp",
           tool: data.tool ?? "unknown",
           status: "executing",
@@ -1120,7 +1120,9 @@ function ChatPageInner() {
 
       unsubEnd = window.atlasElectron!.onWorkflowComplete((data: any) => {
         if (!mountedRef.current) return;
-        let sideEffectScheduled = false;
+        
+        let finalAssistantMsg: ChatMessage | undefined;
+
         setMessages((prev) => {
           const updated = prev.map((m) => {
             if (m.id !== assistantId) return m;
@@ -1143,13 +1145,13 @@ function ChatPageInner() {
               finalContent += errMsg;
             }
 
-            return {
+            finalAssistantMsg = {
               ...m,
               streaming: false,
               content: finalContent,
               results: filteredResults.length > 0 ? filteredResults : undefined,
-              toolExecutions: m.toolExecutions?.map((t, idx) => {
-                const backendTool = data?.toolCalls?.[idx];
+              toolExecutions: m.toolExecutions?.map((t) => {
+                const backendTool = data?.toolCalls?.find((bt: any) => bt.id === t.id);
                 const hasError = backendTool?.result?.error != null || backendTool?.error != null;
                 return {
                   ...t,
@@ -1159,27 +1161,26 @@ function ChatPageInner() {
               }),
               draft: updatedDraft,
             };
+            return finalAssistantMsg;
           });
 
-          if (!sideEffectScheduled) {
-            sideEffectScheduled = true;
-            const finalAssistant = updated.find((m) => m.id === assistantId);
-            
+          // Perform side effects outside of the state updater
+          if (finalAssistantMsg) {
             setTimeout(() => {
-              // Save assistant messages to store with full card data
-              const convId = conversationIdRef.current;
-              if (convId && finalAssistant) {
+              if (mountedRef.current) {
                 const assistantStoreMsg = {
-                  id: assistantId,
-                  role: "assistant" as const,
-                  content: finalAssistant.content,
-                  timestamp: new Date().toISOString(),
-                  results: finalAssistant.results,
-                  actions: finalAssistant.actions,
-                  toolExecutions: finalAssistant.toolExecutions,
-                  draft: finalAssistant.draft,
+                  id: finalAssistantMsg!.id,
+                  role: finalAssistantMsg!.role,
+                  content: finalAssistantMsg!.content,
+                  results: finalAssistantMsg!.results,
+                  actions: finalAssistantMsg!.actions,
+                  toolExecutions: finalAssistantMsg!.toolExecutions,
+                  draft: finalAssistantMsg!.draft,
+                  timestamp: finalAssistantMsg!.timestamp as any,
                 };
-                useChatStore.getState().addMessage(convId, assistantStoreMsg);
+                if (convId) {
+                  useChatStore.getState().addMessage(convId, assistantStoreMsg);
+                }
               }
             }, 0);
           }

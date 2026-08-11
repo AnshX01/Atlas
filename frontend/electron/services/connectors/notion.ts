@@ -10,6 +10,13 @@ export class NotionConnector {
   }
 
   private async api(path: string, options: RequestInit = {}): Promise<any> {
+    // Sync memory with disk for cross-device updates
+    const creds = getToken('notion') as Record<string, string> | null;
+    const currentToken = creds?.integration_token || creds?.access_token || null;
+    if (currentToken && currentToken !== this.token) {
+      this.token = currentToken;
+    }
+
     if (!this.token) throw new Error('Notion not configured');
     const res = await fetch(`https://api.notion.com/v1${path}`, {
       ...options,

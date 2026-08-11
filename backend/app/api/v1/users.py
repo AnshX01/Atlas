@@ -14,6 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 users_router = APIRouter(prefix="/users", tags=["Users"])
 
+class AvatarResponse(BaseModel):
+    image_data: str | None
+
+class UploadAvatarRequest(BaseModel):
+    image_data: str
+
+class UploadAvatarResponse(BaseModel):
+    message: str
+
 
 class SettingsUpdateRequest(BaseModel):
     settings: dict[str, Any]
@@ -110,10 +119,10 @@ async def change_password(
     return {"message": "Password changed successfully"}
 
 
-@users_router.get("/me/avatar", summary="Get user's profile picture")
+@users_router.get("/me/avatar", response_model=AvatarResponse, summary="Get user's profile picture")
 async def get_avatar(
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> AvatarResponse:
     from sqlalchemy import text
     factory = get_session_factory()
     async with factory() as session:
@@ -123,17 +132,17 @@ async def get_avatar(
         )
         row = result.fetchone()
     if row:
-        return {"image_data": row[0]}
-    return {"image_data": None}
+        return AvatarResponse(image_data=row[0])
+    return AvatarResponse(image_data=None)
 
 
-@users_router.put("/me/avatar", summary="Upload profile picture")
+@users_router.put("/me/avatar", response_model=UploadAvatarResponse, summary="Upload profile picture")
 async def upload_avatar(
-    payload: dict,
+    payload: UploadAvatarRequest,
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> UploadAvatarResponse:
     from sqlalchemy import text
-    image_data = payload.get("image_data", "")
+    image_data = payload.image_data
     if not image_data:
         raise HTTPException(status_code=422, detail="image_data required")
     factory = get_session_factory()
@@ -145,4 +154,4 @@ async def upload_avatar(
             {"uid": str(current_user.id), "img": image_data}
         )
         await session.commit()
-    return {"message": "Avatar uploaded"}
+    return UploadAvatarResponse(message="Avatar uploaded")

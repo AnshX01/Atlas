@@ -18,6 +18,13 @@ export default function ProfilePage() {
   const [fullName, setFullName] = useState(user?.full_name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
 
+  useEffect(() => {
+    if (user) {
+      setFullName(user.full_name ?? "");
+      setEmail(user.email ?? "");
+    }
+  }, [user]);
+
   // ── Password form state ─────────────────────────────────────────────
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -55,15 +62,8 @@ export default function ProfilePage() {
         };
       }
       // Fallback to API
-      try {
-        const { data: updated } = await apiClient.patch("/users/me/profile", data);
-        return updated;
-      } catch (err: any) {
-        if (err?.response?.status === 404 || err?.response?.status === 405) {
-          return { ...user, full_name: data.full_name };
-        }
-        throw err;
-      }
+      const { data: updated } = await apiClient.patch("/users/me/profile", data);
+      return updated;
     },
     onSuccess: (data) => {
       setUser(data);

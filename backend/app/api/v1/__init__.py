@@ -22,6 +22,53 @@ from app.domain.schemas import (
 from app.services.ai.supervisor_agent import run_atlas_pipeline
 from app.services.briefing_service import BriefingService
 from fastapi import APIRouter, BackgroundTasks, Depends, Path, status
+from pydantic import BaseModel, Field
+from typing import Any
+
+class LocalFSConfigureRequest(BaseModel):
+    watch_paths: list[str] = Field(default_factory=list)
+    display_name: str = "Local Files"
+
+class PutTokenRequest(BaseModel):
+    credentials: dict[str, Any] = Field(default_factory=dict)
+
+class PutTokenResponse(BaseModel):
+    message: str
+    provider: str
+
+class DisconnectResponse(BaseModel):
+    message: str
+
+class ConnectorTokensResponse(BaseModel):
+    tokens: dict[str, Any]
+
+class ConversationResponse(BaseModel):
+    id: str
+    title: str
+    created_at: datetime
+    last_message: str
+
+class MessageItem(BaseModel):
+    id: str | None = None
+    role: str = "user"
+    content: str = ""
+    timestamp: str | None = None
+
+class UpsertConversationRequest(BaseModel):
+    id: str | None = None
+    title: str = "New Conversation"
+    last_message: str = ""
+    messages: list[MessageItem] = Field(default_factory=list)
+
+class UpsertConversationResponse(BaseModel):
+    id: str
+    synced: bool
+
+class MessageResponse(BaseModel):
+    id: str
+    role: str
+    content: str
+    timestamp: datetime | str
 
 # ── Briefing Router ───────────────────────────────────────────────────────────
 briefing_router = APIRouter(prefix="/briefing", tags=["Briefing"])
@@ -83,19 +130,20 @@ async def omni_search(
         query_lower = payload.query.lower()
 
         # Detect source filter from natural language
-        source_filter = None
-        if any(kw in query_lower for kw in ["email", "mail", "gmail", "inbox"]):
-            source_filter = "email"
-        elif any(kw in query_lower for kw in ["pr", "pull request", "merge"]):
-            source_filter = "pr"
-        elif any(kw in query_lower for kw in ["issue", "bug", "ticket"]):
-            source_filter = "issue"
-        elif any(kw in query_lower for kw in ["meeting", "calendar", "event", "schedule"]):
-            source_filter = "calendar"
-        elif any(kw in query_lower for kw in ["task", "todo", "to-do"]):
-            source_filter = "task"
-        elif any(kw in query_lower for kw in ["file", "document", "doc"]):
-            source_filter = "document"
+        source_filter = payload.sources
+        if not source_filter:
+            if any(kw in query_lower for kw in ["email", "mail", "gmail", "inbox"]):
+                source_filter = "email"
+            elif any(kw in query_lower for kw in ["pr", "pull request", "merge"]):
+                source_filter = "pr"
+            elif any(kw in query_lower for kw in ["issue", "bug", "ticket"]):
+                source_filter = "issue"
+            elif any(kw in query_lower for kw in ["meeting", "calendar", "event", "schedule"]):
+                source_filter = "calendar"
+            elif any(kw in query_lower for kw in ["task", "todo", "to-do"]):
+                source_filter = "task"
+            elif any(kw in query_lower for kw in ["file", "document", "doc"]):
+                source_filter = "document"
 
         query_vector = _embedder.encode(payload.query).tolist()
         context_items = await semantic_search(
@@ -104,11 +152,22 @@ async def omni_search(
             limit=payload.limit,
             score_threshold=0.2,
             source_filter=source_filter,
+            start_date=payload.start_date,
+            end_date=payload.end_date,
         )
 
     took_ms = (time.perf_counter() - start) * 1000
 
     from app.domain.schemas import SearchResult
+    from app.services.briefing_service import _source_label
+
+    def _parse_timestamp(ts: str | None) -> datetime:
+        if ts:
+            try:
+                return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            except ValueError:
+                pass
+        return datetime.now(UTC)
 
     results = [
         SearchResult(
@@ -116,9 +175,9 @@ async def omni_search(
             type=item.get("payload", {}).get("type", "unknown"),
             title=item.get("payload", {}).get("text_chunk", "")[:80],
             excerpt=item.get("payload", {}).get("text_chunk", "")[:300],
-            source=item.get("payload", {}).get("source", "Atlas"),
+            source=_source_label(item.get("payload", {}).get("type", "unknown")),
             score=item.get("score", 0.0),
-            timestamp=datetime.now(UTC),
+            timestamp=_parse_timestamp(item.get("payload", {}).get("timestamp")),
             source_ids=[],
         )
         for item in context_items[: payload.limit]
@@ -203,13 +262,14 @@ async def create_connector(
 
 @connectors_router.delete(
     "/{provider}",
+    response_model=DisconnectResponse,
     status_code=status.HTTP_200_OK,
     summary="Disconnect a connector",
 )
 async def disconnect_connector(
     provider: ConnectorProvider = Path(...),
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> DisconnectResponse:
     """
     Disconnect a connector: set status to INACTIVE and delete OAuth tokens.
     The connector record is kept for potential reconnection.
@@ -246,16 +306,17 @@ async def disconnect_connector(
         session.add(connector)
         await session.commit()
 
-    return {"message": f"{provider.value} disconnected successfully"}
+    return DisconnectResponse(message=f"{provider.value} disconnected successfully")
 
 
 @connectors_router.get(
     "/tokens",
+    response_model=ConnectorTokensResponse,
     summary="Get all stored connector credentials for the user (for device sync)",
 )
 async def get_connector_tokens(
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> ConnectorTokensResponse:
     """Return all connector credentials for the authenticated user.
     Credentials are encrypted at rest and decrypted for the response.
     Used for syncing connector config across devices."""
@@ -296,18 +357,19 @@ async def get_connector_tokens(
                 except (json.JSONDecodeError, TypeError):
                     tokens[connector.provider.value] = {"display_name": connector.display_name}
 
-    return {"tokens": tokens}
+    return ConnectorTokensResponse(tokens=tokens)
 
 
 @connectors_router.put(
     "/tokens/{provider}",
+    response_model=PutTokenResponse,
     summary="Store connector credentials (for device sync)",
 )
 async def put_connector_token(
     provider: ConnectorProvider = Path(...),
-    payload: dict = {},
+    payload: PutTokenRequest = PutTokenRequest(),
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> PutTokenResponse:
     """Store or update connector credentials. Used when syncing from another device."""
     import uuid as _uuid
     from app.domain.models.connector import Connector, ConnectorStatus, OAuthToken
@@ -336,7 +398,7 @@ async def put_connector_token(
             await session.flush()
 
         # Store credentials
-        credentials = payload.get("credentials", {})
+        credentials = payload.credentials
         access_token = credentials.get("access_token") or credentials.get("personal_access_token") or credentials.get("bot_token") or credentials.get("integration_token") or credentials.get("client_id", "")
 
         if access_token:
@@ -367,7 +429,7 @@ async def put_connector_token(
 
         await session.commit()
 
-    return {"message": f"{provider.value} credentials stored", "provider": provider.value}
+    return PutTokenResponse(message=f"{provider.value} credentials stored", provider=provider.value)
 
 
 @connectors_router.post(
@@ -424,7 +486,7 @@ async def trigger_sync(
     summary="Configure local file system connector",
 )
 async def configure_local_fs(
-    payload: dict,
+    payload: LocalFSConfigureRequest,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
 ) -> ConnectorResponse:
@@ -443,8 +505,8 @@ async def configure_local_fs(
     from app.workers.sync_tasks import sync_connector_job
     from sqlalchemy import select
 
-    watch_paths: list[str] = payload.get("watch_paths", [])
-    display_name: str = payload.get("display_name", "Local Files")
+    watch_paths: list[str] = payload.watch_paths
+    display_name: str = payload.display_name
 
     if not watch_paths:
         from fastapi import HTTPException
@@ -530,10 +592,10 @@ async def execute_action(
 conversations_router = APIRouter(prefix="/conversations", tags=["Conversations"])
 
 
-@conversations_router.get("", summary="List user's conversations")
+@conversations_router.get("", response_model=list[ConversationResponse], summary="List user's conversations")
 async def list_conversations(
     current_user: User = Depends(get_current_user),
-) -> list[dict]:
+) -> list[ConversationResponse]:
     from app.infrastructure.database import get_session_factory
     from sqlalchemy import text
 
@@ -544,21 +606,21 @@ async def list_conversations(
             {"uid": str(current_user.id)},
         )
         rows = result.fetchall()
-    return [{"id": r[0], "title": r[1], "created_at": r[2], "last_message": r[3]} for r in rows]
+    return [ConversationResponse(id=r[0], title=r[1], created_at=r[2], last_message=r[3]) for r in rows]
 
 
-@conversations_router.post("", summary="Create or sync a conversation")
+@conversations_router.post("", response_model=UpsertConversationResponse, summary="Create or sync a conversation")
 async def upsert_conversation(
-    payload: dict,
+    payload: UpsertConversationRequest,
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> UpsertConversationResponse:
     from app.infrastructure.database import get_session_factory
     from sqlalchemy import text
 
-    conv_id = payload.get("id", str(uuid.uuid4()))
-    title = payload.get("title", "New Conversation")
-    last_message = payload.get("last_message", "")
-    messages = payload.get("messages", [])
+    conv_id = payload.id or str(uuid.uuid4())
+    title = payload.title
+    last_message = payload.last_message
+    messages = payload.messages
 
     factory = get_session_factory()
     async with factory() as session:
@@ -576,22 +638,22 @@ async def upsert_conversation(
                             VALUES (:id, :conv_id, :role, :content, :ts)
                             ON CONFLICT (id) DO NOTHING"""),
                     {
-                        "id": msg.get("id", str(uuid.uuid4())),
+                        "id": msg.id or str(uuid.uuid4()),
                         "conv_id": conv_id,
-                        "role": msg.get("role", "user"),
-                        "content": msg.get("content", ""),
-                        "ts": msg.get("timestamp", datetime.now(UTC).isoformat()),
+                        "role": msg.role,
+                        "content": msg.content,
+                        "ts": msg.timestamp or datetime.now(UTC).isoformat(),
                     },
                 )
         await session.commit()
-    return {"id": conv_id, "synced": True}
+    return UpsertConversationResponse(id=conv_id, synced=True)
 
 
-@conversations_router.get("/{conversation_id}/messages", summary="Get conversation messages")
+@conversations_router.get("/{conversation_id}/messages", response_model=list[MessageResponse], summary="Get conversation messages")
 async def get_conversation_messages(
     conversation_id: str,
     current_user: User = Depends(get_current_user),
-) -> list[dict]:
+) -> list[MessageResponse]:
     from app.infrastructure.database import get_session_factory
     from sqlalchemy import text
 
@@ -602,7 +664,7 @@ async def get_conversation_messages(
             {"cid": conversation_id},
         )
         rows = result.fetchall()
-    return [{"id": r[0], "role": r[1], "content": r[2], "timestamp": r[3]} for r in rows]
+    return [MessageResponse(id=r[0], role=r[1], content=r[2], timestamp=r[3]) for r in rows]
 
 
 # ── Re-export Routers ────────────────────────────────────────────────────────

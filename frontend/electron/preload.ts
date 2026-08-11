@@ -37,6 +37,17 @@ contextBridge.exposeInMainWorld("atlasElectron", {
   windowMaximize: (): Promise<void> => ipcRenderer.invoke("window-maximize"),
   windowClose: (): Promise<void> => ipcRenderer.invoke("window-close"),
 
+  onWindowMaximized: (callback: () => void): (() => void) => {
+    const handler = () => callback();
+    ipcRenderer.on("window-maximized", handler);
+    return () => ipcRenderer.removeListener("window-maximized", handler);
+  },
+  onWindowUnmaximized: (callback: () => void): (() => void) => {
+    const handler = () => callback();
+    ipcRenderer.on("window-unmaximized", handler);
+    return () => ipcRenderer.removeListener("window-unmaximized", handler);
+  },
+
 
   /**
    * Subscribe to the global Cmd+Space command bar toggle event.
@@ -49,7 +60,7 @@ contextBridge.exposeInMainWorld("atlasElectron", {
   },
 
   /** Listen for OAuth callback from system browser */
-  onOAuthCallback: (callback: (data: { access_token: string; refresh_token: string }) => void): (() => void) => {
+  onOAuthCallback: (callback: (data: { access_token?: string; refresh_token?: string; error?: string }) => void): (() => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on("oauth-callback", handler);
     return () => ipcRenderer.removeListener("oauth-callback", handler);
@@ -227,6 +238,14 @@ contextBridge.exposeInMainWorld("atlasElectron", {
     ): Promise<{ id: string; email: string; full_name: string; created_at: string; updated_at: string }> =>
       ipcRenderer.invoke("auth-login", { email, password }),
 
+    /** Login via Google OAuth */
+    loginWithGoogle: (
+      email: string,
+      fullName: string,
+      sub: string
+    ): Promise<{ id: string; email: string; full_name: string; created_at: string; updated_at: string }> =>
+      ipcRenderer.invoke("auth-login-google", { email, fullName, sub }),
+
     /** Logout the current user */
     logout: (): Promise<void> =>
       ipcRenderer.invoke("auth-logout"),
@@ -290,7 +309,10 @@ export type AtlasElectronAPI = {
   windowMinimize: () => Promise<void>;
   windowMaximize: () => Promise<void>;
   windowClose: () => Promise<void>;
+  onWindowMaximized: (callback: () => void) => () => void;
+  onWindowUnmaximized: (callback: () => void) => () => void;
   onToggleCommandBar: (callback: () => void) => () => void;
+  onOAuthCallback: (callback: (data: { access_token?: string; refresh_token?: string; error?: string }) => void) => () => void;
   checkOllamaHealth: () => Promise<{ available: boolean; models?: string[] }>;
   sendChatMessage: (
     messages: Array<{ role: string; content: string }>,
@@ -328,6 +350,13 @@ export type AtlasElectronAPI = {
       updated_at: string;
     }>;
     login: (email: string, password: string) => Promise<{
+      id: string;
+      email: string;
+      full_name: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+    loginWithGoogle: (email: string, fullName: string, sub: string) => Promise<{
       id: string;
       email: string;
       full_name: string;

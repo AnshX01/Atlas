@@ -81,78 +81,7 @@ class BriefingService:
     def __init__(self, user_id: uuid.UUID) -> None:
         self.user_id = user_id
 
-    def _fallback_priority_score(self, raw_item: dict) -> int:
-        """Assign a heuristic priority score when the AI agent is unavailable."""
-        item_type = raw_item.get("type", "document")
-        base_scores = {
-            "email": 60,      # Communications need attention
-            "calendar": 75,   # Meetings are time-sensitive
-            "pr": 70,         # PRs often block teammates
-            "issue": 55,      # Issues need review
-            "task": 65,       # Tasks have deadlines
-            "document": 30,   # Documents are reference material
-        }
-        score = base_scores.get(item_type, 40)
 
-        # Boost for recent items (within last 4 hours)
-        timestamp = raw_item.get("timestamp", "")
-        if timestamp:
-            try:
-                item_time = datetime.fromisoformat(timestamp)
-                hours_ago = (datetime.now(UTC) - item_time).total_seconds() / 3600
-                if hours_ago < 4:
-                    score += 15
-                elif hours_ago < 12:
-                    score += 8
-            except (ValueError, TypeError):
-                pass
-
-        # Extra boost for today's calendar events
-        if item_type == 'calendar' and timestamp:
-            try:
-                item_time = datetime.fromisoformat(timestamp)
-                if item_time.date() == datetime.now(UTC).date():
-                    score += 20  # Today's meetings are high priority
-            except (ValueError, TypeError):
-                pass
-
-        # Boost emails from people (not automated/noreply)
-        sender = raw_item.get("sender", "")
-        if sender and "noreply" not in sender.lower() and "no-reply" not in sender.lower():
-            score += 5
-
-        return min(score, 100)
-
-    def _generate_fallback_rationale(self, raw_item: dict) -> str:
-        """Generate a human-readable rationale when AI triage is unavailable."""
-        item_type = raw_item.get("type", "document")
-        sender = raw_item.get("sender", "")
-        title = raw_item.get("title", "")
-
-        if item_type == "email" and sender:
-            return f"Email from {sender}: {title[:60]}"
-        elif item_type == "pr":
-            return f"Pull request needs review: {title[:60]}"
-        elif item_type == "issue":
-            return f"Issue assigned or updated: {title[:60]}"
-        elif item_type == "calendar":
-            return f"Upcoming meeting: {title[:60]}"
-        elif item_type == "task":
-            return f"Task requires attention: {title[:60]}"
-        return raw_item.get("preview", "")[:100]
-
-    def _suggest_action(self, raw_item: dict) -> str:
-        """Suggest a default action based on item type."""
-        item_type = raw_item.get("type", "document")
-        actions = {
-            "email": "Reply",
-            "pr": "Review",
-            "issue": "Triage",
-            "calendar": "Prepare",
-            "task": "Complete",
-            "document": "Read",
-        }
-        return actions.get(item_type, "View")
 
     async def _fetch_raw_items(self) -> list[dict[str, Any]]:
         """Fetch today's actionable items from Qdrant across all connectors.
@@ -269,30 +198,35 @@ class BriefingService:
         """Run the full triage pipeline and return a structured daily briefing."""
         raw_items = await self._fetch_raw_items()
 
+        # Format context to strictly enforce token limits for the LLM window
+        formatted_context = [
+            {
+                "id": item["id"],
+                "type": item["type"],
+                "title": item["title"][:100],
+                "source": item["source"],
+                "preview": item["preview"][:150],
+            }
+            for item in raw_items[:30]
+        ]
+
         # Run triage via the Atlas pipeline
         triage_state = await run_atlas_pipeline(
             user_input="Generate triage scores for today's inbox items",
             user_id=self.user_id,
-            extra_state={"items_to_triage": raw_items, "intent": "triage"},
+            extra_state={"items_to_triage": formatted_context, "intent": "triage"},
         )
 
         triage_scores: list[dict[str, Any]] = triage_state.get("triage_scores", [])
         score_map = {s["item_id"]: s for s in triage_scores}
 
-        # Build BriefingItems with fallback scoring when AI agent fails
-        use_fallback = not triage_scores or len(triage_scores) == 0
-
         briefing_items = []
         for raw in raw_items:
             score_data = score_map.get(raw["id"], {})
-            if use_fallback or not score_data:
-                priority = self._fallback_priority_score(raw)
-                rationale = self._generate_fallback_rationale(raw)
-                action = self._suggest_action(raw)
-            else:
-                priority = score_data.get("priority_score", 50)
-                rationale = score_data.get("rationale", raw["preview"][:100])
-                action = score_data.get("recommended_action")
+            
+            priority = score_data.get("priority_score", 50)
+            rationale = score_data.get("rationale", raw["preview"][:100])
+            action = score_data.get("recommended_action", "View")
 
             item = BriefingItem(
                 id=raw["id"],

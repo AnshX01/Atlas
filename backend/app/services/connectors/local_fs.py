@@ -21,7 +21,7 @@ from app.domain.models.connector import Connector
 from app.infrastructure.neo4j_client import upsert_document_node
 from app.infrastructure.qdrant_client import delete_by_source_id
 from app.services.chunker import chunk_text
-from app.workers.embedding_tasks import batch_embed_chunks
+from app.workers.embedding_tasks import enqueue_embedding_batches
 from watchdog.events import (
     FileCreatedEvent,
     FileDeletedEvent,
@@ -146,7 +146,7 @@ class LocalFSConnector(BaseConnector):
                         for i, chunk in enumerate(text_chunks)
                     ]
                     if chunks:
-                        batch_embed_chunks.delay(str(self.user_id), chunks)
+                        enqueue_embedding_batches(str(self.user_id), chunks)
                     await upsert_document_node(
                         str(self.user_id),
                         str(file_path),
@@ -225,7 +225,7 @@ class LocalFSConnector(BaseConnector):
                                 for i, chunk in enumerate(text_chunks)
                             ]
                             if chunks:
-                                batch_embed_chunks.delay(str(self.user_id), chunks)
+                                enqueue_embedding_batches(str(self.user_id), chunks)
                             await upsert_document_node(
                                 str(self.user_id),
                                 str(file_path),

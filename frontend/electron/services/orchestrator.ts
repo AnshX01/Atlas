@@ -39,10 +39,12 @@ export interface WorkflowState {
   intent: Intent;
   context: any[];
   toolCalls: Array<{
+    id?: string;
     server: string;
     tool: string;
     params: Record<string, unknown>;
     result?: unknown;
+    error?: string;
   }>;
   response: string;
   requiresApproval: boolean;
@@ -565,6 +567,7 @@ export class Orchestrator {
     await Promise.all(
       toolsToCall.map(async (tool) => {
         this.safeSend(mainWindow, "workflow-tool-executing", {
+          id: tool.id,
           server: tool.server,
           tool: tool.tool,
           params: tool.params,
@@ -577,15 +580,20 @@ export class Orchestrator {
             tool.params as Record<string, any>
           );
 
-          // Check if the result is an error response from the connector
-          if (result && typeof result === "object" && result.error) {
-            console.warn(`[Orchestrator] Tool returned error: ${tool.server}/${tool.tool}: ${result.error}`);
+          // Check if the result is an error response from the connector or an MCP isError
+          const isMcpError = result && typeof result === "object" && result.isError === true;
+          if (result && typeof result === "object" && (result.error || isMcpError)) {
+            const errorMsg = result.error || (Array.isArray(result.content) ? result.content.map((c: any) => c.text).join('\n') : "Tool execution failed");
+            console.warn(`[Orchestrator] Tool returned error: ${tool.server}/${tool.tool}: ${errorMsg}`);
             state.context.push({
               type: "tool_error",
               server: tool.server,
               tool: tool.tool,
-              error: result.error,
+              error: errorMsg,
             });
+            tool.result = { error: errorMsg };
+            tool.error = errorMsg;
+            state.toolCalls.push(tool);
           } else {
             tool.result = result;
             state.toolCalls.push(tool);
@@ -616,6 +624,9 @@ export class Orchestrator {
             tool: tool.tool,
             error: errorMsg,
           });
+          tool.result = { error: errorMsg };
+          tool.error = errorMsg;
+          state.toolCalls.push(tool);
         }
       })
     );
@@ -659,9 +670,12 @@ export class Orchestrator {
       // Issue #1: Reuse buildGmailQuery to target the person mentioned in the user's input
       const emailQuery = this.buildGmailQuery(state.input, {});
       try {
-        this.safeSend(mainWindow, "workflow-tool-executing", { server: "google_workspace", tool: "search_emails" });
-        // Use maxResults=3 to increase chances of finding the right email
+        const prefetchId = randomUUID();
+        this.safeSend(mainWindow, "workflow-tool-executing", { id: prefetchId, server: "google_workspace", tool: "search_emails" });
         const emails = await this.mcpManager.callTool("google_workspace", "search_emails", { query: emailQuery, maxResults: 3 });
+        
+        const toolCall = { id: prefetchId, server: "google_workspace", tool: "search_emails", params: { query: emailQuery, maxResults: 3 }, result: emails };
+        state.toolCalls.push(toolCall as any);
         if (emails && !emails.error && Array.isArray(emails) && emails.length > 0) {
           state.context.push({ type: "tool_result", server: "google_workspace", tool: "search_emails", result: emails });
         }
@@ -671,8 +685,12 @@ export class Orchestrator {
     // Merge/close PR — fetch the PR details
     if (lower.includes("merge") || (lower.includes("close") && lower.includes("pr"))) {
       try {
-        this.safeSend(mainWindow, "workflow-tool-executing", { server: "github", tool: "list_prs" });
+        const prefetchId = randomUUID();
+        this.safeSend(mainWindow, "workflow-tool-executing", { id: prefetchId, server: "github", tool: "list_prs" });
         const prs = await this.mcpManager.callTool("github", "list_prs", { state: "open" });
+        
+        const toolCall = { id: prefetchId, server: "github", tool: "list_prs", params: { state: "open" }, result: prs };
+        state.toolCalls.push(toolCall as any);
         if (prs && !prs.error) {
           state.context.push({ type: "tool_result", server: "github", tool: "list_prs", result: prs });
         }
@@ -687,8 +705,12 @@ export class Orchestrator {
     const startsWithSlackVerb = /^(post|message)\b/.test(lower);
     if ((hasSlackSignal || startsWithSlackVerb) && !lower.includes("email") && !lower.includes("mail")) {
       try {
-        this.safeSend(mainWindow, "workflow-tool-executing", { server: "slack", tool: "read_messages" });
+        const prefetchId = randomUUID();
+        this.safeSend(mainWindow, "workflow-tool-executing", { id: prefetchId, server: "slack", tool: "list_channels" });
         const channels = await this.mcpManager.callTool("slack", "list_channels", {});
+        
+        const toolCall = { id: prefetchId, server: "slack", tool: "list_channels", params: {}, result: channels };
+        state.toolCalls.push(toolCall as any);
         if (channels && !channels.error) {
           state.context.push({ type: "tool_result", server: "slack", tool: "list_channels", result: channels });
         }
@@ -806,7 +828,7 @@ export class Orchestrator {
       tool: pendingTool.tool,
     });
 
-    // DraftCard in UI shows all the info — no need to stream text
+    // DraftCard in the UI shows all the info — no need to stream text
     state.response = "";
   }
 
@@ -1149,11 +1171,26 @@ Rules:
       const executionId = state.draft?.executionId ?? randomUUID();
       const pendingTool = state.toolCalls[state.toolCalls.length - 1];
 
+      // Automatically timeout approval after 10 minutes (600,000 ms)
+      const timeoutId = setTimeout(() => {
+        const p = this.pendingApprovals.get(executionId);
+        if (p) {
+          this.pendingApprovals.delete(executionId);
+          p.resolve(false);
+          console.warn(`[Orchestrator] Approval for ${executionId} timed out`);
+        }
+      }, 10 * 60 * 1000);
+
+      const resolveWithClear = (approved: boolean) => {
+        clearTimeout(timeoutId);
+        resolve(approved);
+      };
+
       const pending: PendingApproval = {
         executionId,
         conversationId: state.conversationId,
         state,
-        resolve,
+        resolve: resolveWithClear,
       };
 
       this.pendingApprovals.set(executionId, pending);
@@ -1175,6 +1212,7 @@ Rules:
       }
 
       this.safeSend(mainWindow, "workflow-tool-executing", {
+        id: tool.id,
         server: tool.server,
         tool: tool.tool,
         params: tool.params,
@@ -1198,11 +1236,15 @@ Rules:
           );
         }
 
-        // Check if the result indicates an error
-        if (result && typeof result === 'object' && result.error) {
-          console.error(`[Orchestrator] Execute error: ${tool.server}/${tool.tool}: ${result.error}`);
-          state.context.push({ type: "tool_error", server: tool.server, tool: tool.tool, error: result.error });
-          state.error = result.error;
+        // Check if the result indicates an error or MCP isError
+        const isMcpError = result && typeof result === 'object' && result.isError === true;
+        if (result && typeof result === 'object' && (result.error || isMcpError)) {
+          const errorMsg = result.error || (Array.isArray(result.content) ? result.content.map((c: any) => c.text).join('\n') : "Tool execution failed");
+          console.error(`[Orchestrator] Execute error: ${tool.server}/${tool.tool}: ${errorMsg}`);
+          state.context.push({ type: "tool_error", server: tool.server, tool: tool.tool, error: errorMsg });
+          state.error = errorMsg;
+          tool.result = { error: errorMsg };
+          tool.error = errorMsg;
         } else {
           tool.result = result;
           saveToolExecution(state.conversationId, tool.server, tool.tool, tool.params, result);
@@ -1219,6 +1261,8 @@ Rules:
           tool: tool.tool,
           error: errorMsg,
         });
+        tool.result = { error: errorMsg };
+        tool.error = errorMsg;
       }
     }
   }
@@ -1248,23 +1292,9 @@ Rules:
     this.activeStreams.set(state.conversationId, abortController);
 
     try {
-      let tokenBuffer: string[] = [];
-      let lastFlushTime = Date.now();
-
       for await (const token of streamChat(messages, undefined, abortController.signal)) {
         fullResponse += token;
-        tokenBuffer.push(token);
-
-        const now = Date.now();
-        if (now - lastFlushTime >= 16) {
-          this.safeSend(mainWindow, "workflow-stream", tokenBuffer.join(""));
-          tokenBuffer = [];
-          lastFlushTime = now;
-        }
-      }
-
-      if (tokenBuffer.length > 0) {
-        this.safeSend(mainWindow, "workflow-stream", tokenBuffer.join(""));
+        this.safeSend(mainWindow, "workflow-stream", token);
       }
 
       state.response = fullResponse;
@@ -1304,12 +1334,13 @@ Rules:
   private resolveTools(
     state: WorkflowState,
     intentType: "search" | "action"
-  ): Array<{ server: string; tool: string; params: Record<string, unknown>; result?: unknown }> {
+  ): Array<{ id?: string; server: string; tool: string; params: Record<string, unknown>; result?: unknown }> {
     const input = state.input.toLowerCase();
     const classificationParams =
       state.context.find((c) => c.type === "classification")?.params || {};
 
     const tools: Array<{
+      id?: string;
       server: string;
       tool: string;
       params: Record<string, unknown>;
@@ -1339,6 +1370,7 @@ Rules:
           }
 
           tools.push({
+            id: randomUUID(),
             server: route.server,
             tool: route.tool,
             params: this.buildToolParams(route.tool, state.input, classificationParams),

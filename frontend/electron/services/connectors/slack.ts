@@ -10,6 +10,13 @@ export class SlackConnector {
   }
 
   private async api(method: string, params: Record<string, string> = {}): Promise<any> {
+    // Sync memory with disk for cross-device updates
+    const creds = getToken('slack') as Record<string, string> | null;
+    const currentToken = creds?.bot_token || creds?.access_token || null;
+    if (currentToken && currentToken !== this.token) {
+      this.token = currentToken;
+    }
+
     if (!this.token) throw new Error('Slack not configured');
     const url = new URL(`https://slack.com/api/${method}`);
     Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));

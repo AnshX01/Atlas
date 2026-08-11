@@ -19,7 +19,7 @@ from app.domain.interfaces.base_connector import BaseConnector
 from app.domain.models.connector import Connector, ConnectorStatus, OAuthToken
 from app.infrastructure.database import get_session_factory
 from app.infrastructure.neo4j_client import upsert_pr_node, upsert_task_node
-from app.workers.embedding_tasks import batch_embed_chunks
+from app.workers.embedding_tasks import enqueue_embedding_batches
 from github import Auth, Github, GithubException, RateLimitExceededException
 from tenacity import (
     retry,
@@ -138,11 +138,38 @@ class GitHubConnector(BaseConnector):
                     for pr in repo.get_pulls(state="open", sort="updated", direction="desc"):
                         if pr.updated_at.replace(tzinfo=UTC) < since:
                             break
+                        comments = []
+                        try:
+                            for i, comment in enumerate(pr.get_issue_comments()):
+                                if i >= 50:
+                                    break
+                                if comment.body:
+                                    comments.append(comment.body)
+                        except Exception as e:
+                            logger.warning("Failed to fetch PR comments", pr=pr.number, error=str(e))
+
+                        files_changed = []
+                        try:
+                            for i, f in enumerate(pr.get_files()):
+                                if i >= 10:
+                                    break
+                                if f.patch:
+                                    files_changed.append(f"File: {f.filename}\nPatch:\n{f.patch}")
+                        except Exception as e:
+                            logger.warning("Failed to fetch PR files", pr=pr.number, error=str(e))
+
+                        diff_text = "\n\n".join(files_changed)
+
                         prs_for_repo.append({
                             "id": pr.id,
                             "number": pr.number,
                             "title": pr.title,
                             "body": pr.body,
+                            "comments": comments,
+                            "diff_text": diff_text,
+                            "additions": getattr(pr, "additions", 0) or 0,
+                            "deletions": getattr(pr, "deletions", 0) or 0,
+                            "changed_files": getattr(pr, "changed_files", 0) or 0,
                             "updated_at": pr.updated_at,
                             "html_url": pr.html_url,
                             "user_login": pr.user.login,
@@ -158,12 +185,19 @@ class GitHubConnector(BaseConnector):
             for prs in repos_prs:
                 chunks: list[dict] = []
                 for pr in prs:
+                    pr_text = (
+                        f"PR #{pr['number']}: {pr['title']}\n\n"
+                        f"Diff: +{pr['additions']} -{pr['deletions']} in {pr['changed_files']} files\n"
+                        f"{pr.get('diff_text', '')}\n\n"
+                        f"Body:\n{pr['body'] or ''}\n\n"
+                        f"Comments:\n" + "\n---\n".join(pr.get('comments', []))
+                    )
                     chunks.append(
                         {
                             "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"ghpr:{pr['id']}")),
                             "source_id": str(pr['id']),
                             "type": "pr",
-                            "text": f"PR #{pr['number']}: {pr['title']}\n\n{pr['body'] or ''}",
+                            "text": pr_text,
                             "timestamp": pr['updated_at'].isoformat(),
                             "metadata": {
                                 "repo": pr['repo_full_name'],
@@ -187,15 +221,22 @@ class GitHubConnector(BaseConnector):
                     logger.debug("PR synced", repo=pr['repo_full_name'], pr=pr['number'])
                     synced += 1
                 if chunks:
-                    batch_embed_chunks.delay(str(self.user_id), chunks)
+                    enqueue_embedding_batches(str(self.user_id), chunks)
+        except RateLimitExceededException:
+            raise
         except GithubException as e:
             if e.status == 401:
+                # Cannot wait here if in thread, but this is an async function, we can await
                 await self._mark_requires_reauth()
-            failed += 1
-            logger.error("GitHub sync error", error=str(e))
+            raise
 
         return {"synced": synced, "failed": failed, "skipped": 0}
 
+    @retry(
+        retry=retry_if_exception_type(RateLimitExceededException),
+        wait=wait_exponential_jitter(initial=60, max=3600),
+        stop=stop_after_attempt(3),
+    )
     async def _sync_issues(self, gh: Github, since: datetime) -> dict[str, int]:
         """Sync GitHub Issues assigned to or created by the user."""
         synced = 0
@@ -206,11 +247,22 @@ class GitHubConnector(BaseConnector):
                 for issue in gh.search_issues(
                     query=f"assignee:{user.login} updated:>{since.strftime('%Y-%m-%d')} is:open"
                 ):
+                    comments = []
+                    try:
+                        for i, comment in enumerate(issue.get_comments()):
+                            if i >= 50:
+                                break
+                            if comment.body:
+                                comments.append(comment.body)
+                    except Exception as e:
+                        logger.warning("Failed to fetch Issue comments", issue=issue.number, error=str(e))
+
                     issues_list.append({
                         "id": issue.id,
                         "number": issue.number,
                         "title": issue.title,
                         "body": issue.body,
+                        "comments": comments,
                         "updated_at": issue.updated_at,
                         "html_url": issue.html_url,
                         "state": issue.state,
@@ -223,12 +275,17 @@ class GitHubConnector(BaseConnector):
             issues_data = await asyncio.to_thread(fetch_issues)
             chunks: list[dict] = []
             for issue in issues_data:
+                issue_text = (
+                    f"Issue #{issue['number']}: {issue['title']}\n\n"
+                    f"Body:\n{issue['body'] or ''}\n\n"
+                    f"Comments:\n" + "\n---\n".join(issue.get('comments', []))
+                )
                 chunks.append(
                     {
                         "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"ghissue:{issue['id']}")),
                         "source_id": str(issue['id']),
                         "type": "issue",
-                        "text": f"Issue #{issue['number']}: {issue['title']}\n\n{issue['body'] or ''}",
+                        "text": issue_text,
                         "timestamp": issue['updated_at'].isoformat(),
                         "metadata": {
                             "repo": issue['repo_full_name'],
@@ -252,9 +309,14 @@ class GitHubConnector(BaseConnector):
                 logger.debug("Issue synced", issue=issue['number'])
                 synced += 1
             if chunks:
-                batch_embed_chunks.delay(str(self.user_id), chunks)
+                enqueue_embedding_batches(str(self.user_id), chunks)
+        except RateLimitExceededException:
+            raise
         except GithubException as e:
-            logger.warning("Issue sync error", error=str(e))
+            if e.status == 401:
+                await self._mark_requires_reauth()
+            raise
+
         return {"synced": synced, "failed": 0, "skipped": 0}
 
     async def sync(self) -> dict[str, int]:
@@ -262,8 +324,16 @@ class GitHubConnector(BaseConnector):
         gh = await self._get_client()
         since = datetime.now(UTC) - timedelta(days=3)
 
-        pr_result = await self._sync_prs(gh, since)
-        issue_result = await self._sync_issues(gh, since)
+        try:
+            pr_result = await self._sync_prs(gh, since)
+            issue_result = await self._sync_issues(gh, since)
+        except RateLimitExceededException as e:
+            raise ValueError("GitHub rate limit exceeded. Please try again later.") from e
+        except GithubException as e:
+            if e.status == 401:
+                await self._mark_requires_reauth()
+                raise ValueError("GitHub authentication expired. Please re-connect.") from e
+            raise ValueError(f"GitHub sync error: {str(e)}") from e
 
         total = {
             "synced": pr_result["synced"] + issue_result["synced"],

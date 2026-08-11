@@ -7,9 +7,9 @@
  * Session: stored in the config table.
  */
 
-import { randomUUID, pbkdf2Sync, randomBytes } from "crypto";
+import { randomUUID, pbkdf2Sync, randomBytes, createHash } from "crypto";
 import { getDB, forcePersist } from "./local-store";
-import { setEncryptionKey, setCrossDeviceDetails } from "./crypto";
+import { setEncryptionKey, setCrossDeviceDetails, clearKeys } from "./crypto";
 import { syncTokensFromCloud } from "./token-store";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -163,8 +163,12 @@ export function register(email: string, password: string, fullName: string): Loc
 
   setConfig(SESSION_KEY, id);
   setEncryptionKey(salt);
-  setCrossDeviceDetails(email, password);
-  syncTokensFromCloud().catch(console.error);
+  try {
+    setCrossDeviceDetails(email, password);
+    syncTokensFromCloud().catch(console.error);
+  } catch (err) {
+    console.error("[Atlas Auth] Failed to initialize cross-device sync:", err);
+  }
   return { id, email: email.toLowerCase(), full_name: fullName.trim(), created_at: now, updated_at: now };
 }
 
@@ -179,9 +183,50 @@ export function login(email: string, password: string): LocalUser {
 
   setConfig(SESSION_KEY, row.id);
   setEncryptionKey(row.salt);
-  setCrossDeviceDetails(email, password);
-  syncTokensFromCloud().catch(console.error);
+  try {
+    setCrossDeviceDetails(email, password);
+    syncTokensFromCloud().catch(console.error);
+  } catch (err) {
+    console.error("[Atlas Auth] Failed to initialize cross-device sync:", err);
+  }
   return toPublicUser(row);
+}
+
+export function loginWithGoogle(email: string, fullName: string, sub: string): LocalUser {
+  const db = getDB();
+  if (!db) throw new Error("Auth not initialized");
+  if (!email || !email.includes("@")) throw new Error("Invalid email address");
+  if (!sub) throw new Error("Google subject (sub) is required");
+  if (!fullName || fullName.trim().length === 0) fullName = "Google User";
+
+  // Use a cryptographically derived key instead of a deterministic dummy string
+  const derivedPassword = createHash("sha256")
+    .update(`google-oauth-${sub}-${email}`)
+    .digest("hex");
+
+  const row = queryOne("SELECT * FROM users WHERE email = ?", [email.toLowerCase()]) as UserRow | null;
+  if (!row) {
+    // Register them locally
+    return register(email, derivedPassword, fullName);
+  } else {
+    // Login locally
+    setConfig(SESSION_KEY, row.id);
+    setEncryptionKey(row.salt);
+    
+    // Only set cross-device details if the password actually matches derivedPassword
+    // Otherwise we'd corrupt the user's sync with an incorrect key
+    if (verifyPassword(derivedPassword, row.password_hash, row.salt)) {
+      try {
+        setCrossDeviceDetails(email, derivedPassword);
+        syncTokensFromCloud().catch(console.error);
+      } catch (err) {
+        console.error("[Atlas Auth] Failed to initialize cross-device sync:", err);
+      }
+    } else {
+      console.warn("[Atlas Auth] User registered locally with a real password. Skipping cross-device sync for Google login.");
+    }
+    return toPublicUser(row);
+  }
 }
 
 export function getCurrentUser(): LocalUser | null {
@@ -199,6 +244,7 @@ export function isAuthenticated(): boolean {
 
 export function logout(): void {
   deleteConfigKey(SESSION_KEY);
+  clearKeys();
 }
 
 export function updateProfile(data: { email?: string; full_name?: string; password?: string }): LocalUser {

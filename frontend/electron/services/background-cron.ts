@@ -5,6 +5,7 @@ export class CronEngine {
   private timer: NodeJS.Timeout | null = null;
   private isChecking = false;
   private notifiedIds = new Set<string>();
+  private notifiedQueue: string[] = [];
 
   constructor(private mcpManager: MCPServerManager) {}
 
@@ -41,7 +42,14 @@ export class CronEngine {
       
       if (Array.isArray(emailResult)) {
         const newEmails = emailResult.filter(e => e.id && !this.notifiedIds.has(e.id));
-        newEmails.forEach(e => this.notifiedIds.add(e.id));
+        newEmails.forEach(e => {
+          this.notifiedIds.add(e.id);
+          this.notifiedQueue.push(e.id);
+        });
+        while (this.notifiedQueue.length > 1000) {
+          const oldId = this.notifiedQueue.shift();
+          if (oldId) this.notifiedIds.delete(oldId);
+        }
         for (const email of newEmails) {
           const subject = email.subject || '';
           const from = email.from || '';
@@ -78,6 +86,11 @@ export class CronEngine {
             const eventId = event.id || event.title;
             if (eventId && !this.notifiedIds.has(eventId)) {
               this.notifiedIds.add(eventId);
+              this.notifiedQueue.push(eventId);
+              while (this.notifiedQueue.length > 1000) {
+                const oldId = this.notifiedQueue.shift();
+                if (oldId) this.notifiedIds.delete(oldId);
+              }
               try {
                 new Notification({
                   title: 'Upcoming Meeting',

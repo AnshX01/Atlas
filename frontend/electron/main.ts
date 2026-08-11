@@ -33,6 +33,7 @@ import {
   initAuthTables,
   register as authRegister,
   login as authLogin,
+  loginWithGoogle as authLoginGoogle,
   logout as authLogout,
   getCurrentUser as authGetCurrentUser,
   updateProfile as authUpdateProfile,
@@ -111,6 +112,14 @@ function createWindow(): BrowserWindow {
       return false;
     }
     return true;
+  });
+
+  win.on('maximize', () => {
+    win.webContents.send('window-maximized');
+  });
+
+  win.on('unmaximize', () => {
+    win.webContents.send('window-unmaximized');
   });
 
   return win;
@@ -224,7 +233,8 @@ app.whenReady().then(async () => {
           }
         } catch (err: any) {
           const errorMsg = err?.message || "OAuth failed";
-          res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Connection failed</h2><p style="color:#aaa">${errorMsg}</p><p style="color:#666;font-size:12px;margin-top:16px">Close this tab and try again in Atlas.</p></div></body></html>`);
+          const safeErrorMsg = String(errorMsg).replace(/[&<>'"]/g, tag => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[tag] || tag));
+          res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Connection failed</h2><p style="color:#aaa">${safeErrorMsg}</p><p style="color:#666;font-size:12px;margin-top:16px">Close this tab and try again in Atlas.</p></div></body></html>`);
           if (mainWindow) {
             mainWindow.show();
             mainWindow.focus();
@@ -241,11 +251,16 @@ app.whenReady().then(async () => {
           mainWindow.show();
           mainWindow.focus();
         }
+      } else if (!accessToken && !code && !error) {
+        // Supabase OAuth returns tokens in the URL hash (#) which isn't sent to the server.
+        // Serve a script to extract the hash and reload as a query string.
+        res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Completing sign in...</h2></div><script>if(window.location.hash&&window.location.hash.length>1){const u=new URL(window.location.href);u.hash='';const p=new URLSearchParams(window.location.hash.substring(1));p.forEach((v,k)=>u.searchParams.append(k,v));window.location.replace(u.toString())}else{const u=new URL(window.location.href);u.searchParams.set('error','No tokens found');window.location.replace(u.toString())}</script></body></html>`);
       } else {
         // Error case
-        const errorMsg = error || "Unknown error";
+        const errorMsg = error || "Missing authentication tokens";
+        const safeErrorMsg = String(errorMsg).replace(/[&<>'"]/g, tag => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[tag] || tag));
         console.error("[Atlas OAuth] Failed:", errorMsg);
-        res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Sign in failed</h2><p style="color:#aaa">${errorMsg}</p><p style="color:#666;font-size:12px;margin-top:16px">Close this tab and try again in Atlas.</p></div></body></html>`);
+        res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Sign in failed</h2><p style="color:#aaa">${safeErrorMsg}</p><p style="color:#666;font-size:12px;margin-top:16px">Close this tab and try again in Atlas.</p></div></body></html>`);
         if (mainWindow) {
           mainWindow.webContents.send("oauth-callback", { error: errorMsg });
           mainWindow.show();
@@ -562,7 +577,11 @@ ipcMain.handle(
   }
 );
 
-ipcMain.handle("auth-logout", async () => {
+ipcMain.handle("auth-login-google", (_event, { email, fullName, sub }) => {
+  return authLoginGoogle(email, fullName, sub);
+});
+
+ipcMain.handle("auth-logout", () => {
   authLogout();
 });
 

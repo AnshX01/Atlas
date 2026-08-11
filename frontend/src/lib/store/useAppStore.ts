@@ -9,6 +9,10 @@ interface AppState {
   setCommandBarOpen: (open: boolean) => void;
   toggleCommandBar: () => void;
 
+  // ── Window Layout ────────────────────────────────────────────────
+  isMaximized: boolean;
+  setIsMaximized: (maximized: boolean) => void;
+
   // ── Theme ────────────────────────────────────────────────────────
   theme: Theme;
   setTheme: (theme: Theme) => void;
@@ -30,6 +34,10 @@ export const useAppStore = create<AppState>()(
       commandBarOpen: false,
       setCommandBarOpen: (open) => set({ commandBarOpen: open }),
       toggleCommandBar: () => set((s) => ({ commandBarOpen: !s.commandBarOpen })),
+
+      // ── Window Layout ──────────────────────────────────────────────
+      isMaximized: false,
+      setIsMaximized: (isMaximized) => set({ isMaximized }),
 
       // ── Theme ──────────────────────────────────────────────────────
       theme: "dark",

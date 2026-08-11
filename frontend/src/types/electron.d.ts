@@ -6,6 +6,7 @@
 interface AtlasLocalAuthAPI {
   login: (email: string, password: string) => Promise<AtlasLocalUser>;
   register: (email: string, password: string, fullName?: string) => Promise<AtlasLocalUser>;
+  loginWithGoogle: (email: string, fullName: string, sub: string) => Promise<AtlasLocalUser>;
   logout: () => Promise<void>;
   getCurrentUser: () => Promise<AtlasLocalUser | null>;
   updateProfile: (data: { full_name?: string; email?: string }) => Promise<AtlasLocalUser>;
@@ -39,6 +40,8 @@ interface AtlasElectronAPI {
   windowMinimize: () => Promise<void>;
   windowMaximize: () => Promise<void>;
   windowClose: () => Promise<void>;
+  onWindowMaximized: (callback: () => void) => () => void;
+  onWindowUnmaximized: (callback: () => void) => () => void;
   onToggleCommandBar: (callback: () => void) => () => void;
   checkOllamaHealth: () => Promise<{ available: boolean; models?: string[] }>;
   sendChatMessage: (messages: Array<{ role: string; content: string }>, model?: string) => Promise<void>;
@@ -50,6 +53,7 @@ interface AtlasElectronAPI {
   mcpStopServer: (name: string) => Promise<void>;
   mcpCallTool: (server: string, tool: string, params: Record<string, unknown>) => Promise<any>;
   mcpListTools: (server: string) => Promise<Array<{ name: string; description: string }>>;
+
   executeWorkflow: (prompt: string, conversationId?: string) => Promise<void>;
   approveAction: (executionId: string) => Promise<void>;
   rejectAction: (executionId: string) => Promise<void>;

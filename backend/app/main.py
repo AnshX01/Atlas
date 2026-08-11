@@ -20,6 +20,7 @@ from typing import Any
 from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
+from pydantic import BaseModel
 
 from app.api.v1 import (
     actions_router,
@@ -114,14 +115,14 @@ def create_app() -> FastAPI:
     app.include_router(conversations_router, prefix=api_prefix)
 
     # ── Health & Metrics ──────────────────────────────────────────────────────
-    @app.get("/health", tags=["System"], summary="Health check")
-    async def health_check() -> dict[str, Any]:
-        return {"status": "healthy", "service": "atlas-backend", "version": "0.1.0"}
+    class HealthResponse(BaseModel):
+        status: str
+        service: str
+        version: str
 
-    @app.get("/metrics", tags=["System"], summary="Prometheus metrics stub")
-    async def metrics() -> dict[str, str]:
-        # TODO: Integrate prometheus_client in production
-        return {"status": "metrics_endpoint_placeholder"}
+    @app.get("/health", response_model=HealthResponse, tags=["System"], summary="Health check")
+    async def health_check() -> HealthResponse:
+        return HealthResponse(status="healthy", service="atlas-backend", version="0.1.0")
 
     # ── WebSocket: Real-time Sync Events ──────────────────────────────────────
     @app.websocket("/ws/{user_id}")
@@ -147,14 +148,40 @@ def create_app() -> FastAPI:
         await websocket.accept()
         logger.info("WebSocket connected", user_id=user_id)
 
+        import asyncio
+
+        async def receive_loop() -> None:
+            try:
+                while True:
+                    await websocket.receive_text()
+            except WebSocketDisconnect:
+                pass
+
+        async def send_loop() -> None:
+            try:
+                async for event in subscribe_sync_events(user_id):
+                    await websocket.send_json(event)
+            except Exception as e:
+                logger.error("WebSocket send error", user_id=user_id, error=str(e))
+
+        receive_task = asyncio.create_task(receive_loop())
+        send_task = asyncio.create_task(send_loop())
+        
         try:
-            async for event in subscribe_sync_events(user_id):
-                await websocket.send_json(event)
-        except WebSocketDisconnect:
-            logger.info("WebSocket disconnected", user_id=user_id)
+            done, pending = await asyncio.wait(
+                [receive_task, send_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
         except Exception as e:
             logger.error("WebSocket error", user_id=user_id, error=str(e))
-            await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        finally:
+            logger.info("WebSocket disconnected", user_id=user_id)
+            try:
+                await websocket.close(code=status.WS_1000_NORMAL_CLOSURE)
+            except RuntimeError:
+                pass
 
     return app
 

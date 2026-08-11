@@ -32,6 +32,7 @@ export class GmailConnector {
   private clientId: string | null = null;
   private clientSecret: string | null = null;
   private emailCache = new SimpleLRU<string, any[]>(20);
+  private refreshPromise: Promise<string> | null = null;
 
   async init(): Promise<boolean> {
     const creds = getToken('google_workspace') as Record<string, string> | null;
@@ -45,27 +46,51 @@ export class GmailConnector {
 
   private async authFetch(url: string, options: RequestInit = {}, attempt: number = 1): Promise<Response> {
     if (!this.accessToken) throw new Error('Not configured');
+
+    // Sync memory with disk for cross-device updates
+    const currentCreds = getToken('google_workspace') as Record<string, string> | null;
+    if (currentCreds && currentCreds.access_token && currentCreds.access_token !== this.accessToken) {
+      this.accessToken = currentCreds.access_token;
+      if (currentCreds.refresh_token) this.refreshToken = currentCreds.refresh_token;
+    }
+
     const headers = { Authorization: `Bearer ${this.accessToken}`, ...options.headers };
     let res = await fetch(url, { ...options, headers });
+
     if (res.status === 401 && this.refreshToken && this.clientId && this.clientSecret) {
-      try {
-        this.accessToken = await refreshGoogleToken(this.clientId, this.clientSecret, this.refreshToken);
-        // Update stored token — preserve all existing fields
-        const creds = getToken('google_workspace') as Record<string, string> | null;
-        if (creds) {
-          setToken('google_workspace', { ...creds, access_token: this.accessToken });
-        } else {
-          // Fallback: persist using instance fields so refreshed token isn't lost
-          setToken('google_workspace', {
-            client_id: this.clientId,
-            client_secret: this.clientSecret,
-            refresh_token: this.refreshToken,
-            access_token: this.accessToken,
-          });
-        }
+      // Re-read token just in case another request already refreshed it
+      const latestCreds = getToken('google_workspace') as Record<string, string> | null;
+      if (latestCreds && latestCreds.access_token !== this.accessToken) {
+        this.accessToken = latestCreds.access_token;
+        if (latestCreds.refresh_token) this.refreshToken = latestCreds.refresh_token;
         res = await fetch(url, { ...options, headers: { ...headers, Authorization: `Bearer ${this.accessToken}` } });
-      } catch (err: any) {
-        throw new Error(`Google token refresh failed. Please re-authenticate in Settings. (${err.message})`);
+      } else {
+        try {
+          if (!this.refreshPromise) {
+            this.refreshPromise = (async () => {
+              const newToken = await refreshGoogleToken(this.clientId!, this.clientSecret!, this.refreshToken!);
+              this.accessToken = newToken;
+              const creds = getToken('google_workspace') as Record<string, string> | null;
+              if (creds) {
+                setToken('google_workspace', { ...creds, access_token: this.accessToken });
+              } else {
+                setToken('google_workspace', {
+                  client_id: this.clientId!,
+                  client_secret: this.clientSecret!,
+                  refresh_token: this.refreshToken!,
+                  access_token: this.accessToken,
+                });
+              }
+              return newToken;
+            })().finally(() => {
+              this.refreshPromise = null;
+            });
+          }
+          await this.refreshPromise;
+          res = await fetch(url, { ...options, headers: { ...headers, Authorization: `Bearer ${this.accessToken}` } });
+        } catch (err: any) {
+          throw new Error(`Google token refresh failed. Please re-authenticate in Settings. (${err.message})`);
+        }
       }
     } else if (res.status === 401) {
       throw new Error('Google token expired and no refresh token available. Please re-authenticate in Settings.');

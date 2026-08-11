@@ -92,7 +92,7 @@ function BriefingError({ onRetry }: { onRetry: () => void }) {
 
 // ── Proactive Actions ──────────────────────────────────────────────────────────
 function ProactiveActions({ suggestion }: { suggestion?: { item: any, reasoning: string } }) {
-  if (!suggestion) return null;
+  if (!suggestion || !suggestion.item) return null;
   const topItem = suggestion.item;
   
   return (
@@ -114,9 +114,9 @@ function ProactiveActions({ suggestion }: { suggestion?: { item: any, reasoning:
           Proactive Suggestion
         </h3>
         <p className="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
-          {suggestion.reasoning}
+          {suggestion.reasoning || "We've identified an action item that may require your attention."}
         </p>
-        {topItem.action_label && topItem.action_url && (
+        {topItem?.action_label && topItem?.action_url && (
           <Button 
             variant="primary" 
             size="sm" 
@@ -187,9 +187,14 @@ export default function BriefingPage() {
   });
 
   useEffect(() => {
-    if (isLoading) { setLoading(true); return; }
-    if (isError)   { setError("Failed to load briefing"); return; }
-    if (data)      { setBriefing(data); setLoading(false); }
+    setLoading(isLoading);
+    if (isError) {
+      setError("Failed to load briefing");
+      return;
+    }
+    if (data) {
+      setBriefing(data);
+    }
   }, [data, isLoading, isError, setBriefing, setLoading, setError]);
 
   const getGreeting = () => {

@@ -1,17 +1,27 @@
 "use client";
 
-import { Minus, Square, X } from "lucide-react";
+import { Minus, Square, X, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useAppStore } from "@/lib/store/useAppStore";
 
 export function TitleBar() {
   const [isElectron, setIsElectron] = useState(false);
+  const { isMaximized, setIsMaximized } = useAppStore();
 
   useEffect(() => {
     // Check if we are in Electron
     if (typeof window !== "undefined" && window.atlasElectron) {
       setIsElectron(true);
+
+      const unsubMax = window.atlasElectron.onWindowMaximized(() => setIsMaximized(true));
+      const unsubUnmax = window.atlasElectron.onWindowUnmaximized(() => setIsMaximized(false));
+
+      return () => {
+        unsubMax();
+        unsubUnmax();
+      };
     }
-  }, []);
+  }, [setIsMaximized]);
 
   if (!isElectron) return null; // Only show custom title bar in Electron
 
@@ -34,9 +44,9 @@ export function TitleBar() {
         <button
           onClick={() => window.atlasElectron?.windowMaximize()}
           className="w-8 h-full flex items-center justify-center text-white/50 hover:bg-white/10 hover:text-white transition-colors rounded-sm"
-          title="Maximize"
+          title={isMaximized ? "Restore Down" : "Maximize"}
         >
-          <Square size={12} />
+          {isMaximized ? <Copy size={12} /> : <Square size={12} />}
         </button>
         <button
           onClick={() => window.atlasElectron?.windowClose()}

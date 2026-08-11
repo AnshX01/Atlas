@@ -217,6 +217,9 @@ export async function syncTokensFromCloud(): Promise<void> {
   const encryptedBlob = await syncManager.pullSecret(emailId, "token-store");
   if (!encryptedBlob) return;
 
+  // Prevent race condition if user logged out or switched during await
+  if (getHashedEmailId() !== emailId) return;
+
   try {
     const decrypted = decryptData(encryptedBlob, crossKey);
     const data = JSON.parse(decrypted);
@@ -225,8 +228,16 @@ export async function syncTokensFromCloud(): Promise<void> {
     const localPwd = getEncryptionKey();
     if (!localPwd) return;
 
+    const storePath = getStorePath();
+    const dir = path.dirname(storePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
     const out = encryptData(JSON.stringify(data, null, 2), localPwd);
-    fs.writeFileSync(getStorePath(), out, "utf-8");
+    const tmpPath = storePath + '.tmp';
+    fs.writeFileSync(tmpPath, out, "utf-8");
+    fs.renameSync(tmpPath, storePath);
     console.log("[Token Store] Successfully synced cross-device tokens.");
   } catch (err) {
     console.error("[Token Store] Failed to decrypt pulled tokens. Key mismatch?", err);

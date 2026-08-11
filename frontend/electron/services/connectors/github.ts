@@ -14,6 +14,13 @@ export class GitHubConnector {
   }
 
   private async api(path: string, options: RequestInit = {}): Promise<any> {
+    // Sync memory with disk for cross-device updates
+    const creds = getToken('github') as Record<string, string> | null;
+    const currentToken = creds?.personal_access_token || creds?.access_token || null;
+    if (currentToken && currentToken !== this.token) {
+      this.token = currentToken;
+    }
+
     if (!this.token) throw new Error('GitHub not configured');
     const res = await fetch(`https://api.github.com${path}`, {
       ...options,

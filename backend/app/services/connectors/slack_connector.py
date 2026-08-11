@@ -13,7 +13,7 @@ from app.core.security import decrypt_token
 from app.domain.interfaces.base_connector import BaseConnector
 from app.domain.models.connector import Connector, ConnectorStatus, OAuthToken
 from app.infrastructure.database import get_session_factory
-from app.workers.embedding_tasks import batch_embed_chunks
+from app.workers.embedding_tasks import enqueue_embedding_batches
 from sqlalchemy import select
 
 logger = get_logger(__name__)
@@ -42,12 +42,29 @@ class SlackConnector(BaseConnector):
     async def _slack_api(self, method: str, params: dict | None = None) -> dict:
         token = await self._get_token()
         async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"https://slack.com/api/{method}",
-                headers={"Authorization": f"Bearer {token}"},
-                params=params or {},
-            )
-            return resp.json()
+            while True:
+                resp = await client.get(
+                    f"https://slack.com/api/{method}",
+                    headers={"Authorization": f"Bearer {token}"},
+                    params=params or {},
+                )
+                if resp.status_code == 429:
+                    retry_after = int(resp.headers.get("Retry-After", 1))
+                    logger.warning("Slack API rate limit hit, sleeping for %d seconds", retry_after)
+                    await asyncio.sleep(retry_after)
+                    continue
+                
+                resp.raise_for_status()
+                data = resp.json()
+                if not data.get("ok"):
+                    if data.get("error") == "invalid_auth":
+                        await self._mark_requires_reauth()
+                    if data.get("error") == "ratelimited":
+                        logger.warning("Slack API returned ratelimited error, sleeping for 1 second")
+                        await asyncio.sleep(1)
+                        continue
+                    raise ValueError(f"Slack API error: {data.get('error')}")
+                return data
 
     async def authenticate(self, auth_code: str) -> None:
         # Handled in the OAuth callback endpoint directly
@@ -60,21 +77,45 @@ class SlackConnector(BaseConnector):
         since = datetime.now(UTC) - timedelta(days=3)
         oldest = str(since.timestamp())
 
-        try:
-            # Get user's own ID
-            auth_resp = await self._slack_api("auth.test")
-            user_slack_id = auth_resp.get("user_id", "")
+        # Get user's own ID
+        auth_resp = await self._slack_api("auth.test")
+        user_slack_id = auth_resp.get("user_id", "")
 
-            # Get DM conversations
-            convos = await self._slack_api("conversations.list", {"types": "im,mpim", "limit": "20"})
-            channels = convos.get("channels", [])
+        # Get channels with pagination
+        channels = []
+        next_cursor = ""
+        while True:
+            params = {"types": "public_channel,private_channel,im,mpim", "limit": "100"}
+            if next_cursor:
+                params["cursor"] = next_cursor
+            
+            convos = await self._slack_api("conversations.list", params)
+            channels.extend(convos.get("channels", []))
+            
+            next_cursor = convos.get("response_metadata", {}).get("next_cursor", "")
+            if not next_cursor:
+                break
 
-            for channel in channels:
-                history = await self._slack_api("conversations.history", {
-                    "channel": channel["id"],
+        for channel in channels:
+            channel_id = channel.get("id")
+            channel_name = channel.get("name", "")
+            
+            hist_cursor = ""
+            while True:
+                params = {
+                    "channel": channel_id,
                     "oldest": oldest,
-                    "limit": "20",
-                })
+                    "limit": "100",
+                }
+                if hist_cursor:
+                    params["cursor"] = hist_cursor
+                
+                try:
+                    history = await self._slack_api("conversations.history", params)
+                except ValueError as e:
+                    logger.warning("Failed to fetch history for channel %s: %s", channel_id, e)
+                    break
+
                 messages = history.get("messages", [])
                 for msg in messages:
                     if msg.get("subtype"):
@@ -84,25 +125,26 @@ class SlackConnector(BaseConnector):
                         continue
                     ts = msg.get("ts", "")
                     chunks.append({
-                        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"slack:{channel['id']}:{ts}")),
-                        "source_id": f"{channel['id']}:{ts}",
+                        "id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"slack:{channel_id}:{ts}")),
+                        "source_id": f"{channel_id}:{ts}",
                         "type": "email",  # Reuse email type for messages
                         "text": text[:500],
                         "timestamp": datetime.fromtimestamp(float(ts), UTC).isoformat() if ts else datetime.now(UTC).isoformat(),
                         "metadata": {
                             "sender_email": msg.get("user", ""),
                             "source": "Slack",
-                            "channel_id": channel["id"],
+                            "channel_id": channel_id,
+                            "channel_name": channel_name,
                         },
                     })
                     synced += 1
-                await asyncio.sleep(0.5)  # Rate limit
-
-        except Exception as e:
-            logger.warning("Slack sync error: %s", str(e))
+                
+                hist_cursor = history.get("response_metadata", {}).get("next_cursor", "")
+                if not hist_cursor:
+                    break
 
         if chunks:
-            batch_embed_chunks.delay(str(self.user_id), chunks)
+            enqueue_embedding_batches(str(self.user_id), chunks)
 
         logger.info("Slack sync complete: synced=%d", synced)
         return {"synced": synced, "failed": 0, "skipped": 0}

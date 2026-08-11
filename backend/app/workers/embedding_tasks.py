@@ -21,6 +21,14 @@ logger = get_task_logger(__name__)
 _embedder: SentenceTransformer | None = None
 
 
+def enqueue_embedding_batches(user_id: str, chunks: list[dict[str, Any]], batch_size: int = 100) -> None:
+    """Safely enqueue chunks to celery in batches to prevent payload limits and memory leaks."""
+    for i in range(0, len(chunks), batch_size):
+        batch = chunks[i:i + batch_size]
+        batch_embed_chunks.delay(user_id, batch)
+
+
+
 def get_embedder() -> SentenceTransformer:
     """Lazy-load the local embedding model."""
     global _embedder
@@ -63,30 +71,62 @@ async def _async_embed(user_id: uuid.UUID, chunks: list[dict[str, Any]]) -> dict
     failed = 0
     points = []
 
-    for chunk in chunks:
-        try:
-            text = chunk.get("text", "")
-            if not text.strip():
-                continue
+    EXPECTED_DIM = 384
+    MAX_BATCH_SIZE = 32
+    MAX_RETRIES = 3
 
-            vector = embedder.encode(text).tolist()
-            points.append(
-                {
-                    "id": uuid.UUID(chunk["id"]) if isinstance(chunk["id"], str) else chunk["id"],
-                    "vector": vector,
-                    "payload": {
-                        "source_id": chunk.get("source_id", ""),
-                        "type": chunk.get("type", "unknown"),
-                        "timestamp": chunk.get("timestamp", ""),
-                        "text_chunk": text[:2000],  # Qdrant payload size limit
-                        **(chunk.get("metadata", {})),
-                    },
-                }
-            )
-            embedded += 1
-        except Exception as e:
-            logger.warning("Failed to embed chunk: chunk_id=%s error=%s", chunk.get("id"), str(e))
-            failed += 1
+    for i in range(0, len(chunks), MAX_BATCH_SIZE):
+        batch = chunks[i:i + MAX_BATCH_SIZE]
+        texts = []
+        valid_chunks = []
+        
+        for chunk in batch:
+            text = chunk.get("text", "")
+            if text.strip():
+                texts.append(text)
+                valid_chunks.append(chunk)
+
+        if not texts:
+            continue
+
+        retries = 0
+        while retries <= MAX_RETRIES:
+            try:
+                # Batch encode
+                vectors = embedder.encode(texts).tolist()
+                
+                for chunk, vector in zip(valid_chunks, vectors):
+                    if len(vector) != EXPECTED_DIM:
+                        raise ValueError(f"Dimension mismatch for chunk {chunk.get('id')}: expected {EXPECTED_DIM}, got {len(vector)}")
+                        
+                    points.append(
+                        {
+                            "id": uuid.UUID(chunk["id"]) if isinstance(chunk["id"], str) else chunk["id"],
+                            "vector": vector,
+                            "payload": {
+                                "source_id": chunk.get("source_id", ""),
+                                "type": chunk.get("type", "unknown"),
+                                "timestamp": chunk.get("timestamp", ""),
+                                "text_chunk": chunk.get("text", "")[:2000],  # Qdrant payload size limit
+                                **(chunk.get("metadata", {})),
+                            },
+                        }
+                    )
+                    embedded += 1
+                break  # Break out of retry loop on success
+            except Exception as e:
+                # Gracefully handle rate limits (if model is swapped for API)
+                if "rate limit" in str(e).lower() or "429" in str(e) or "too many requests" in str(e).lower():
+                    retries += 1
+                    if retries > MAX_RETRIES:
+                        logger.error("Max retries reached for rate limit: error=%s", str(e), exc_info=True)
+                        raise
+                    logger.warning("Rate limit hit, retrying %d/%d in %ds...", retries, MAX_RETRIES, 2 ** retries)
+                    await asyncio.sleep(2 ** retries)
+                else:
+                    # Do not swallow other errors silently
+                    logger.error("Failed to embed batch: error=%s", str(e), exc_info=True)
+                    raise
 
     if points:
         await upsert_vectors(user_id, points)

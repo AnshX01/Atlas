@@ -28,6 +28,24 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
+
+class SendOTPRequest(BaseModel):
+    email: str
+
+class SendOTPResponse(BaseModel):
+    message: str
+    dev_otp: str | None = None
+
+class VerifyOTPRequest(BaseModel):
+    email: str
+    otp: str
+
+class VerifyOTPResponse(BaseModel):
+    verified: bool
+
+class OAuthInitiateResponse(BaseModel):
+    auth_url: str
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -196,12 +214,12 @@ async def get_me(current_user: User = Depends(get_current_user)) -> UserResponse
 # ── Email OTP Verification ─────────────────────────────────────────────────
 
 
-@router.post("/send-otp", summary="Send OTP to email for verification")
-async def send_otp(payload: dict) -> dict:
+@router.post("/send-otp", response_model=SendOTPResponse, summary="Send OTP to email for verification")
+async def send_otp(payload: SendOTPRequest) -> SendOTPResponse:
     """Generate and send a one-time verification code to the provided email."""
     from app.services.email_service import send_otp_email
 
-    email = payload.get("email", "")
+    email = payload.email
     if not email or "@" not in email:
         raise HTTPException(status_code=422, detail="Valid email required")
     otp = await send_otp_email(email)
@@ -210,20 +228,20 @@ async def send_otp(payload: dict) -> dict:
     response: dict = {"message": "OTP sent to your email"}
     if not settings.RESEND_API_KEY:
         response["dev_otp"] = otp  # Only in dev mode
-    return response
+    return SendOTPResponse(**response)
 
 
-@router.post("/verify-otp", summary="Verify OTP code")
-async def verify_otp_endpoint(payload: dict) -> dict:
+@router.post("/verify-otp", response_model=VerifyOTPResponse, summary="Verify OTP code")
+async def verify_otp_endpoint(payload: VerifyOTPRequest) -> VerifyOTPResponse:
     """Verify a one-time code previously sent to an email address."""
     from app.services.email_service import verify_otp
 
-    email = payload.get("email", "")
-    otp = payload.get("otp", "")
+    email = payload.email
+    otp = payload.otp
     if not email or not otp:
         raise HTTPException(status_code=422, detail="Email and OTP required")
     if verify_otp(email, otp):
-        return {"verified": True}
+        return VerifyOTPResponse(verified=True)
     raise HTTPException(status_code=400, detail="Invalid or expired verification code")
 
 
@@ -251,10 +269,10 @@ async def google_login_initiate() -> RedirectResponse:
     return RedirectResponse(auth_url)
 
 
-@router.get("/oauth/google/initiate", summary="Initiate Google OAuth flow")
+@router.get("/oauth/google/initiate", response_model=OAuthInitiateResponse, summary="Initiate Google OAuth flow")
 async def google_oauth_initiate(
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> OAuthInitiateResponse:
     """Return a Google OAuth authorization URL for the authenticated user."""
     from google_auth_oauthlib.flow import Flow
 
@@ -287,13 +305,13 @@ async def google_oauth_initiate(
         code_challenge=None,
         code_challenge_method=None,
     )
-    return {"auth_url": auth_url}
+    return OAuthInitiateResponse(auth_url=auth_url)
 
 
-@router.get("/oauth/github/initiate", summary="Initiate GitHub OAuth flow")
+@router.get("/oauth/github/initiate", response_model=OAuthInitiateResponse, summary="Initiate GitHub OAuth flow")
 async def github_oauth_initiate(
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> OAuthInitiateResponse:
     """Return a GitHub OAuth authorization URL for the authenticated user."""
     settings = get_settings()
 
@@ -309,7 +327,7 @@ async def github_oauth_initiate(
         f"&state={state_token}"
         f"&scope=repo,user:email"
     )
-    return {"auth_url": auth_url}
+    return OAuthInitiateResponse(auth_url=auth_url)
 
 
 # ── OAuth Callback Endpoints ──────────────────────────────────────────────────
@@ -512,10 +530,10 @@ async def github_oauth_callback(
 
 # ── Slack OAuth ───────────────────────────────────────────────────────────────
 
-@router.get("/oauth/slack/initiate", summary="Initiate Slack OAuth flow")
+@router.get("/oauth/slack/initiate", response_model=OAuthInitiateResponse, summary="Initiate Slack OAuth flow")
 async def slack_oauth_initiate(
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> OAuthInitiateResponse:
     settings = get_settings()
     if not settings.SLACK_CLIENT_ID:
         raise HTTPException(
@@ -534,7 +552,7 @@ async def slack_oauth_initiate(
         f"&redirect_uri={settings.SLACK_REDIRECT_URI}"
         f"&state={state_token}"
     )
-    return {"auth_url": auth_url}
+    return OAuthInitiateResponse(auth_url=auth_url)
 
 
 @router.get("/oauth/slack/callback", summary="Slack OAuth callback")
@@ -611,10 +629,10 @@ async def slack_oauth_callback(
 
 # ── Notion OAuth ──────────────────────────────────────────────────────────────
 
-@router.get("/oauth/notion/initiate", summary="Initiate Notion OAuth flow")
+@router.get("/oauth/notion/initiate", response_model=OAuthInitiateResponse, summary="Initiate Notion OAuth flow")
 async def notion_oauth_initiate(
     current_user: User = Depends(get_current_user),
-) -> dict:
+) -> OAuthInitiateResponse:
     settings = get_settings()
     if not settings.NOTION_CLIENT_ID:
         raise HTTPException(
@@ -634,7 +652,7 @@ async def notion_oauth_initiate(
         f"&owner=user"
         f"&state={state_token}"
     )
-    return {"auth_url": auth_url}
+    return OAuthInitiateResponse(auth_url=auth_url)
 
 
 @router.get("/oauth/notion/callback", summary="Notion OAuth callback")

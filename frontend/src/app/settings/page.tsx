@@ -258,6 +258,9 @@ function ConnectorCard({
           if (electron?.tokenStore?.get) {
             const creds = await electron.tokenStore.get(config.id);
             if (creds) setFieldValues(creds);
+          } else {
+            const stored = localStorage.getItem(`atlas_connector_${config.id}`);
+            if (stored) setFieldValues(JSON.parse(stored));
           }
         } catch (e) {
           console.error("Failed to load credentials", e);
@@ -271,7 +274,7 @@ function ConnectorCard({
     setFieldValues((prev) => ({ ...prev, [key]: value }));
   };
 
-  const hasValues = config.fields.some(
+  const hasValues = config.fields.every(
     (f) => (fieldValues[f.key] ?? "").trim().length > 0
   );
 
@@ -447,6 +450,8 @@ export default function SettingsPage() {
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
   const { theme, toggleTheme } = useAppStore();
   const queryClient = useQueryClient();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   const [toast, setToast] = useState<{
     message: string;
@@ -471,14 +476,19 @@ export default function SettingsPage() {
       await new Promise((r) => setTimeout(r, 100));
 
       const electron = (window as any).atlasElectron;
-      if (!electron?.tokenStore?.listConfigured) return;
-
+      let configured: string[] = [];
+      
       try {
-        const configured: string[] = (await electron.tokenStore.listConfigured()) ?? [];
+        if (electron?.tokenStore?.listConfigured) {
+          configured = (await electron.tokenStore.listConfigured()) ?? [];
+        } else {
+          configured = connectorConfigs.map(c => c.id).filter(id => !!localStorage.getItem(`atlas_connector_${id}`));
+        }
+
         setStatuses((prev) => {
           const next = { ...prev };
           for (const id of Object.keys(next) as ConnectorId[]) {
-            next[id] = { ...next[id], configured: configured?.includes(id) || false };
+            next[id] = { ...next[id], configured: configured.includes(id) };
           }
           return next;
         });
@@ -767,8 +777,8 @@ export default function SettingsPage() {
                   className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] hover:border-[var(--accent)]/40 transition-colors"
                   aria-label={`Current theme: ${theme}. Click to toggle.`}
                 >
-                  {theme === "dark" ? <Moon size={13} /> : <Sun size={13} />}
-                  <span className="capitalize">{theme}</span>
+                  {mounted ? (theme === "dark" ? <Moon size={13} /> : <Sun size={13} />) : <Moon size={13} />}
+                  <span className="capitalize">{mounted ? theme : "dark"}</span>
                 </button>
               </SettingRow>
             </>

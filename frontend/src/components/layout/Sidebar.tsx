@@ -134,19 +134,10 @@ export function Sidebar() {
     status: c.status,
   }));
 
-  const navigateToIntegrations = () => {
-    router.push("/settings");
-  };
-
   const handleNewChat = () => {
     setActiveConversation(null);
     // Force navigation even if already on /chat
     router.push(`/chat?t=${Date.now()}`);
-  };
-
-  const handleConversationClick = (id: string) => {
-    setActiveConversation(id);
-    router.push(`/chat?id=${id}`);
   };
 
   return (
@@ -221,13 +212,11 @@ export function Sidebar() {
           <div className="px-3 py-2 text-xs text-[var(--text-muted)]">Loading...</div>
         ) : (
           connectorItems.map((c) => (
-            <div
+            <Link
               key={c.id}
-              onClick={() => router.push(`/settings?connector=${c.id}`)}
+              href={`/settings?connector=${c.id}`}
+              prefetch={true}
               className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl text-xs text-[var(--text-muted)] hover:bg-[var(--bg-tertiary)] cursor-pointer transition-colors group"
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") router.push(`/settings?connector=${c.id}`); }}
               title={`Manage ${c.label}`}
             >
               <span>{c.icon}</span>
@@ -239,20 +228,21 @@ export function Sidebar() {
                 )}
                 aria-label={getStatusLabel(c.status)}
               />
-            </div>
+            </Link>
           ))
         )}
 
         {/* Add connector prompt — only show if not all integrations are connected */}
         {connectorItems.length < 5 && (
-          <button
-            onClick={navigateToIntegrations}
+          <Link
+            href="/settings"
+            prefetch={true}
             className="flex items-center gap-2 px-3 py-2 mt-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors border border-[var(--border-default)] hover:border-[var(--accent)]/30"
             aria-label="Connect a new integration"
           >
             <Plus size={12} />
             <span>Add Integration</span>
-          </button>
+          </Link>
         )}
       </div>
 
@@ -278,14 +268,11 @@ export function Sidebar() {
             {recentConversations.map((conv) => {
               const isActive = activeConversationId === conv.id && pathname.startsWith("/chat");
               return (
-                <div
+                <Link
                   key={conv.id}
-                  onClick={() => handleConversationClick(conv.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") handleConversationClick(conv.id);
-                  }}
-                  role="listitem"
-                  tabIndex={0}
+                  href={`/chat?id=${conv.id}`}
+                  onClick={() => setActiveConversation(conv.id)}
+                  prefetch={true}
                   className={cn(
                     "flex items-center gap-2 px-3 py-1.5 rounded-xl cursor-pointer transition-colors group",
                     isActive
@@ -299,13 +286,13 @@ export function Sidebar() {
                     {getRelativeTime(conv.createdAt)}
                   </span>
                   <button
-                    onClick={(e) => { e.stopPropagation(); removeConversation(conv.id); }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeConversation(conv.id); }}
                     className="flex-shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-[var(--text-muted)] hover:text-red-400"
                     aria-label="Delete conversation"
                   >
                     <Trash2 size={11} />
                   </button>
-                </div>
+                </Link>
               );
             })}
           </div>
@@ -315,7 +302,7 @@ export function Sidebar() {
       {/* Bottom: Profile + Settings */}
       <div className="px-2 pt-4 border-t border-[var(--border-subtle)]">
         {/* Profile card */}
-        <button onClick={() => router.push('/profile')} className="block mb-2 w-full text-left">
+        <Link href="/profile" prefetch={true} className="block mb-2 w-full text-left">
           <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer">
             <div className="w-8 h-8 rounded-full overflow-hidden bg-[var(--bg-tertiary)] flex items-center justify-center flex-shrink-0">
               {avatar ? (
@@ -335,13 +322,13 @@ export function Sidebar() {
               </p>
             </div>
           </div>
-        </button>
-        <button onClick={() => router.push('/settings')} aria-label="Open settings" className="w-full mb-1">
+        </Link>
+        <Link href="/settings" prefetch={true} aria-label="Open settings" className="block w-full mb-1">
           <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer w-full text-left">
             <Settings size={16} />
             <span>Settings</span>
           </div>
-        </button>
+        </Link>
         <button
           id="logout-btn"
           onClick={() => {

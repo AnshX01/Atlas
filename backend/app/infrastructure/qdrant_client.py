@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
 from app.core.config import get_settings
@@ -54,17 +55,25 @@ def _collection_name(user_id: uuid.UUID) -> str:
 
 async def ensure_user_collection(user_id: uuid.UUID) -> None:
     """Create the user's vector collection if it doesn't already exist."""
+    from qdrant_client.http.exceptions import UnexpectedResponse
+
     client = get_qdrant_client()
     name = _collection_name(user_id)
-    existing = await client.get_collections()
-    existing_names = [c.name for c in existing.collections]
+    
+    if await client.collection_exists(name):
+        return
 
-    if name not in existing_names:
+    try:
         await client.create_collection(
             collection_name=name,
             vectors_config=VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE),
         )
         logger.info("Qdrant collection created", collection=name)
+    except UnexpectedResponse as e:
+        if e.status_code == 409 or "already exists" in str(e).lower():
+            logger.info("Qdrant collection already exists (caught race condition)", collection=name)
+        else:
+            raise
 
 
 async def upsert_vectors(
@@ -100,7 +109,9 @@ async def semantic_search(
     query_vector: list[float],
     limit: int = 10,
     score_threshold: float = 0.6,
-    source_filter: str | None = None,
+    source_filter: str | list[str] | None = None,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """
     Perform cosine similarity search in the user's vector collection.
@@ -116,14 +127,29 @@ async def semantic_search(
     (first sync hasn't run).
     """
     from qdrant_client.http.exceptions import UnexpectedResponse
+    from qdrant_client.models import DatetimeRange, FieldCondition, MatchAny
 
     client = get_qdrant_client()
     query_filter = None
 
-    from qdrant_client.models import FieldCondition
+    must_conditions = []
 
     if source_filter:
-        query_filter = Filter(must=[FieldCondition(key="type", match=MatchValue(value=source_filter))])
+        if isinstance(source_filter, list):
+            must_conditions.append(FieldCondition(key="type", match=MatchAny(any=source_filter)))
+        else:
+            must_conditions.append(FieldCondition(key="type", match=MatchValue(value=source_filter)))
+
+    if start_date or end_date:
+        dt_kwargs = {}
+        if start_date:
+            dt_kwargs["gte"] = start_date
+        if end_date:
+            dt_kwargs["lte"] = end_date
+        must_conditions.append(FieldCondition(key="timestamp", range=DatetimeRange(**dt_kwargs)))
+
+    if must_conditions:
+        query_filter = Filter(must=must_conditions)
 
     try:
         response = await client.query_points(
@@ -135,10 +161,10 @@ async def semantic_search(
             with_payload=True,
         )
     except UnexpectedResponse as e:
-        if e.status_code == 404:
-            # Collection doesn't exist yet — no data has been synced
+        if e.status_code in (404, 400):
+            # Collection doesn't exist yet or is empty
             logger.info(
-                "Qdrant collection not found (no data synced yet)",
+                "Qdrant collection not found or empty (no data synced yet)",
                 user_id=str(user_id),
             )
             return []
