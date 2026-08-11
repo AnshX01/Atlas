@@ -18,5 +18,4 @@ Atlas is a personal assistant running entirely on your local machine using Ollam
 1. Log into Atlas using your email.
 2. Open the **Settings** menu.
 3. You will see colored icons for integrations like **Gmail**, **Notion**, and **GitHub**. Click them to authenticate.
----
 
