@@ -441,8 +441,8 @@ async def put_connector_token(
     summary="Manually trigger a connector sync",
 )
 async def trigger_sync(
-    provider: ConnectorProvider = Path(...),
     background_tasks: BackgroundTasks,
+    provider: ConnectorProvider = Path(...),
     current_user: User = Depends(get_current_user),
     _idempotency_key: str = Depends(require_idempotency_key),
 ) -> SyncTriggerResponse:
