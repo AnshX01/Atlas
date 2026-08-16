@@ -29,11 +29,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
         <div
           className={cn(
             "relative flex items-center",
-            "rounded-xl border transition-all duration-150",
+            "rounded-xl transition-all duration-150",
             focused
-              ? "border-[var(--accent)] shadow-[0_0_0_3px_var(--accent-glow)]"
-              : "border-[var(--border-default)]",
-            error && "border-red-500/60"
+              ? ""
+              : "",
+            error && ""
           )}
         >
           {icon && (
@@ -74,7 +74,7 @@ export const SearchInput = forwardRef<HTMLInputElement, InputProps>(
       ref={ref}
       icon={<Search size={16} />}
       rightElement={
-        <kbd className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-[10px] font-mono text-[var(--text-muted)]">
+        <kbd className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-[var(--bg-tertiary)] text-[10px] font-mono text-[var(--text-muted)]">
           ⌘K
         </kbd>
       }

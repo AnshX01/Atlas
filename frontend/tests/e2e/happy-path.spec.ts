@@ -15,6 +15,33 @@ test.afterAll(async () => {
   await electronApp.close();
 });
 
+test('Real launch: app renders without crashing', async () => {
+  // This test does NOT mock any APIs — verifies the real app boots cleanly
+  await window.waitForLoadState('domcontentloaded');
+
+  // The body should be visible and non-empty
+  await expect(window.locator('body')).toBeVisible();
+  
+  // The page title should be set (Atlas or similar)
+  const title = await window.title();
+  expect(title.length).toBeGreaterThan(0);
+
+  // No critical JS errors that would indicate a white-screen crash
+  const errors: string[] = [];
+  window.on('pageerror', err => errors.push(err.message));
+  await window.waitForTimeout(2000);
+
+  // Filter out network errors (expected if backend isn't running)
+  const criticalErrors = errors.filter(
+    e => !e.includes('fetch') && !e.includes('network') && !e.includes('ERR_CONNECTION')
+  );
+  expect(criticalErrors).toHaveLength(0);
+
+  // Verify some DOM content exists (not a blank white page)
+  const bodyText = await window.locator('body').innerText();
+  expect(bodyText.length).toBeGreaterThan(0);
+});
+
 test('Happy path: boots, settings, chat', async () => {
   // Wait for the app to load
   await window.waitForLoadState('domcontentloaded');

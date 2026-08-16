@@ -226,8 +226,10 @@ async def send_otp(payload: SendOTPRequest) -> SendOTPResponse:
     # In dev mode (no Resend key), return OTP in response
     settings = get_settings()
     response: dict = {"message": "OTP sent to your email"}
-    if not settings.RESEND_API_KEY:
-        response["dev_otp"] = otp  # Only in dev mode
+    # Only return the raw OTP in development with no email service configured.
+    # Never expose dev_otp in staging or production — even without a Resend key.
+    if not settings.RESEND_API_KEY and settings.APP_ENV == "development":
+        response["dev_otp"] = otp  # Only in local dev mode
     return SendOTPResponse(**response)
 
 
@@ -252,9 +254,16 @@ async def verify_otp_endpoint(payload: VerifyOTPRequest) -> VerifyOTPResponse:
 async def google_login_initiate() -> RedirectResponse:
     """Redirect the browser to Google OAuth for user login."""
     from urllib.parse import urlencode
+    import secrets
+    from app.infrastructure.redis_client import redis_client
 
     settings = get_settings()
     redirect_uri = settings.GOOGLE_REDIRECT_URI
+
+    nonce = secrets.token_urlsafe(32)
+    state_val = f"login_flow:{nonce}"
+    if redis_client:
+        await redis_client.set(f"oauth_state:{nonce}", "1", ex=600)
 
     params = {
         "client_id": settings.GOOGLE_CLIENT_ID,
@@ -262,7 +271,7 @@ async def google_login_initiate() -> RedirectResponse:
         "response_type": "code",
         "scope": "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile",
         "access_type": "offline",
-        "state": "login_flow",
+        "state": state_val,
         "prompt": "consent",
     }
     auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
@@ -368,8 +377,17 @@ async def google_oauth_callback(
             status_code=302,
         )
 
-    # ── Login Flow (state == "login_flow") ─────────────────────────────────
-    if state == "login_flow":
+    # ── Login Flow (state starts with login_flow) ─────────────────────────────────
+    if state and state.startswith("login_flow"):
+        nonce = state.split(":", 1)[1] if ":" in state else None
+        from app.infrastructure.redis_client import redis_client
+        if redis_client and nonce:
+            valid = await redis_client.getdel(f"oauth_state:{nonce}")
+            if not valid:
+                return RedirectResponse("http://localhost:19876/oauth-callback?error=invalid_state", status_code=302)
+        elif not nonce:
+            return RedirectResponse("http://localhost:19876/oauth-callback?error=invalid_state", status_code=302)
+
         settings = get_settings()
         try:
             async with httpx.AsyncClient() as client:
@@ -432,8 +450,9 @@ async def google_oauth_callback(
                 status_code=302,
             )
         except Exception:
-            import traceback
-            traceback.print_exc()
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.exception("OAuth error during login callback")
             return RedirectResponse("http://localhost:19876/oauth-callback?error=server_error", status_code=302)
 
     # ── Connector Flow (state is a JWT token) ──────────────────────────────
@@ -468,10 +487,11 @@ async def google_oauth_callback(
             status_code=302,
         )
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception("OAuth error during Google connector callback")
         return RedirectResponse(
-            f"http://localhost:3000/settings?error=google_auth_failed:{type(e).__name__}",
+            "http://localhost:3000/settings?error=google_auth_failed",
             status_code=302,
         )
 
@@ -519,10 +539,11 @@ async def github_oauth_callback(
             status_code=302,
         )
     except Exception as e:
-        import traceback
-        traceback.print_exc()
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception("OAuth error during GitHub callback")
         return RedirectResponse(
-            f"http://localhost:3000/settings?error=github_auth_failed:{type(e).__name__}",
+            "http://localhost:3000/settings?error=github_auth_failed",
             status_code=302,
         )
 
@@ -622,9 +643,10 @@ async def slack_oauth_callback(
 
         return RedirectResponse("http://localhost:3000/settings?connected=slack", status_code=302)
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return RedirectResponse(f"http://localhost:3000/settings?error=slack_auth_failed:{type(e).__name__}", status_code=302)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception("OAuth error during Slack callback")
+        return RedirectResponse("http://localhost:3000/settings?error=slack_auth_failed", status_code=302)
 
 
 # ── Notion OAuth ──────────────────────────────────────────────────────────────
@@ -723,6 +745,7 @@ async def notion_oauth_callback(
 
         return RedirectResponse("http://localhost:3000/settings?connected=notion", status_code=302)
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return RedirectResponse(f"http://localhost:3000/settings?error=notion_auth_failed:{type(e).__name__}", status_code=302)
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception("OAuth error during Notion callback")
+        return RedirectResponse("http://localhost:3000/settings?error=notion_auth_failed", status_code=302)

@@ -43,8 +43,8 @@ export class ErrorBoundary extends Component<Props, State> {
           {/* Subtle animated background glow */}
           <div className="absolute inset-0 bg-gradient-to-b from-red-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
           
-          <div className="relative z-10 w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mb-6 shadow-[0_0_30px_rgba(239,68,68,0.15)]">
-            <AlertTriangle className="text-red-400 w-8 h-8 drop-shadow-[0_0_8px_rgba(239,68,68,0.5)]" />
+          <div className="relative z-10 w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center mb-6">
+            <AlertTriangle className="text-red-400 w-8 h-8" />
           </div>
           
           <h2 className="relative z-10 text-xl font-medium text-[var(--text-primary)] mb-3 tracking-tight">
@@ -57,7 +57,7 @@ export class ErrorBoundary extends Component<Props, State> {
           
           <button
             onClick={this.handleRetry}
-            className="relative z-10 flex items-center gap-2.5 px-6 py-2.5 rounded-2xl bg-[var(--accent)] text-[var(--bg-primary)] font-medium text-[13px] shadow-lg hover:shadow-[0_0_20px_var(--accent)] hover:scale-[1.02] active:scale-[0.98] transition-all duration-300"
+            className="relative z-10 flex items-center gap-2.5 px-6 py-2.5 rounded-2xl bg-[var(--accent)] text-[var(--bg-primary)] font-medium text-[13px] hover:scale-[1.02] active:scale-[0.98] transition-all duration-300"
           >
             <RefreshCcw className="w-4 h-4" />
             Retry

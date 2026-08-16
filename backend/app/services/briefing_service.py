@@ -228,6 +228,12 @@ class BriefingService:
             rationale = score_data.get("rationale", raw["preview"][:100])
             action = score_data.get("recommended_action", "View")
 
+            try:
+                ts = datetime.fromisoformat(raw["timestamp"])
+            except (ValueError, KeyError, TypeError) as e:
+                logger.warning("Failed to parse timestamp for briefing item", item_id=raw.get("id"), error=str(e))
+                ts = datetime.min.replace(tzinfo=UTC)
+
             item = BriefingItem(
                 id=raw["id"],
                 type=raw["type"],
@@ -237,7 +243,7 @@ class BriefingService:
                 priority_score=priority,
                 action_label=action,
                 metadata=raw.get("metadata", {"sender": raw.get("sender", "")}),
-                timestamp=datetime.fromisoformat(raw["timestamp"]),
+                timestamp=ts,
             )
             briefing_items.append(item)
 

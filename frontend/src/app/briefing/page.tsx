@@ -90,52 +90,18 @@ function BriefingError({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-// ── Proactive Actions ──────────────────────────────────────────────────────────
-function ProactiveActions({ suggestion }: { suggestion?: { item: any, reasoning: string } }) {
-  if (!suggestion || !suggestion.item) return null;
-  const topItem = suggestion.item;
-  
-  return (
-    <motion.div 
-      initial={{ opacity: 0, scale: 0.95, y: 10 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95, position: "absolute" }}
-      transition={{ delay: 0.3, type: "spring", stiffness: 300, damping: 25 }}
-      className="mb-8 p-5 rounded-2xl border border-white/10 bg-gradient-to-br from-[var(--bg-secondary)]/80 to-[var(--bg-primary)]/40 backdrop-blur-xl shadow-[0_8px_32px_rgba(0,0,0,0.12)] relative overflow-hidden"
-      layout
-    >
-      <div className="absolute inset-0 bg-gradient-to-r from-[var(--accent)]/10 to-transparent opacity-50" />
-      <div className="relative z-10">
-        <h3 className="text-sm font-bold text-[var(--text-primary)] mb-2 flex items-center gap-2">
-          <span className="relative flex h-3 w-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[var(--accent)] opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-[var(--accent)]"></span>
-          </span>
-          Proactive Suggestion
-        </h3>
-        <p className="text-sm text-[var(--text-secondary)] mb-4 leading-relaxed">
-          {suggestion.reasoning || "We've identified an action item that may require your attention."}
-        </p>
-        {topItem?.action_label && topItem?.action_url && (
-          <Button 
-            variant="primary" 
-            size="sm" 
-            onClick={() => window.open(topItem.action_url, '_blank')}
-            className="shadow-lg shadow-[var(--accent)]/20 transition-all hover:scale-105"
-          >
-            {topItem.action_label}
-          </Button>
-        )}
-      </div>
-    </motion.div>
-  );
-}
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function BriefingPage() {
-  const { user } = useAuthStore();
-  const { setBriefing, setLoading, setError, items, isDismissed, dismissItem, isSummarizing, proactiveSuggestion, restoreItem } =
-    useBriefingStore();
+  const user = useAuthStore.use.user();
+  const setBriefing = useBriefingStore.use.setBriefing();
+  const setLoading = useBriefingStore.use.setLoading();
+  const setError = useBriefingStore.use.setError();
+  const items = useBriefingStore.use.items();
+  const isDismissed = useBriefingStore.use.isDismissed();
+  const dismissItem = useBriefingStore.use.dismissItem();
+  const isSummarizing = useBriefingStore.use.isSummarizing();
+  const restoreItem = useBriefingStore.use.restoreItem();
 
   const handleDone = (item: any) => {
     // 1. Optimistic remove (dismiss hides it from view)
@@ -170,7 +136,7 @@ export default function BriefingPage() {
         style: {
           background: 'var(--bg-secondary)',
           color: 'var(--text-primary)',
-          border: '1px solid var(--border-default)',
+          boxShadow: 'none',
         }
       }
     );
@@ -181,9 +147,11 @@ export default function BriefingPage() {
     queryFn: () => briefingAPI.getDaily({
       onFallback: (fallbackData) => setBriefing(fallbackData)
     }),
-    staleTime: 1000 * 60 * 5,
-    retry: 2,
-    refetchInterval: isSummarizing ? 3000 : false,
+    staleTime: 1000 * 60 * 60, // 1 hour
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchInterval: 1000 * 60 * 60,
   });
 
   useEffect(() => {
@@ -256,12 +224,6 @@ export default function BriefingPage() {
           <p className="text-xs text-[var(--text-muted)]">
             {visibleItems.length} item{visibleItems.length !== 1 ? "s" : ""} for today
           </p>
-          {isSummarizing && (
-            <p className="text-xs text-[var(--accent)] animate-pulse flex items-center gap-2">
-              <RefreshCw size={12} className="animate-spin" />
-              AI is summarizing...
-            </p>
-          )}
         </motion.div>
       )}
 
@@ -277,24 +239,10 @@ export default function BriefingPage() {
       {/* Error State */}
       {isError && <BriefingError onRetry={refetch} />}
 
-      {/* Proactive Actions */}
-      <AnimatePresence>
-        {!isLoading && !isError && proactiveSuggestion && (
-          <ProactiveActions key="proactive" suggestion={proactiveSuggestion} />
-        )}
-      </AnimatePresence>
 
       {/* Briefing Items */}
       {!isLoading && !isError && (
         <div className="relative">
-          {isSummarizing && visibleItems.length > 0 && (
-            <div className="absolute inset-0 z-10 bg-[var(--bg-primary)]/50 backdrop-blur-[1px] flex flex-col items-center justify-center rounded-xl border border-[var(--border)]">
-              <div className="bg-[var(--bg-secondary)] p-4 rounded-xl shadow-lg flex items-center gap-3">
-                <RefreshCw size={16} className="animate-spin text-[var(--accent)]" />
-                <p className="text-sm font-medium text-[var(--text-primary)]">AI is summarizing...</p>
-              </div>
-            </div>
-          )}
           <AnimatePresence mode="popLayout">
             {visibleItems.length === 0 ? (
               <EmptyBriefing key="empty" />

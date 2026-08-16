@@ -76,7 +76,11 @@ async def subscribe_sync_events(user_id: str) -> AsyncGenerator[dict[str, Any], 
     try:
         async for message in pubsub.listen():
             if message["type"] == "message":
-                yield json.loads(message["data"])
+                try:
+                    yield json.loads(message["data"])
+                except json.JSONDecodeError as e:
+                    logger.warning("Failed to parse sync event JSON", error=str(e))
+                    continue
     finally:
         await pubsub.unsubscribe(channel)
         await pubsub.close()

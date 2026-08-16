@@ -31,10 +31,10 @@
   --status-medium: #eab308;
   --status-low: #22c55e;
 
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.12);
-  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
-  --shadow-glow: 0 0 20px var(--accent-glow);
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-glass: none;
+  --shadow-glow: none;
 
   --radius-sm: 6px;
   --radius-lg: 12px;
@@ -63,10 +63,10 @@
   --accent-hover: #ffffff;
   --accent-glow: rgba(255, 255, 255, 0.1);
 
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
-  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --shadow-glow: 0 0 24px rgba(255, 255, 255, 0.1);
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-glass: none;
+  --shadow-glow: none;
 }
 
 /* ── Reset & Base ───────────────────────────────────────────── */
@@ -104,7 +104,7 @@ p  { color: var(--text-secondary); line-height: 1.7; }
   background: var(--bg-glass);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid var(--border-default);
+  border: none;
   box-shadow: var(--shadow-glass);
 }
 
@@ -112,9 +112,9 @@ p  { color: var(--text-secondary); line-height: 1.7; }
   background: rgba(255, 255, 255, 0.03);
   backdrop-filter: blur(24px) saturate(150%);
   -webkit-backdrop-filter: blur(24px) saturate(150%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: none;
   border-radius: var(--radius-xl);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: none;
 }
 
 .glow {
@@ -151,7 +151,7 @@ p  { color: var(--text-secondary); line-height: 1.7; }
 .app-sidebar {
   grid-column: 1;
   grid-row: 1;
-  border-right: 1px solid var(--border-subtle);
+  border-right: none;
   overflow-y: auto;
 }
 
@@ -190,7 +190,7 @@ p  { color: var(--text-secondary); line-height: 1.7; }
 /* ── Briefing Card ──────────────────────────────────────────── */
 .briefing-card {
   background: var(--bg-secondary);
-  border: 1px solid var(--border-default);
+  border: none;
   border-radius: var(--radius-lg);
   padding: 1.25rem;
   transition: transform var(--transition-fast), box-shadow var(--transition-fast);

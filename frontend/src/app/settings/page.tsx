@@ -165,7 +165,7 @@ function SettingRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-4 border-b border-[var(--border-subtle)] last:border-0">
+    <div className="flex items-start justify-between gap-4 py-4 last:border-0">
       <div className="flex-1">
         <p className="text-sm font-medium text-[var(--text-primary)]">{label}</p>
         {description && (
@@ -200,7 +200,7 @@ function PasswordField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full px-3 py-2 pr-10 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] font-mono"
+        className="w-full px-3 py-2 pr-10 rounded-xl bg-[var(--bg-primary)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none font-mono"
         autoComplete="off"
       />
       <button
@@ -282,7 +282,7 @@ function ConnectorCard({
   const isLocalFs = config.id === "local_fs";
 
   return (
-    <div className="border-b border-[var(--border-subtle)] last:border-0">
+    <div className="last:border-0">
       {/* Header row */}
       <div className="flex items-center justify-between py-3.5">
         <div className="flex items-center gap-2.5">
@@ -325,7 +325,7 @@ function ConnectorCard({
             exit={{ opacity: 0, height: 0 }}
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
           >
-            <div className="py-3 px-4 rounded-2xl bg-[var(--bg-tertiary)] border border-[var(--border-default)]">
+            <div className="py-3 px-4 rounded-2xl bg-[var(--bg-tertiary)]">
               {/* Help text */}
               <p className="text-xs text-[var(--text-secondary)] mb-3 leading-relaxed">
                 {config.helpText}
@@ -349,7 +349,7 @@ function ConnectorCard({
                           onChange={(e) => updateField(field.key, e.target.value)}
                           placeholder={field.placeholder}
                           rows={3}
-                          className="w-full px-3 py-2 rounded-xl bg-[var(--bg-primary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] resize-none font-mono"
+                          className="w-full px-3 py-2 rounded-xl bg-[var(--bg-primary)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none resize-none font-mono"
                         />
                         {isLocalFs && (
                           <Button
@@ -757,7 +757,7 @@ export default function SettingsPage() {
         {/* Content panel */}
         <motion.div
           key={activeSection}
-          className="flex-1 bg-[var(--bg-secondary)] rounded-2xl border border-[var(--border-default)] p-5"
+          className="flex-1 bg-[var(--bg-secondary)] rounded-2xl p-5"
           initial={{ opacity: 0, x: 8 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ type: "spring", stiffness: 400, damping: 30 }}
@@ -774,7 +774,7 @@ export default function SettingsPage() {
                 <button
                   id="settings-theme-toggle"
                   onClick={toggleTheme}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] hover:border-[var(--accent)]/40 transition-colors"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[var(--bg-tertiary)] text-sm text-[var(--text-primary)] transition-colors"
                   aria-label={`Current theme: ${theme}. Click to toggle.`}
                 >
                   {mounted ? (theme === "dark" ? <Moon size={13} /> : <Sun size={13} />) : <Moon size={13} />}

@@ -166,10 +166,10 @@ export class MCPServerManager {
     const env = server.config.getEnv();
     if (!env) {
       if (name === 'filesystem') {
-        console.warn(`[MCP Manager] Cannot start ${name} - no folders configured`);
+        console.info(`[MCP Manager] Cannot start ${name} - no folders configured`);
         server.lastError = 'Local Files connector has no folders configured. Add folder paths in Settings > Integrations > Local Files.';
       } else {
-        console.warn(`[MCP Manager] Cannot start ${name} - no credentials configured`);
+        console.info(`[MCP Manager] Cannot start ${name} - no credentials configured`);
         server.lastError = `No credentials configured for ${name}. Check Settings > Integrations.`;
       }
       return false;
@@ -187,8 +187,8 @@ export class MCPServerManager {
         proc = spawn(server.config.command, args, {
           env: { ...process.env, ...env },
           stdio: ['pipe', 'pipe', 'pipe'],
-          shell: true,
           windowsHide: true,
+          shell: false,
         });
       } catch (spawnErr: any) {
         throw new Error(`Failed to spawn process: ${spawnErr.message}`);
@@ -232,7 +232,7 @@ export class MCPServerManager {
 
       proc.stderr?.on('data', (data: Buffer) => {
         try {
-          console.error(`[MCP ${name}] stderr:`, data.toString().trim());
+          console.error(`[MCP:${name}:stderr] ${data.toString().trim()}`);
         } catch (err: any) {
           console.error(`[MCP ${name}] stderr data handling error:`, err.message);
         }
@@ -254,9 +254,21 @@ export class MCPServerManager {
         for (const [id, req] of this.pendingRequests.entries()) {
           if (req.serverName === name) {
             clearTimeout(req.timeout);
-            req.reject(new Error(`Server ${name} process exited`));
+            req.reject(new Error(`MCP server '${name}' exited unexpectedly`));
             this.pendingRequests.delete(id);
           }
+        }
+
+        // Auto-restart with exponential backoff (max 5 restarts)
+        if (server.restartCount < 5) {
+          const backoffMs = Math.min(1000 * Math.pow(2, server.restartCount), 60000);
+          server.restartCount++;
+          console.log(`[MCP ${name}] Scheduling restart #${server.restartCount} in ${backoffMs}ms`);
+          setTimeout(() => this.startServer(name), backoffMs);
+        } else {
+          console.error(`[MCP ${name}] Max restarts (5) exceeded, giving up`);
+          server.status = 'error';
+          server.lastError = `Server crashed ${server.restartCount} times, not restarting`;
         }
       });
 
@@ -269,7 +281,7 @@ export class MCPServerManager {
         for (const [id, req] of this.pendingRequests.entries()) {
           if (req.serverName === name) {
             clearTimeout(req.timeout);
-            req.reject(new Error(`Server ${name} process error: ${err.message}`));
+            req.reject(new Error(`MCP server '${name}' exited unexpectedly`));
             this.pendingRequests.delete(id);
           }
         }

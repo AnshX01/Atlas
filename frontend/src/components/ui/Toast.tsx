@@ -38,10 +38,10 @@ export function Toast({ message, type = "success", duration = 4000, onClose }: T
           transition={{ type: "spring", stiffness: 400, damping: 30 }}
         >
           <div
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl border backdrop-blur-sm shadow-lg ${
+            className={`flex items-center gap-3 px-4 py-3 rounded-xl backdrop-blur-sm ${
               type === "success"
-                ? "bg-[var(--bg-secondary)] border-green-500/30"
-                : "bg-[var(--bg-secondary)] border-red-500/30"
+                ? "bg-[var(--bg-secondary)]"
+                : "bg-[var(--bg-secondary)]"
             }`}
           >
             {type === "success" ? (

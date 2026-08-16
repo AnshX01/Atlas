@@ -1,5 +1,8 @@
-import { app } from "electron";
+import { app, BrowserWindow } from "electron";
 import * as localStore from "./local-store";
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+
+export type SyncState = "synced" | "syncing" | "offline" | "conflict";
 
 export interface SyncDelta {
   table: string;
@@ -9,118 +12,149 @@ export interface SyncDelta {
 }
 
 export class SyncManager {
-  private syncQueue: SyncDelta[] = [];
-  private isOnline: boolean = true; // Assume online until told otherwise
+  private supabase: SupabaseClient | null = null;
+  private isOnline: boolean = true;
+  private currentState: SyncState = "synced";
 
-  constructor() {
-    // Supabase client would be initialized here in a full implementation.
-    // e.g., this.supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  public getState(): SyncState {
+    return this.currentState;
   }
 
-  /**
-   * Updates the online status of the application.
-   * Can be hooked up to renderer's navigator.onLine via IPC or main process network detection.
-   */
+  private setState(state: SyncState) {
+    if (this.currentState !== state) {
+      this.currentState = state;
+      BrowserWindow.getAllWindows().forEach((win) => {
+        if (!win.isDestroyed()) {
+          win.webContents.send("sync-state-change", state);
+        }
+      });
+    }
+  }
+
+  constructor() {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (supabaseUrl && supabaseKey) {
+      this.supabase = createClient(supabaseUrl, supabaseKey);
+    }
+  }
+
   public handleOnlineStatus(online: boolean) {
     console.log(`[SyncManager] Network status changed. Online: ${online}`);
     this.isOnline = online;
     if (this.isOnline) {
       this.flushSyncQueue();
+    } else {
+      this.setState("offline");
     }
   }
 
-  /**
-   * Queues a local database change to be pushed to the cloud.
-   */
   public queueDelta(delta: SyncDelta) {
-    this.syncQueue.push(delta);
+    // Queue to SQLite store for persistent offline queue
+    localStore.enqueueSync(delta.table, delta.operation, delta.data, delta.timestamp);
     if (this.isOnline) {
       this.flushSyncQueue();
     } else {
-      console.log(`[SyncManager] Offline. Queued delta for ${delta.table}. Queue size: ${this.syncQueue.length}`);
+      this.setState("offline");
+      console.log(`[SyncManager] Offline. Queued delta for ${delta.table}.`);
     }
   }
 
-  /**
-   * Flushes the offline sync queue to the Supabase schema.
-   */
   private hasWarnedSupabase = false;
+  private isFlushing = false;
 
   private async flushSyncQueue() {
-    if (this.syncQueue.length === 0) return;
+    if (!this.isOnline || this.isFlushing) return;
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const queueToProcess = localStore.getSyncQueue();
+    if (queueToProcess.length === 0) {
+      if (this.currentState !== "synced") this.setState("synced");
+      return;
+    }
 
-    if (!supabaseUrl || !supabaseKey) {
+    if (!this.supabase) {
       if (!this.hasWarnedSupabase) {
         console.warn("[SyncManager] Supabase URL or Key is not configured. Local changes will not be synced.");
         this.hasWarnedSupabase = true;
       }
-      this.syncQueue = []; // Clear queue to prevent memory leak
       return;
     }
 
-    console.log(`[SyncManager] Flushing ${this.syncQueue.length} items to Supabase...`);
+    this.isFlushing = true;
+    this.setState("syncing");
+    console.log(`[SyncManager] Flushing ${queueToProcess.length} items to Supabase...`);
 
-    // Process a snapshot of the queue
-    const queueToProcess = [...this.syncQueue];
-    this.syncQueue = [];
+    let hasConflict = false;
 
-    for (const delta of queueToProcess) {
-      try {
-        if (delta.operation === "INSERT" || delta.operation === "UPDATE") {
-          const res = await fetch(`${supabaseUrl}/rest/v1/${delta.table}`, {
-            method: 'POST',
-            headers: {
-              'apikey': supabaseKey,
-              'Authorization': `Bearer ${supabaseKey}`,
-              'Content-Type': 'application/json',
-              'Prefer': 'resolution=merge-duplicates'
-            },
-            body: JSON.stringify(delta.data)
-          });
-          if (!res.ok) {
-            throw new Error(`HTTP error! status: ${res.status} - ${await res.text()}`);
+    try {
+      for (const item of queueToProcess) {
+        try {
+          if (item.operation === "INSERT" || item.operation === "UPDATE") {
+            const { error } = await this.supabase
+              .from(item.table_name)
+              .upsert(item.data, { onConflict: 'id', ignoreDuplicates: false });
+            
+            if (error) {
+              hasConflict = true;
+              throw error;
+            }
+          } else if (item.operation === "DELETE") {
+            const { error } = await this.supabase
+              .from(item.table_name)
+              .delete()
+              .eq('id', item.data.id);
+              
+            if (error) {
+              hasConflict = true;
+              throw error;
+            }
           }
+          
+          // Remove from local sync queue on success
+          localStore.removeSyncItem(item.id);
+          console.log(`[SyncManager] Synced ${item.operation} on ${item.table_name} to cloud.`);
+        } catch (err) {
+          console.error(`[SyncManager] Failed to sync delta for ${item.table_name}:`, err);
         }
-        console.log(`[SyncManager] Synced ${delta.operation} on ${delta.table} to cloud.`);
-      } catch (err) {
-        console.error(`[SyncManager] Failed to sync delta for ${delta.table}:`, err);
-        // Re-queue on failure
-        this.syncQueue.push(delta);
       }
+    } finally {
+      // Always reset isFlushing — even if an unexpected error escapes the inner catch
+      this.isFlushing = false;
+    }
+    
+    // Check if there are more items that were added while flushing
+    const remainingQueue = localStore.getSyncQueue();
+    
+    if (hasConflict) {
+      this.setState("conflict");
+    } else if (remainingQueue.length === 0) {
+      this.setState("synced");
+    } else {
+      // recursively flush if more items arrived
+      this.flushSyncQueue();
     }
   }
 
-  /**
-   * Pulls remote changes from the Supabase schema and applies them locally.
-   */
   public async pullFromCloud(lastSyncTime: string) {
-    if (!this.isOnline) {
-      console.log(`[SyncManager] Cannot pull from cloud while offline.`);
+    if (!this.isOnline || !this.supabase) {
+      console.log(`[SyncManager] Cannot pull from cloud while offline or unconfigured.`);
       return;
     }
 
     console.log(`[SyncManager] Pulling latest changes from Supabase since ${lastSyncTime}...`);
     
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseKey) {
-      return;
-    }
-
     try {
-      const res = await fetch(`${supabaseUrl}/rest/v1/conversations?updated_at=gt.${encodeURIComponent(lastSyncTime)}`, {
-        headers: {
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`,
-        }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        // apply to localStore (simplified for stub)
+      const { data, error } = await this.supabase
+        .from('conversations')
+        .select('*')
+        .gt('updated_at', lastSyncTime);
+        
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        data.forEach(conv => {
+           localStore.updateLocalRecord('conversations', conv);
+        });
         console.log(`[SyncManager] Pulled ${data.length} conversations from cloud.`);
       }
     } catch (err) {
@@ -129,27 +163,18 @@ export class SyncManager {
   }
 
   public async pullSecret(hashedEmailId: string, secretKey: string): Promise<string | null> {
-    if (!this.isOnline) return null;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !supabaseKey) return null;
+    if (!this.isOnline || !this.supabase) return null;
 
     try {
-      const res = await fetch(
-        `${supabaseUrl}/rest/v1/user_secrets?user_id=eq.${encodeURIComponent(hashedEmailId)}&secret_key=eq.${encodeURIComponent(secretKey)}`,
-        {
-          headers: {
-            'apikey': supabaseKey,
-            'Authorization': `Bearer ${supabaseKey}`,
-          }
-        }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.length > 0) {
-          return data[0].encrypted_value;
-        }
-      }
+      const { data, error } = await this.supabase
+        .from('user_secrets')
+        .select('encrypted_value')
+        .eq('user_id', hashedEmailId)
+        .eq('secret_key', secretKey)
+        .single();
+        
+      if (error) throw error;
+      return data ? data.encrypted_value : null;
     } catch (err) {
       console.error("[SyncManager] Failed to pull secret:", err);
     }

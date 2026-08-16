@@ -27,7 +27,9 @@ interface AppState {
   setWsConnected: (connected: boolean) => void;
 }
 
-export const useAppStore = create<AppState>()(
+import { createSelectors } from "./createSelectors";
+
+export const useAppStoreBase = create<AppState>()(
   persist(
     (set, get) => ({
       // ── Command Bar ───────────────────────────────────────────────
@@ -63,6 +65,17 @@ export const useAppStore = create<AppState>()(
     }),
     {
       name: "atlas-app-store",
+      version: 1,
+      migrate: (persistedState: any, version: number) => {
+        if (version === 0) {
+          // v0 → v1: ensure theme has a valid default
+          return {
+            ...persistedState,
+            theme: persistedState.theme ?? "dark",
+          };
+        }
+        return persistedState as Pick<AppState, "theme">;
+      },
       // Only persist these fields to localStorage
       partialize: (state) => ({
         theme: state.theme,
@@ -76,3 +89,5 @@ export const useAppStore = create<AppState>()(
     }
   )
 );
+
+export const useAppStore = createSelectors(useAppStoreBase);

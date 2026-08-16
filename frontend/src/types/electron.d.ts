@@ -44,6 +44,10 @@ interface AtlasElectronAPI {
   onWindowUnmaximized: (callback: () => void) => () => void;
   onToggleCommandBar: (callback: () => void) => () => void;
   checkOllamaHealth: () => Promise<{ available: boolean; models?: string[] }>;
+  verifyOllamaInference: () => Promise<boolean>;
+  checkOllamaInstalled: () => Promise<boolean>;
+  startOllama: () => Promise<void>;
+  installOllama: () => Promise<void>;
   sendChatMessage: (messages: Array<{ role: string; content: string }>, model?: string) => Promise<void>;
   onChatStream: (callback: (token: string) => void) => () => void;
   onChatStreamEnd: (callback: () => void) => () => void;

@@ -13,7 +13,7 @@ import uuid
 from collections.abc import AsyncGenerator
 
 from app.core.exceptions import AuthenticationError
-from app.core.security import decode_token
+from app.core.security import decode_token, require_access_token
 from app.domain.models.user import User
 from app.infrastructure.database import get_async_session
 from fastapi import Depends, Header, HTTPException, Security, status
@@ -46,7 +46,7 @@ async def get_current_user(
         raise AuthenticationError("Authorization header missing")
 
     try:
-        payload = decode_token(credentials.credentials)
+        payload = require_access_token(credentials.credentials)
         user_id_str: str | None = payload.get("sub")
         if not user_id_str:
             raise AuthenticationError("Token missing subject claim")

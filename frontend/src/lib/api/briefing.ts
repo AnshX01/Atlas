@@ -14,10 +14,6 @@ export interface DailyBriefingResponse {
   total_unread: number;
   generated_at: string;
   is_summarizing?: boolean;
-  proactive_suggestion?: {
-    item: BriefingItemData;
-    reasoning: string;
-  };
 }
 
 interface RawDataEntry {
@@ -36,7 +32,6 @@ function emptyBriefing(): DailyBriefingResponse {
     items: [],
     total_unread: 0,
     generated_at: new Date().toISOString(),
-    proactive_suggestion: undefined,
   };
 }
 
@@ -162,7 +157,7 @@ function createFallbackItems(rawData: RawDataEntry[]): BriefingItemData[] {
             ? (msg?.title || "Untitled task")
             : (msg?.text?.slice(0, 80) || "Message");
           const summary = isGoogleTask
-            ? (msg?.due ? `Due: ${new Date(msg.due).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}${msg?.notes ? ` — ${msg.notes}` : ""}` : (msg?.notes || "No due date"))
+            ? (msg?.due ? `Due: ${new Date(msg.due).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}${msg?.notes ? ` — ${msg.notes}` : ""}` : (msg?.notes || "No details provided"))
             : (msg?.text || "New message");
           items.push({
             id: makeId(entry.source, "task", i, msg?.ts || msg?.id),
@@ -192,7 +187,33 @@ function createFallbackItems(rawData: RawDataEntry[]): BriefingItemData[] {
 
 // ── AI-powered briefing generation via Ollama ──────────────────────────────────
 
-async function generateBriefingWithOllama(rawData: RawDataEntry[]): Promise<BriefingItemData[]> {
+function validateAndFormatItem(item: any, index: number): BriefingItemData | null {
+  if (!item || typeof item.title !== "string" || typeof item.summary !== "string" || typeof item.type !== "string") {
+    return null;
+  }
+  
+  let deterministicId = item.id;
+  if (!deterministicId || deterministicId.includes("unique-string-id") || deterministicId.includes("THE EXACT ID")) {
+    const cleanTitle = String(item.title).replace(/[^a-zA-Z0-9]/g, "").slice(0, 15);
+    const metaId = item.metadata?.source_id || item.metadata?.event_id || item.metadata?.pr_number;
+    deterministicId = makeId(item.source || "unknown", item.type, index, metaId || cleanTitle);
+  }
+
+  return {
+    id: deterministicId,
+    type: validateType(item.type),
+    title: String(item.title).slice(0, 120),
+    summary: String(item.summary).slice(0, 500),
+    source: item.source || "unknown",
+    priority_score: Math.max(1, Math.min(100, Number(item.priority_score) || 50)),
+    action_label: item.action_label || undefined,
+    action_url: item.action_url || undefined,
+    metadata: item.metadata && typeof item.metadata === "object" ? item.metadata : {},
+    timestamp: item.timestamp || new Date().toISOString(),
+  };
+}
+
+async function generateBriefingWithOllama(rawData: RawDataEntry[], options?: { onStream?: (items: BriefingItemData[]) => void }): Promise<BriefingItemData[]> {
   const electron = getElectron();
   if (!electron?.sendChatMessage) {
     return createFallbackItems(rawData);
@@ -221,7 +242,7 @@ async function generateBriefingWithOllama(rawData: RawDataEntry[]): Promise<Brie
 
 Analyze the provided data and produce a JSON array of briefing items. Each item must have this exact shape:
 {
-  "id": "unique-string-id",
+  "id": "THE EXACT ID FROM THE SOURCE DATA (e.g. id, messageId, or eventId)",
   "type": "email" | "pr" | "issue" | "calendar" | "document" | "task",
   "title": "Brief descriptive title (max 80 chars)",
   "summary": "1-2 sentence summary of why this matters or what action is needed",
@@ -233,14 +254,16 @@ Analyze the provided data and produce a JSON array of briefing items. Each item 
 }
 
 Rules:
-- Return ONLY valid JSON array, no markdown fences, no explanation
+- Return ONLY valid JSON Lines (JSONL). Output one complete JSON object per line.
+- Do NOT output a JSON array (no [ or ]). Do not use commas between lines. No markdown fences.
 - Prioritize items that need action or are time-sensitive
 - Limit to the top 10 most important items
 - Use the "type" field that best matches: emails→"email", PRs→"pr", calendar→"calendar", slack messages→"task"
 - Make summaries actionable and concise
-- priority_score: 80-100 = urgent, 60-79 = important, 40-59 = informational, <40 = low priority`;
+- priority_score: 80-100 = urgent, 60-79 = important, 40-59 = informational, <40 = low priority
+- CRITICAL: You MUST use the exact original ID from the source data for the "id" field so the frontend can deduplicate items.`;
 
-  const userPrompt = `Here is today's data from my connected services:\n\n${JSON.stringify(dataSummary, null, 2)}\n\nGenerate my daily briefing items as a JSON array.`;
+  const userPrompt = `Here is today's data from my connected services:\n\n${JSON.stringify(dataSummary, null, 2)}\n\nGenerate my daily briefing items as JSON Lines (one JSON object per line).`;
 
   try {
     // Use sendChatMessage and collect the streamed response
@@ -262,11 +285,50 @@ Rules:
         reject(new Error("Ollama timeout"));
       }, 60000);
 
+      let buffer = "";
       const streamHandler = (chunk: string) => {
         fullResponse += chunk;
+        buffer += chunk;
+        
+        // Split by newline to find complete JSON lines
+        const lines = buffer.split('\n');
+        // Keep the last line in the buffer as it might be incomplete
+        buffer = lines.pop() || "";
+        
+        const newItems: BriefingItemData[] = [];
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+              const parsed = JSON.parse(trimmed);
+              const validated = validateAndFormatItem(parsed, newItems.length);
+              if (validated) {
+                newItems.push(validated);
+              }
+            } catch (e) {
+              // Ignore incomplete or invalid JSON lines
+            }
+          }
+        }
+        
+        if (newItems.length > 0 && options?.onStream) {
+          options.onStream(newItems);
+        }
       };
 
       const streamEndHandler = () => {
+        // Parse anything remaining in the buffer
+        const trimmed = buffer.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+           try {
+             const parsed = JSON.parse(trimmed);
+             const validated = validateAndFormatItem(parsed, 0);
+             if (validated && options?.onStream) {
+               options.onStream([validated]);
+             }
+           } catch (e) {}
+        }
+        
         clearTimeout(timeout);
         cleanup();
         resolve(fullResponse);
@@ -301,56 +363,6 @@ Rules:
   }
 }
 
-async function generateProactiveSuggestion(items: BriefingItemData[]): Promise<{ item: BriefingItemData; reasoning: string } | undefined> {
-  const electron = getElectron();
-  if (!electron?.sendChatMessage || items.length === 0) return undefined;
-
-  const topItems = items.slice(0, 5);
-  const systemPrompt = `You are Atlas, an AI Chief of Staff. Review the following briefing items and pick the SINGLE most important item that requires the user's immediate attention.
-Return ONLY a valid JSON object with this exact shape:
-{
-  "selected_id": "id-of-the-chosen-item",
-  "reasoning": "A concise 1-sentence explanation of why this is the highest priority."
-}`;
-
-  const userPrompt = JSON.stringify(topItems.map(i => ({ id: i.id, title: i.title, summary: i.summary, source: i.source, type: i.type })), null, 2);
-
-  try {
-    const response = await new Promise<string>((resolve, reject) => {
-      let fullResponse = "";
-      let unsubStream: (() => void) | null = null;
-      let unsubEnd: (() => void) | null = null;
-      const cleanup = () => { unsubStream?.(); unsubEnd?.(); };
-      const timeout = setTimeout(() => { cleanup(); reject(new Error("Ollama timeout")); }, 90000);
-      unsubStream = electron.onChatStream((chunk: string) => { fullResponse += chunk; });
-      unsubEnd = electron.onChatStreamEnd(() => { clearTimeout(timeout); cleanup(); resolve(fullResponse); });
-      
-      electron.sendChatMessage(
-        [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
-        "llama3:8b"
-      ).catch((err: Error) => { clearTimeout(timeout); cleanup(); reject(err); });
-    });
-
-    let cleaned = response.trim();
-    if (cleaned.startsWith("```")) {
-      cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
-    }
-    
-    const objMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (!objMatch) return undefined;
-    
-    const parsed = JSON.parse(objMatch[0]);
-    if (parsed.selected_id && parsed.reasoning) {
-      const selectedItem = items.find(i => i.id === parsed.selected_id);
-      if (selectedItem) {
-        return { item: selectedItem, reasoning: String(parsed.reasoning).slice(0, 200) };
-      }
-    }
-  } catch (err) {
-    console.error("[Briefing] Proactive suggestion failed:", err);
-  }
-  return undefined;
-}
 
 /**
  * Parse Ollama's response which should be a JSON array of briefing items.
@@ -358,13 +370,27 @@ Return ONLY a valid JSON object with this exact shape:
  */
 function parseOllamaResponse(response: string): BriefingItemData[] {
   let cleaned = response.trim();
+  
+  // Try to parse as JSONL first
+  const lines = cleaned.split('\n');
+  const items: BriefingItemData[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        const validated = validateAndFormatItem(parsed, items.length);
+        if (validated) items.push(validated);
+      } catch (e) {}
+    }
+  }
+  if (items.length > 0) return items;
 
-  // Strip markdown code fences if present
+  // Fallback to array parsing
   if (cleaned.startsWith("```")) {
     cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
   }
 
-  // Try to find a JSON array in the response
   const arrayMatch = cleaned.match(/\[[\s\S]*\]/);
   if (!arrayMatch) return [];
 
@@ -372,27 +398,9 @@ function parseOllamaResponse(response: string): BriefingItemData[] {
     const parsed = JSON.parse(arrayMatch[0]);
     if (!Array.isArray(parsed)) return [];
 
-    // Validate and sanitize each item
     return parsed
-      .filter(
-        (item: any) =>
-          item &&
-          typeof item.title === "string" &&
-          typeof item.summary === "string" &&
-          typeof item.type === "string"
-      )
-      .map((item: any, index: number) => ({
-        id: item.id || makeId(item.source || "unknown", item.type, index),
-        type: validateType(item.type),
-        title: String(item.title).slice(0, 120),
-        summary: String(item.summary).slice(0, 500),
-        source: item.source || "unknown",
-        priority_score: Math.max(1, Math.min(100, Number(item.priority_score) || 50)),
-        action_label: item.action_label || undefined,
-        action_url: item.action_url || undefined,
-        metadata: item.metadata && typeof item.metadata === "object" ? item.metadata : {},
-        timestamp: item.timestamp || new Date().toISOString(),
-      }));
+      .map((item: any, index: number) => validateAndFormatItem(item, index))
+      .filter((item): item is BriefingItemData => item !== null);
   } catch {
     return [];
   }
@@ -504,51 +512,78 @@ export const briefingAPI = {
     }
 
     // 4. Emit fallback cards immediately if a callback was provided
+    const streamedItems: BriefingItemData[] = [];
+    let fallbackItems: BriefingItemData[] = [];
+
+    const getEmailCount = () => {
+      const emailEntry = rawData.find((d) => d.type === "emails");
+      return Array.isArray(emailEntry?.data) ? emailEntry.data.length : emailEntry?.data ? 1 : 0;
+    };
+
     if (options?.onFallback) {
-      const fallbackItems = createFallbackItems(rawData).map((item) => ({
+      fallbackItems = createFallbackItems(rawData).map((item) => ({
         ...item,
         priority_score: calculatePriorityScore(item),
       }));
       const focusScore = Math.min(100, fallbackItems.length * 15);
       const focusScoreLabel =
         fallbackItems.length > 5 ? "Busy" : fallbackItems.length > 2 ? "Moderate" : "Light";
-      const emailEntry = rawData.find((d) => d.type === "emails");
-      const totalUnread = Array.isArray(emailEntry?.data)
-        ? emailEntry.data.length
-        : emailEntry?.data
-          ? 1
-          : 0;
 
       options.onFallback({
         date: new Date().toISOString(),
         focus_score: focusScore,
         focus_score_label: focusScoreLabel,
         items: fallbackItems,
-        total_unread: totalUnread,
+        total_unread: getEmailCount(),
         generated_at: new Date().toISOString(),
-        is_summarizing: true,
+        is_summarizing: false,
       });
     }
 
-    // 5. Generate briefing items (AI-powered with Ollama, fallback to direct formatting)
-    let items = await generateBriefingWithOllama(rawData);
-    items = items.map((item) => ({
+    // 5. Generate briefing items and proactive suggestion in parallel
+    const ollamaPromise = generateBriefingWithOllama(rawData, {
+      onStream: (newItems) => {
+        streamedItems.push(...newItems);
+        const updatedStreamedItems = streamedItems.map(item => ({
+          ...item,
+          priority_score: calculatePriorityScore(item),
+        }));
+        updatedStreamedItems.sort((a, b) => b.priority_score - a.priority_score);
+
+        const combined = [...updatedStreamedItems];
+        for (const fb of fallbackItems) {
+           if (!combined.some(i => i.id === fb.id || (i.source === fb.source && i.type === fb.type && combined.length >= 10))) {
+              if (combined.length < 15) {
+                combined.push(fb);
+              }
+           }
+        }
+        combined.sort((a, b) => b.priority_score - a.priority_score);
+
+        if (options?.onFallback) {
+          options.onFallback({
+            date: new Date().toISOString(),
+            focus_score: Math.min(100, combined.length * 15),
+            focus_score_label: combined.length > 5 ? "Busy" : combined.length > 2 ? "Moderate" : "Light",
+            items: combined,
+            total_unread: getEmailCount(),
+            generated_at: new Date().toISOString(),
+            is_summarizing: false,
+          });
+        }
+      }
+    });
+
+    const [itemsRaw] = await Promise.all([ollamaPromise]);
+
+    const items = itemsRaw.map((item: any) => ({
       ...item,
       priority_score: calculatePriorityScore(item),
     }));
     
     // Sort items by calculated priority
-    items.sort((a, b) => b.priority_score - a.priority_score);
+    items.sort((a: any, b: any) => b.priority_score - a.priority_score);
 
-    // 5.5 Generate proactive suggestion
-    let proactiveSuggestion = await generateProactiveSuggestion(items);
-    if (!proactiveSuggestion && items.length > 0) {
-      // Fallback: just pick the top priority item
-      proactiveSuggestion = {
-        item: items[0],
-        reasoning: `This ${items[0].type} is currently the highest priority item.`
-      };
-    }
 
     // 6. Compute focus score
     const focusScore = Math.min(100, items.length * 15);
@@ -571,7 +606,6 @@ export const briefingAPI = {
       total_unread: totalUnread,
       generated_at: new Date().toISOString(),
       is_summarizing: false,
-      proactive_suggestion: proactiveSuggestion,
     };
   },
 };

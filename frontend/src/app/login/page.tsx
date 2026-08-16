@@ -4,6 +4,7 @@ import React, { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff, ArrowRight, Mail, Lock, User } from "lucide-react";
+import { Spinner } from "@/components/ui/Spinner";
 import { useAuthStore } from "../../lib/store/useAuthStore";
 import { authAPI } from "../../lib/api/auth";
 import { tokenSyncAPI } from "../../lib/api/token-sync";
@@ -300,7 +301,7 @@ export default function LoginPage() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.1 }}
         >
-          <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center shadow-lg">
+          <div className="w-10 h-10 rounded-2xl bg-white flex items-center justify-center">
             <img src="/logo.png" alt="Atlas" className="w-7 h-7" />
           </div>
           <span className="text-xl font-bold text-white tracking-tight">Atlas</span>
@@ -308,7 +309,7 @@ export default function LoginPage() {
 
         {/* Card */}
         <div
-          className="rounded-2xl border border-white/[0.08] p-8 relative overflow-hidden"
+          className="rounded-2xl p-8 relative overflow-hidden"
           style={{
             background: "rgba(17, 17, 19, 0.8)",
             backdropFilter: "blur(20px)",
@@ -325,7 +326,7 @@ export default function LoginPage() {
               >
                 <div className="w-full max-w-[240px] space-y-6">
                   <div className="flex flex-col items-center justify-center gap-4">
-                    <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center shadow-lg animate-pulse border border-white/10">
+                    <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center animate-pulse">
                       <img src="/logo.png" alt="Atlas" className="w-6 h-6 opacity-80" />
                     </div>
                     <div className="text-center">
@@ -354,7 +355,7 @@ export default function LoginPage() {
           {/* Tab switcher */}
           <div
             className="flex p-1 rounded-xl mb-8"
-            style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}
+            style={{ background: "rgba(255,255,255,0.04)", border: "none" }}
           >
             {["Sign In", "Sign Up"].map((tab, i) => (
               <button
@@ -365,7 +366,7 @@ export default function LoginPage() {
                 style={{
                   background: (i === 1) === isRegister ? "rgba(255, 255, 255, 0.1)" : "transparent",
                   color: (i === 1) === isRegister ? "#ffffff" : "rgba(255,255,255,0.4)",
-                  boxShadow: (i === 1) === isRegister ? "0 0 12px rgba(255, 255, 255, 0.05)" : "none",
+                  boxShadow: "none",
                 }}
               >
                 {tab}
@@ -385,7 +386,7 @@ export default function LoginPage() {
                 className="mb-5 p-3 rounded-xl text-sm"
                 style={{
                   background: "rgba(239, 68, 68, 0.08)",
-                  border: "1px solid rgba(239, 68, 68, 0.2)",
+                  border: "none",
                   color: "#f87171",
                 }}
               >
@@ -412,7 +413,7 @@ export default function LoginPage() {
                   className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/20 transition-all duration-200 outline-none"
                   style={{
                     background: "rgba(255,255,255,0.04)",
-                    border: "1px solid rgba(255,255,255,0.08)",
+                    border: "none",
                   }}
                 />
               </div>
@@ -434,7 +435,7 @@ export default function LoginPage() {
                   className="w-full pl-10 pr-11 py-3 rounded-xl text-sm text-white placeholder-white/20 transition-all duration-200 outline-none"
                   style={{
                     background: "rgba(255,255,255,0.04)",
-                    border: "1px solid rgba(255,255,255,0.08)",
+                    border: "none",
                   }}
                 />
                 <button
@@ -476,7 +477,7 @@ export default function LoginPage() {
                       className="w-full pl-10 pr-4 py-3 rounded-xl text-sm text-white placeholder-white/20 transition-all duration-200 outline-none"
                       style={{
                         background: "rgba(255,255,255,0.04)",
-                        border: "1px solid rgba(255,255,255,0.08)",
+                        border: "none",
                       }}
                     />
                   </div>
@@ -492,11 +493,11 @@ export default function LoginPage() {
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-[#09090b] mt-6 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               style={{
                 background: "#e4e4e7",
-                boxShadow: loading ? "none" : "0 0 24px rgba(255, 255, 255, 0.1), 0 4px 16px rgba(0,0,0,0.3)",
+                boxShadow: "none",
               }}
             >
               {loading ? (
-                <span className="w-4 h-4 border-2 border-[#09090b]/30 border-t-[#09090b] rounded-full animate-spin" />
+              <Spinner size="sm" className="border-[#09090b]/40 border-t-[#09090b]" />
               ) : (
                 <>
                   {isRegister ? "Create Account" : "Continue"}
@@ -508,9 +509,9 @@ export default function LoginPage() {
 
           {/* Separator */}
           <div className="my-6 flex items-center justify-between">
-            <span className="w-1/5 border-b border-white/[0.08]"></span>
+            <span className="w-1/5"></span>
             <span className="text-[11px] font-medium uppercase text-white/30 tracking-widest">or</span>
-            <span className="w-1/5 border-b border-white/[0.08]"></span>
+            <span className="w-1/5"></span>
           </div>
 
           {/* Google Login Button */}
@@ -521,7 +522,7 @@ export default function LoginPage() {
             className="w-full flex items-center justify-center gap-3 py-3 rounded-xl text-sm font-medium transition-all duration-200 disabled:opacity-50"
             style={{
               background: "rgba(255,255,255,0.04)",
-              border: "1px solid rgba(255,255,255,0.08)",
+              border: "none",
               color: "rgba(255,255,255,0.8)",
             }}
             onMouseOver={(e) => { if (!loading) e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}

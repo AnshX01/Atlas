@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect, Suspense, type KeyboardEvent, memo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { AgentDesignSystemShell } from "@/components/ui/AgentDesignSystemShell";
 import {
   Send,
   Mail,
@@ -13,7 +14,6 @@ import {
   CheckSquare,
   Check,
   X,
-  Loader2,
   ExternalLink,
   ArrowDown,
   Github,
@@ -22,6 +22,7 @@ import {
   ChevronRight,
   ChevronDown,
 } from "lucide-react";
+import { Spinner } from "@/components/ui/Spinner";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 
 import { useChatStore,
@@ -139,7 +140,7 @@ function hasElectronIPC(): boolean {
 
 function StreamingIndicator() {
   return (
-    <span className="inline-block w-0.5 h-[1em] bg-[var(--text-muted)] animate-pulse ml-0.5 align-middle" />
+    <span className="inline-block w-2 h-[1em] bg-white rounded-[1px] animate-pulse ml-1 align-middle -translate-y-[1px]" />
   );
 }
 
@@ -157,10 +158,10 @@ function formatServerName(server: string): string {
 
 const ToolExecutionCard = memo(function ToolExecutionCard({ tool, onRetry }: { tool: ToolExecution; onRetry?: (toolId: string) => void }) {
   return (
-    <motion.div
+    <AgentDesignSystemShell
       className={cn(
-        "flex items-center justify-between gap-2 px-3 py-2 rounded-lg w-full max-w-2xl",
-        tool.status === "failed" ? "border-red-500/20 bg-red-500/5 border" : "bg-[var(--bg-secondary)] border border-[var(--border-default)]"
+        "flex items-center justify-between gap-2 px-3 py-2 w-full max-w-2xl",
+        tool.status === "failed" ? "bg-red-500/5" : "bg-[var(--bg-secondary)]"
       )}
       initial={{ opacity: 0, height: 0, scale: 0.95 }}
       animate={{ opacity: 1, height: "auto", scale: 1 }}
@@ -168,7 +169,7 @@ const ToolExecutionCard = memo(function ToolExecutionCard({ tool, onRetry }: { t
     >
       <div className="flex items-center gap-2">
         {tool.status === "executing" ? (
-          <Loader2 size={12} className="text-[var(--text-muted)] animate-spin" />
+          <Spinner size="xs" className="border-[var(--text-muted)] border-t-[var(--text-muted)]" />
         ) : tool.status === "failed" ? (
           <X size={12} className="text-red-400" />
         ) : (
@@ -186,7 +187,7 @@ const ToolExecutionCard = memo(function ToolExecutionCard({ tool, onRetry }: { t
           Retry
         </button>
       )}
-    </motion.div>
+    </AgentDesignSystemShell>
   );
 }, (prev, next) => JSON.stringify(prev.tool) === JSON.stringify(next.tool));
 
@@ -225,8 +226,8 @@ const ResultCard = memo(function ResultCard({ result }: { result: SearchResult }
   };
 
   return (
-    <motion.div
-      className="group cursor-pointer rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-default)] hover:bg-[var(--bg-tertiary)] transition-all duration-300 w-full max-w-2xl"
+    <AgentDesignSystemShell
+      className="group cursor-pointer bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-all duration-300 w-full max-w-2xl"
       initial={{ opacity: 0, y: 10, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       whileHover={{ y: -2, scale: 1.01 }}
@@ -269,7 +270,7 @@ const ResultCard = memo(function ResultCard({ result }: { result: SearchResult }
           </p>
         )}
       </div>
-    </motion.div>
+    </AgentDesignSystemShell>
   );
 }, (prev, next) => JSON.stringify(prev.result) === JSON.stringify(next.result));
 
@@ -359,14 +360,14 @@ const ActionCard = memo(function ActionCard({
   const isResolved = action.status !== "pending";
 
   return (
-    <motion.div
+    <AgentDesignSystemShell
       className={cn(
-        "p-2.5 rounded-2xl border bg-[var(--bg-tertiary)] transition-all duration-200",
+        "p-2.5 bg-[var(--bg-tertiary)] transition-all duration-200",
         action.status === "approved"
-          ? "border-green-500/30 bg-green-500/5"
+          ? "bg-green-500/5"
           : action.status === "rejected"
-            ? "border-red-500/30 bg-red-500/5 opacity-60"
-            : "border-[var(--accent)]/20"
+            ? "bg-red-500/5 opacity-60"
+            : ""
       )}
       initial={{ opacity: 0, scale: 0.97 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -414,7 +415,7 @@ const ActionCard = memo(function ActionCard({
           </span>
         )}
       </div>
-    </motion.div>
+    </AgentDesignSystemShell>
   );
 }, (prev, next) => JSON.stringify(prev.action) === JSON.stringify(next.action));
 
@@ -444,15 +445,15 @@ const DraftCard = memo(function DraftCard({
   );
 
   return (
-    <motion.div
+    <AgentDesignSystemShell
       className="relative group w-full"
       initial={{ opacity: 0, y: 8, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
     >
-      <div className="relative rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] overflow-hidden">
+      <div className="relative bg-[var(--bg-secondary)] overflow-hidden">
         {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-default)]">
+        <div className="flex items-center gap-2 px-4 py-3">
           <span className="text-[var(--text-secondary)]">{getActionIcon(draft.actionType)}</span>
           <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
             {getDraftTypeLabel(draft.actionType)}
@@ -461,7 +462,7 @@ const DraftCard = memo(function DraftCard({
 
         {/* Meta fields */}
         {metaFields.length > 0 && (
-          <div className="px-4 py-2.5 space-y-1.5 border-b border-[var(--border-subtle)]">
+          <div className="px-4 py-2.5 space-y-1.5">
             {metaFields.map(([key, value]) => (
               <div key={key} className="flex items-center gap-2">
                 <span className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wider w-14 flex-shrink-0">
@@ -485,7 +486,7 @@ const DraftCard = memo(function DraftCard({
         )}
 
         {/* Action buttons */}
-        <div className="px-4 py-3 border-t border-[var(--border-default)]">
+        <div className="px-4 py-3">
           {isPending && (
             <div className="flex items-center gap-2">
               <button
@@ -517,7 +518,7 @@ const DraftCard = memo(function DraftCard({
 
           {isExecuting && (
             <div className="flex items-center justify-center gap-2 py-2">
-              <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white/80 animate-spin" />
+              <Spinner size="sm" />
               <span className="text-xs text-[var(--text-secondary)]">Executing…</span>
             </div>
           )}
@@ -552,24 +553,24 @@ const DraftCard = memo(function DraftCard({
           )}
         </div>
       </div>
-    </motion.div>
+    </AgentDesignSystemShell>
   );
 }, (prev, next) => JSON.stringify(prev.draft) === JSON.stringify(next.draft));
 
 
 function DraftCardSkeleton() {
   return (
-    <motion.div
+    <AgentDesignSystemShell
       className="relative group w-full mt-2"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
     >
-      <div className="relative rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] overflow-hidden p-4">
+      <div className="relative rounded-2xl bg-[var(--bg-secondary)] overflow-hidden p-4">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-5 h-5 rounded-md bg-[var(--bg-tertiary)] animate-pulse" />
           <div className="w-24 h-4 rounded-md bg-[var(--bg-tertiary)] animate-pulse" />
         </div>
-        <div className="space-y-3 mb-4 pb-4 border-b border-[var(--border-subtle)]">
+        <div className="space-y-3 mb-4 pb-4">
           <div className="flex items-center gap-2">
              <div className="w-12 h-3 rounded bg-[var(--bg-secondary)] animate-pulse" />
              <div className="w-48 h-3 rounded bg-[var(--bg-tertiary)] animate-pulse" />
@@ -585,12 +586,12 @@ function DraftCardSkeleton() {
           <div className="w-[95%] h-3 rounded bg-[var(--bg-tertiary)] animate-pulse" />
           <div className="w-[80%] h-3 rounded bg-[var(--bg-tertiary)] animate-pulse" />
         </div>
-        <div className="flex items-center gap-2 pt-2 border-t border-[var(--border-default)]">
-          <Loader2 size={12} className="text-[var(--accent)] animate-spin" />
+        <div className="flex items-center gap-2 pt-2">
+          <Spinner size="xs" className="border-[var(--text-muted)] border-t-[var(--accent)]" />
           <span className="text-[11px] text-[var(--text-secondary)]">Generating draft...</span>
         </div>
       </div>
-    </motion.div>
+    </AgentDesignSystemShell>
   );
 }
 
@@ -619,12 +620,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
       exit={{ opacity: 0, scale: 0.98 }}
       transition={snappySpring}
     >
-      {/* Avatar */}
-      {!isUser && (
-        <div className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center mt-1 bg-[var(--bg-primary)]">
-          <img src="/logo.png" alt="Atlas" className="w-5 h-5" />
-        </div>
-      )}
+      {/* Avatar Removed */}
 
       {/* Content */}
       <div className="flex flex-col gap-2 min-w-0 overflow-x-hidden">
@@ -645,7 +641,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                   code({ node, inline, className, children, ...props }: any) {
                     const match = /language-(\w+)/.exec(className || "");
                     return !inline ? (
-                      <div className="rounded-xl overflow-hidden my-4 border border-[var(--border-default)] bg-[#282c34]">
+                      <div className="rounded-xl overflow-hidden my-4 bg-[#282c34]">
                         <div className="flex items-center justify-between px-4 py-2 bg-black/40">
                           <span className="text-xs font-mono text-[var(--text-muted)]">{match?.[1] || "text"}</span>
                           <button 
@@ -679,11 +675,11 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                   h1: ({ children }) => <h1 className="text-xl font-bold mb-4 mt-6 text-[var(--text-primary)]">{children}</h1>,
                   h2: ({ children }) => <h2 className="text-lg font-bold mb-3 mt-5 text-[var(--text-primary)]">{children}</h2>,
                   h3: ({ children }) => <h3 className="text-base font-bold mb-2 mt-4 text-[var(--text-primary)]">{children}</h3>,
-                  table: ({ children }) => <div className="overflow-x-auto mb-4 border border-[var(--border-default)] rounded-lg"><table className="min-w-full divide-y divide-white/10">{children}</table></div>,
+                  table: ({ children }) => <div className="overflow-x-auto mb-4 rounded-lg"><table className="min-w-full divide-y divide-white/10">{children}</table></div>,
                   thead: ({ children }) => <thead className="bg-[var(--bg-secondary)]">{children}</thead>,
                   th: ({ children }) => <th className="px-4 py-2 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">{children}</th>,
-                  td: ({ children }) => <td className="px-4 py-2 text-sm text-[var(--text-primary)] border-t border-[var(--border-default)]">{children}</td>,
-                  blockquote: ({ children }) => <blockquote className="border-l-4 border-[var(--accent)] pl-4 italic text-[var(--text-primary)]/60 mb-4">{children}</blockquote>,
+                  td: ({ children }) => <td className="px-4 py-2 text-sm text-[var(--text-primary)]">{children}</td>,
+                  blockquote: ({ children }) => <blockquote className="pl-4 italic text-[var(--text-primary)]/60 mb-4">{children}</blockquote>,
                 }}
               >
                 {message.content}
@@ -782,7 +778,7 @@ function ChatInput({
   }, [text, autoResize]);
 
   return (
-    <div className="flex flex-col gap-2 px-4 py-2 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] transition-all duration-200">
+    <div className="flex flex-col gap-2 px-4 py-2 rounded-2xl bg-[var(--bg-secondary)] transition-all duration-200">
       {attachments.length > 0 && (
         <div className="flex flex-wrap gap-2 pt-1 pb-1">
           {attachments.map((file, i) => (
@@ -823,7 +819,7 @@ function ChatInput({
           className={cn(
             "flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-all duration-150 mb-1",
             (text.trim() || attachments.length > 0) && !disabled
-              ? "bg-[var(--accent)] text-[var(--bg-primary)] hover:bg-[var(--accent-hover)] shadow-sm"
+              ? "bg-[var(--accent)] text-[var(--bg-primary)] hover:bg-[var(--accent-hover)]"
               : "bg-transparent text-[var(--text-muted)] cursor-not-allowed"
           )}
           aria-label="Send message"
@@ -851,7 +847,7 @@ export default function ChatPage() {
 function ChatLoadingFallback() {
   return (
     <div className="flex flex-col h-full items-center justify-center">
-      <div className="w-5 h-5 border-2 border-[var(--text-muted)]/30 border-t-[var(--text-muted)] rounded-full animate-spin" />
+      <Spinner size="md" />
     </div>
   );
 }
@@ -937,30 +933,32 @@ function ChatPageInner() {
   }, []);
 
   useEffect(() => {
+    const isNavigation = conversationId !== conversationIdRef.current;
     conversationIdRef.current = conversationId;
+
     if (conversationId) {
       isFirstMessageRef.current = false;
-      const stored = useChatStore.getState().messages[conversationId];
-      if (stored && stored.length > 0) {
-        setMessages(stored.map((m) => ({
-          id: m.id,
-          role: m.role,
-          content: m.content,
-          results: m.results,
-          actions: m.actions,
-          toolExecutions: m.toolExecutions,
-          draft: m.draft,
-          timestamp: new Date(m.timestamp),
-        })));
+      if (isNavigation) {
+        const stored = useChatStore.getState().messages[conversationId];
+        if (stored && stored.length > 0) {
+          setMessages(stored.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            results: m.results,
+            actions: m.actions,
+            toolExecutions: m.toolExecutions,
+            draft: m.draft,
+            timestamp: new Date(m.timestamp),
+          })));
+        }
       }
     } else {
       // New chat — reset everything
       abortRef.current?.abort();
       unsubscribersRef.current.forEach((fn) => fn());
       unsubscribersRef.current = [];
-      if (typeof window !== "undefined" && window.atlasElectron) {
-        window.atlasElectron.abortWorkflow().catch(() => {});
-      }
+
 
       setMessages([]);
       setStatus("idle");
@@ -1143,6 +1141,10 @@ function ChatPageInner() {
             if (data?.error) {
               const errMsg = `\n\n> **System Notice:** The workflow encountered an error: ${data.error}`;
               finalContent += errMsg;
+            }
+
+            if (!finalContent.trim() && !updatedDraft && filteredResults.length === 0 && (!m.toolExecutions || m.toolExecutions.length === 0)) {
+              finalContent = "I'm sorry, but I couldn't generate a response. Please check your connection to Ollama.";
             }
 
             finalAssistantMsg = {
@@ -1352,6 +1354,26 @@ function ChatPageInner() {
     setAttachments([]); // Clear attachments after send
   }, []);
 
+  // ── Global event and URL parameter injection ───────────────────────────
+  useEffect(() => {
+    const q = searchParams.get('q');
+    if (q) {
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete('q');
+      window.history.replaceState({}, '', newUrl);
+      sendMessage(q);
+    }
+
+    const handleInjectChat = (e: Event) => {
+      const customEvent = e as CustomEvent<{ message: string }>;
+      if (customEvent.detail?.message) {
+        sendMessage(customEvent.detail.message);
+      }
+    };
+    window.addEventListener('atlas:inject_chat', handleInjectChat);
+    return () => window.removeEventListener('atlas:inject_chat', handleInjectChat);
+  }, [searchParams, sendMessage]);
+
   // ── Stop handler ───────────────────────────────────────────────────────
 
   const handleStop = useCallback(() => {
@@ -1445,7 +1467,7 @@ function ChatPageInner() {
       onDrop={handleDrop}
     >
       {isDragging && (
-        <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center backdrop-blur-sm rounded-xl border-2 border-dashed border-[var(--accent)]">
+        <div className="absolute inset-0 z-50 bg-black/60 flex items-center justify-center backdrop-blur-sm rounded-xl">
           <div className="text-[var(--text-primary)] text-2xl font-bold flex flex-col items-center gap-4">
             <FileText size={48} className="text-[var(--accent)]" />
             Drop to share with Atlas
@@ -1495,13 +1517,13 @@ function ChatPageInner() {
 
           <div className="relative w-full flex flex-col items-center px-4 pb-6 pt-2 bg-gradient-to-t from-[var(--bg-primary)] via-[var(--bg-primary)]/90 to-transparent">
             {isAutoScrollPaused && (
-              <div className="mb-3">
+              <div className="absolute -top-12 left-1/2 -translate-x-1/2 z-10">
                 <button
                   onClick={() => {
                     setIsAutoScrollPaused(false);
                     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
                   }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-[var(--accent)] text-[var(--bg-primary)] text-[13px] font-medium shadow-lg hover:shadow-xl hover:scale-105 transition-all"
+                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-[var(--accent)] text-[var(--bg-primary)] text-[13px] font-medium hover:scale-105 transition-all shadow-lg"
                 >
                   <ArrowDown size={16} /> New messages
                 </button>

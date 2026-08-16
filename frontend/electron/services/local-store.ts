@@ -51,6 +51,14 @@ export interface ToolExecution {
   deleted?: number;
 }
 
+export interface SyncQueueItem {
+  id: string;
+  table_name: string;
+  operation: "INSERT" | "UPDATE" | "DELETE";
+  data: any;
+  timestamp: string;
+}
+
 // ── Database Singleton ─────────────────────────────────────────────────────────
 
 let db: any = null;
@@ -70,6 +78,15 @@ function getDbPath(): string {
 
 let isPersisting = false;
 let pendingPersist = false;
+let persistTimer: NodeJS.Timeout | null = null;
+
+function schedulePersist(): void {
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    persistToDisk();
+  }, 250);
+}
 
 async function persistToDisk(): Promise<void> {
   if (!db) return;
@@ -90,7 +107,7 @@ async function persistToDisk(): Promise<void> {
   } finally {
     isPersisting = false;
     if (pendingPersist) {
-      persistToDisk();
+      schedulePersist();
     }
   }
 }
@@ -178,6 +195,15 @@ export async function initDB(): Promise<void> {
         value TEXT NOT NULL,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         deleted INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS sync_queue (
+        id TEXT PRIMARY KEY,
+        table_name TEXT NOT NULL,
+        operation TEXT NOT NULL,
+        data TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        retry_count INTEGER NOT NULL DEFAULT 0
       );
 
       CREATE INDEX IF NOT EXISTS idx_messages_conversationId ON messages(conversation_id);
@@ -376,4 +402,110 @@ export function saveToolExecution(
   return exec;
 }
 
+// ── Sync Queue Operations ──────────────────────────────────────────────────────
 
+export function enqueueSync(table: string, operation: string, data: any, timestamp: string) {
+  if (!db) return;
+  const id = randomUUID();
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run(
+      "INSERT INTO sync_queue (id, table_name, operation, data, timestamp) VALUES (?, ?, ?, ?, ?)",
+      [id, table, operation, JSON.stringify(data), timestamp]
+    );
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+    console.error("[Atlas Store] Failed to enqueue sync:", err);
+  }
+  persistToDisk();
+}
+
+export function getSyncQueue(): SyncQueueItem[] {
+  if (!db) return [];
+  const stmt = db.prepare("SELECT * FROM sync_queue ORDER BY timestamp ASC");
+  const results: SyncQueueItem[] = [];
+  try {
+    while (stmt.step()) {
+      const row = stmt.getAsObject();
+      results.push({
+        id: row.id as string,
+        table_name: row.table_name as string,
+        operation: row.operation as any,
+        data: JSON.parse(row.data as string),
+        timestamp: row.timestamp as string
+      });
+    }
+  } catch (err) {
+    console.error("[Atlas Store] Failed to get sync queue:", err);
+  } finally {
+    stmt.free();
+  }
+  return results;
+}
+
+export function removeSyncItem(id: string) {
+  if (!db) return;
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run("DELETE FROM sync_queue WHERE id = ?", [id]);
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+  }
+  persistToDisk();
+}
+
+export function updateLocalRecord(table: string, data: any) {
+  if (!db) return;
+  
+  // Prevent SQL injection on table and column names
+  if (!/^[a-zA-Z0-9_]+$/.test(table)) {
+    console.error("[Atlas Store] Invalid table name:", table);
+    return;
+  }
+  
+  const columns = Object.keys(data);
+  for (const col of columns) {
+    if (!/^[a-zA-Z0-9_]+$/.test(col)) {
+      console.error("[Atlas Store] Invalid column name:", col);
+      return;
+    }
+  }
+
+  const values = Object.values(data);
+  const setClause = columns.map(c => `${c} = ?`).join(", ");
+  
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run(`UPDATE ${table} SET ${setClause} WHERE id = ?`, [...values, data.id]);
+    if (db.getRowsModified() === 0) {
+      const placeholders = columns.map(() => "?").join(", ");
+      db.run(`INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders})`, values);
+    }
+    db.run("COMMIT");
+  } catch(e) {
+    db.run("ROLLBACK");
+  }
+
+  // Invalidate caches — updateLocalRecord is called by cloud sync,
+  // so stale reads would otherwise occur after remote updates.
+  conversationCache.invalidate(data.id);
+  messagesCache.clear(); // messages cache uses composite keys — clear all
+
+  schedulePersist();
+}
+
+export function clearCacheAndQueue(): void {
+  conversationCache.clear();
+  messagesCache.clear();
+  if (!db) return;
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run("DELETE FROM sync_queue");
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+  }
+  persistToDisk();
+}

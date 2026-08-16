@@ -353,3 +353,119 @@ class GitHubConnector(BaseConnector):
     async def teardown(self) -> None:
         """Cleanup resources (no-op for Phase 1)."""
         pass
+
+    @retry(
+        retry=retry_if_exception_type(RateLimitExceededException),
+        wait=wait_exponential_jitter(initial=5, max=60),
+        stop=stop_after_attempt(3),
+    )
+    async def create_issue(self, repo_full_name: str, title: str, body: str) -> dict[str, Any]:
+        """Create a new issue in a repository."""
+        gh = await self._get_client()
+
+        def _create():
+            repo = gh.get_repo(repo_full_name)
+            issue = repo.create_issue(title=title, body=body)
+            return {
+                "id": issue.id,
+                "number": issue.number,
+                "title": issue.title,
+                "html_url": issue.html_url,
+                "state": issue.state,
+            }
+
+        try:
+            return await asyncio.to_thread(_create)
+        except RateLimitExceededException:
+            raise
+        except GithubException as e:
+            if e.status == 401:
+                await self._mark_requires_reauth()
+            raise ValueError(f"Failed to create issue: {e.data.get('message', str(e))}") from e
+
+    @retry(
+        retry=retry_if_exception_type(RateLimitExceededException),
+        wait=wait_exponential_jitter(initial=5, max=60),
+        stop=stop_after_attempt(3),
+    )
+    async def close_issue(self, repo_full_name: str, issue_number: int) -> dict[str, Any]:
+        """Close an issue in a repository."""
+        gh = await self._get_client()
+
+        def _close():
+            repo = gh.get_repo(repo_full_name)
+            issue = repo.get_issue(number=issue_number)
+            issue.edit(state="closed")
+            return {
+                "id": issue.id,
+                "number": issue.number,
+                "title": issue.title,
+                "html_url": issue.html_url,
+                "state": issue.state,
+            }
+
+        try:
+            return await asyncio.to_thread(_close)
+        except RateLimitExceededException:
+            raise
+        except GithubException as e:
+            if e.status == 401:
+                await self._mark_requires_reauth()
+            raise ValueError(f"Failed to close issue: {e.data.get('message', str(e))}") from e
+
+    @retry(
+        retry=retry_if_exception_type(RateLimitExceededException),
+        wait=wait_exponential_jitter(initial=5, max=60),
+        stop=stop_after_attempt(3),
+    )
+    async def create_pr(self, repo_full_name: str, title: str, body: str, head: str, base: str) -> dict[str, Any]:
+        """Create a new pull request in a repository."""
+        gh = await self._get_client()
+
+        def _create():
+            repo = gh.get_repo(repo_full_name)
+            pr = repo.create_pull(title=title, body=body, head=head, base=base)
+            return {
+                "id": pr.id,
+                "number": pr.number,
+                "title": pr.title,
+                "html_url": pr.html_url,
+                "state": pr.state,
+            }
+
+        try:
+            return await asyncio.to_thread(_create)
+        except RateLimitExceededException:
+            raise
+        except GithubException as e:
+            if e.status == 401:
+                await self._mark_requires_reauth()
+            raise ValueError(f"Failed to create PR: {e.data.get('message', str(e))}") from e
+
+    @retry(
+        retry=retry_if_exception_type(RateLimitExceededException),
+        wait=wait_exponential_jitter(initial=5, max=60),
+        stop=stop_after_attempt(3),
+    )
+    async def merge_pr(self, repo_full_name: str, pr_number: int, commit_title: str | None = None) -> dict[str, Any]:
+        """Merge a pull request."""
+        gh = await self._get_client()
+
+        def _merge():
+            repo = gh.get_repo(repo_full_name)
+            pr = repo.get_pull(pr_number)
+            status = pr.merge(commit_title=commit_title) if commit_title else pr.merge()
+            return {
+                "merged": status.merged,
+                "message": status.message,
+                "sha": status.sha,
+            }
+
+        try:
+            return await asyncio.to_thread(_merge)
+        except RateLimitExceededException:
+            raise
+        except GithubException as e:
+            if e.status == 401:
+                await self._mark_requires_reauth()
+            raise ValueError(f"Failed to merge PR: {e.data.get('message', str(e))}") from e

@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
+import { Spinner } from "@/components/ui/Spinner";
 
 function OAuthCallbackInner() {
   const searchParams = useSearchParams();
@@ -48,14 +49,14 @@ function OAuthCallbackInner() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#09090b]">
-      <div className="w-5 h-5 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
+      <Spinner size="md" />
     </div>
   );
 }
 
 export default function OAuthCallbackPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[#09090b]"><div className="w-5 h-5 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" /></div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-[#09090b]"><Spinner size="md" /></div>}>
       <OAuthCallbackInner />
     </Suspense>
   );

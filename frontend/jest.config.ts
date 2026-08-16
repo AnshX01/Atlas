@@ -11,7 +11,11 @@ const config: Config = {
   setupFilesAfterEnv: ["<rootDir>/jest.setup.ts"],
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
+    "^lucide-react$": "<rootDir>/src/__mocks__/lucide-react.js",
   },
+  transformIgnorePatterns: [
+    "node_modules/(?!(lucide-react|@lucide)/)",
+  ],
   testPathIgnorePatterns: ["<rootDir>/.next/", "<rootDir>/node_modules/", "<rootDir>/dist/", "<rootDir>/out/", "<rootDir>/dist-electron/", "<rootDir>/tests/e2e/"],
 };
 

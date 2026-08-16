@@ -642,3 +642,147 @@ class GoogleWorkspaceConnector(BaseConnector):
     async def teardown(self) -> None:
         """Cleanup resources (no-op for Phase 1)."""
         pass
+
+    @retry(
+        retry=retry_if_exception(_is_retryable_http_error),
+        wait=wait_exponential_jitter(initial=2, max=60),
+        stop=stop_after_attempt(5),
+    )
+    def _search_emails(self, service: Any, query: str, max_results: int) -> list[dict[str, Any]]:
+        results = service.users().messages().list(userId="me", q=query, maxResults=max_results).execute()
+        messages_ref = results.get("messages", [])
+        
+        emails = []
+        for ref in messages_ref:
+            msg = service.users().messages().get(userId="me", id=ref["id"], format="metadata").execute()
+            headers_list = msg.get("payload", {}).get("headers", [])
+            headers = {h["name"]: h["value"] for h in headers_list}
+            emails.append({
+                "id": ref["id"],
+                "threadId": msg.get("threadId"),
+                "snippet": msg.get("snippet", ""),
+                "subject": headers.get("Subject", ""),
+                "from": headers.get("From", ""),
+                "to": headers.get("To", ""),
+                "date": headers.get("Date", ""),
+            })
+        return emails
+
+    async def search_emails(self, query: str, max_results: int = 10) -> list[dict[str, Any]]:
+        creds = await self._load_credentials()
+        service = build("gmail", "v1", credentials=creds)
+        try:
+            return await asyncio.to_thread(self._search_emails, service, query, max_results)
+        except HttpError as e:
+            if e.resp.status == 401:
+                await self._mark_requires_reauth()
+                raise ValueError("Google Workspace authentication expired. Please re-connect.") from e
+            raise
+
+    @retry(
+        retry=retry_if_exception(_is_retryable_http_error),
+        wait=wait_exponential_jitter(initial=2, max=60),
+        stop=stop_after_attempt(5),
+    )
+    def _get_email(self, service: Any, message_id: str) -> dict[str, Any]:
+        msg = service.users().messages().get(userId="me", id=message_id, format="full").execute()
+        
+        headers_list = msg.get("payload", {}).get("headers", [])
+        headers = {h["name"]: h["value"] for h in headers_list}
+        
+        # Simple extraction of body (first text/plain or text/html part)
+        body = ""
+        parts = msg.get("payload", {}).get("parts", [])
+        if not parts and msg.get("payload", {}).get("body", {}).get("data"):
+            parts = [msg.get("payload")]
+            
+        import base64
+        for part in parts:
+            if part.get("mimeType") in ["text/plain", "text/html"]:
+                data = part.get("body", {}).get("data", "")
+                if data:
+                    body = base64.urlsafe_b64decode(data.encode("ASCII")).decode("utf-8")
+                    break
+                    
+        return {
+            "id": msg.get("id"),
+            "threadId": msg.get("threadId"),
+            "snippet": msg.get("snippet", ""),
+            "subject": headers.get("Subject", ""),
+            "from": headers.get("From", ""),
+            "to": headers.get("To", ""),
+            "date": headers.get("Date", ""),
+            "body": body,
+        }
+
+    async def get_email(self, message_id: str) -> dict[str, Any]:
+        creds = await self._load_credentials()
+        service = build("gmail", "v1", credentials=creds)
+        try:
+            return await asyncio.to_thread(self._get_email, service, message_id)
+        except HttpError as e:
+            if e.resp.status == 401:
+                await self._mark_requires_reauth()
+                raise ValueError("Google Workspace authentication expired.") from e
+            raise
+
+    def _create_message_payload(self, to: str, subject: str, body: str, cc: str | None = None, bcc: str | None = None) -> dict[str, str]:
+        from email.message import EmailMessage
+        import base64
+        
+        message = EmailMessage()
+        message.set_content(body)
+        message["To"] = to
+        message["Subject"] = subject
+        if cc:
+            message["Cc"] = cc
+        if bcc:
+            message["Bcc"] = bcc
+            
+        encoded = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+        return {"raw": encoded}
+
+    @retry(
+        retry=retry_if_exception(_is_retryable_http_error),
+        wait=wait_exponential_jitter(initial=2, max=60),
+        stop=stop_after_attempt(3),
+    )
+    def _draft_email(self, service: Any, to: str, subject: str, body: str, cc: str | None, bcc: str | None) -> dict[str, Any]:
+        raw_msg = self._create_message_payload(to, subject, body, cc, bcc)
+        result = service.users().drafts().create(userId="me", body={"message": raw_msg}).execute()
+        return result
+
+    async def draft_email(self, to: str, subject: str, body: str, cc: str | None = None, bcc: str | None = None) -> dict[str, Any]:
+        creds = await self._load_credentials()
+        service = build("gmail", "v1", credentials=creds)
+        try:
+            return await asyncio.to_thread(self._draft_email, service, to, subject, body, cc, bcc)
+        except HttpError as e:
+            if e.resp.status == 401:
+                await self._mark_requires_reauth()
+                raise ValueError("Google Workspace authentication expired.") from e
+            raise
+
+    @retry(
+        retry=retry_if_exception(_is_retryable_http_error),
+        wait=wait_exponential_jitter(initial=2, max=60),
+        stop=stop_after_attempt(3),
+    )
+    def _send_email(self, service: Any, to: str, subject: str, body: str, cc: str | None, bcc: str | None, draft_id: str | None) -> dict[str, Any]:
+        if draft_id:
+            return service.users().drafts().send(userId="me", body={"id": draft_id}).execute()
+        
+        raw_msg = self._create_message_payload(to, subject, body, cc, bcc)
+        return service.users().messages().send(userId="me", body=raw_msg).execute()
+
+    async def send_email(self, to: str, subject: str, body: str, cc: str | None = None, bcc: str | None = None, draft_id: str | None = None) -> dict[str, Any]:
+        creds = await self._load_credentials()
+        service = build("gmail", "v1", credentials=creds)
+        try:
+            return await asyncio.to_thread(self._send_email, service, to, subject, body, cc, bcc, draft_id)
+        except HttpError as e:
+            if e.resp.status == 401:
+                await self._mark_requires_reauth()
+                raise ValueError("Google Workspace authentication expired.") from e
+            raise
+

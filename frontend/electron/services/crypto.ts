@@ -25,11 +25,16 @@ export function getEncryptionKey(): string {
   return globalEncryptionKey;
 }
 
+// Constant application-level salt for hashed email ID derivation.
+// Must NOT use the email as salt — that made the hash deterministic and precomputable.
+const EMAIL_ID_DERIVATION_SALT = "atlas-app-v1-email-id-derivation";
+
 export function setCrossDeviceDetails(email: string, password: string): void {
   const salt = Buffer.from(email.toLowerCase(), "utf-8");
   const key = pbkdf2Sync(password, salt, ITERATIONS, KEY_LENGTH, "sha256");
   crossDeviceKey = key.toString("hex");
-  hashedEmailId = pbkdf2Sync(email.toLowerCase(), "atlas-email-salt", 1000, 32, "sha256").toString("hex");
+  // Derive a stable per-email ID using a constant app-level salt (not the email itself)
+  hashedEmailId = pbkdf2Sync(email.toLowerCase(), EMAIL_ID_DERIVATION_SALT, 100_000, 32, "sha256").toString("hex");
 }
 
 export function getCrossDeviceKey(): string {

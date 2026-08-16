@@ -72,10 +72,14 @@ interface ChatState {
   updateConversationTitle: (id: string, title: string) => void;
   addMessage: (conversationId: string, message: ChatMessage) => void;
   clearMessages: (conversationId: string) => void;
+  clearAllConversations: () => void;
 }
 
 function generateId(): string {
-  return `conv_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `conv_${crypto.randomUUID()}`;
+  }
+  return `conv_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
 const syncTimers: Record<string, ReturnType<typeof setTimeout>> = {};
@@ -124,7 +128,9 @@ function deepEqual(a: any, b: any): boolean {
   }
 }
 
-export const useChatStore = create<ChatState>()(
+import { createSelectors } from "./createSelectors";
+
+export const useChatStoreBase = create<ChatState>()(
   persist(
     (set, get) => ({
       // ── State ───────────────────────────────────────────────────────
@@ -236,9 +242,31 @@ export const useChatStore = create<ChatState>()(
           messages: { ...state.messages, [conversationId]: [] },
         }));
       },
+
+      clearAllConversations: () => {
+        // Cancel all pending sync timers
+        for (const id of Object.keys(syncTimers)) {
+          clearTimeout(syncTimers[id]);
+          delete syncTimers[id];
+        }
+        set({ conversations: [], activeConversationId: null, messages: {} });
+      },
     }),
     {
       name: "atlas-conversations",
+      version: 1,
+      migrate: (persistedState: any, version: number) => {
+        if (version === 0) {
+          // v0 → v1: ensure all required fields have defaults
+          return {
+            ...persistedState,
+            conversations: persistedState.conversations ?? [],
+            activeConversationId: persistedState.activeConversationId ?? null,
+            messages: persistedState.messages ?? {},
+          };
+        }
+        return persistedState as ChatState;
+      },
       // Persist conversations list and messages (including card data) to localStorage
       partialize: (state) => ({
         conversations: state.conversations,
@@ -253,3 +281,5 @@ export const useChatStore = create<ChatState>()(
     }
   )
 );
+
+export const useChatStore = createSelectors(useChatStoreBase);

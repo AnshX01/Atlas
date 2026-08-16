@@ -17,6 +17,7 @@ import { connectorsAPI } from "@/lib/api/connectors";
 import { briefingAPI } from "@/lib/api/briefing";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 import { DashboardStatusSkeleton, ActivityItemSkeleton } from "@/components/ui/Skeleton";
+import { AgentDesignSystemShell } from "@/components/ui/AgentDesignSystemShell";
 
 // ── Quick Action Card ─────────────────────────────────────────────────────────
 function QuickActionCard({
@@ -36,16 +37,17 @@ function QuickActionCard({
 }) {
   const cardRouter = useRouter();
   return (
-    <motion.button
+    <AgentDesignSystemShell
       onClick={onClick}
       onMouseEnter={() => { if (prefetchHref) cardRouter.prefetch(prefetchHref); }}
-      className="p-4 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] text-left
-                 hover:border-[var(--accent)] hover:bg-[var(--bg-tertiary)] transition-all duration-150 group flex flex-col gap-3"
-      initial={{ opacity: 0, y: 10, boxShadow: "0px 0px 0px rgba(0,0,0,0)" }}
+      className="p-4 cursor-pointer text-left"
+      contentClassName="flex flex-col gap-3"
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay, type: "spring", stiffness: 400, damping: 30 }}
-      whileHover={{ y: -1, boxShadow: "0 4px 16px rgba(0,0,0,0.12)" }}
+      whileHover={{ y: -1 }}
       whileTap={{ scale: 0.98 }}
+      role="button"
     >
       <span className="text-[var(--accent)]">
         {icon}
@@ -54,19 +56,19 @@ function QuickActionCard({
         <p className="text-sm font-semibold text-[var(--text-primary)]">{label}</p>
         <p className="text-xs text-[var(--text-muted)] mt-0.5">{description}</p>
       </div>
-    </motion.button>
+    </AgentDesignSystemShell>
   );
 }
 
 // ── Type Icons for Activity Items ─────────────────────────────────────────────
 const typeIcons: Record<string, React.ReactNode> = {
-  email: <Mail size={13} className="text-white/70" />,
-  pr: <GitPullRequest size={13} className="text-white/70" />,
-  issue: <GitPullRequest size={13} className="text-white/70" />,
-  calendar: <Calendar size={13} className="text-white/70" />,
-  document: <FileText size={13} className="text-slate-400" />,
-  file: <FileText size={13} className="text-slate-400" />,
-  task: <CheckSquare size={13} className="text-white/70" />,
+  email: <Mail size={16} className="text-[var(--text-secondary)]" />,
+  pr: <GitPullRequest size={16} className="text-[var(--text-secondary)]" />,
+  issue: <GitPullRequest size={16} className="text-[var(--text-secondary)]" />,
+  calendar: <Calendar size={16} className="text-[var(--text-secondary)]" />,
+  document: <FileText size={16} className="text-[var(--text-secondary)]" />,
+  file: <FileText size={16} className="text-[var(--text-secondary)]" />,
+  task: <CheckSquare size={16} className="text-[var(--text-secondary)]" />,
 };
 
 // ── Provider Display Names ────────────────────────────────────────────────────
@@ -107,13 +109,15 @@ export default function DashboardPage() {
   const { data: connectors, isLoading: connectorsLoading } = useQuery({
     queryKey: ["connectors"],
     queryFn: connectorsAPI.listConnectors,
-    staleTime: 1000 * 60 * 5,
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 
   const { data: briefing, isLoading: briefingLoading } = useQuery({
     queryKey: ["briefing", "daily"],
     queryFn: () => briefingAPI.getDaily(),
-    staleTime: 1000 * 60 * 5,
+    staleTime: Infinity,
+    gcTime: Infinity,
   });
 
   const today = new Date().toLocaleDateString("en-US", {
@@ -163,7 +167,7 @@ export default function DashboardPage() {
               .map((c) => (
                 <div
                   key={c.id}
-                  className="flex items-center gap-3 p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-default)] hover:bg-[var(--bg-tertiary)] transition-colors duration-150"
+                  className="flex items-center gap-3 p-3 rounded-xl bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] transition-colors duration-150"
                 >
                   <div className="w-7 h-7 rounded-lg bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
                     {providerIcons[c.provider] ?? <Plug size={15} className="text-[var(--text-muted)]" />}
@@ -234,7 +238,7 @@ export default function DashboardPage() {
             ))}
           </div>
         ) : recentItems.length === 0 ? (
-          <div className="p-6 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)] text-center">
+          <div className="p-6 rounded-2xl bg-[var(--bg-secondary)] text-center">
             <Activity size={20} className="text-[var(--text-muted)] mx-auto mb-2" />
             {connectedCount > 0 ? (
               <p className="text-sm text-[var(--text-secondary)]">
@@ -249,29 +253,30 @@ export default function DashboardPage() {
         ) : (
           <div className="flex flex-col gap-2">
             {recentItems.map((item, index) => (
-              <motion.div
+              <AgentDesignSystemShell
                 key={item.id}
-                className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-default)]
-                           flex items-center gap-3 hover:bg-[var(--bg-tertiary)] transition-all duration-150 cursor-pointer group"
+                className="p-5 flex items-center gap-3 cursor-pointer group"
                 initial={{ opacity: 0, x: -8 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 0.45 + index * 0.06 }}
                 onClick={() => item.action_url ? window.open(item.action_url, '_blank') : router.push("/briefing")}
-                whileHover={{ y: -1, boxShadow: "0 4px 16px rgba(0,0,0,0.08)" }}
+                whileHover={{ y: -1 }}
               >
-                <div className="w-7 h-7 rounded-lg bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
-                  {typeIcons[item.type] ?? <Activity size={13} className="text-[var(--text-muted)]" />}
+                <div className="flex items-center justify-center shrink-0">
+                  {typeIcons[item.type] ?? <Activity size={16} className="text-[var(--text-secondary)]" />}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-[var(--text-primary)] truncate">
+                <div className="flex-1 min-w-0 flex items-center justify-between gap-4">
+                  <p className="text-base font-semibold text-[var(--text-primary)] truncate">
                     {item.title}
                   </p>
-                  <p className="text-xs text-[var(--text-muted)] truncate">
-                    {item.source === "gmail" ? "Google Workspace" : item.source === "github" ? "GitHub" : item.source === "calendar" ? "Google Workspace" : item.source === "tasks" ? "Google Workspace" : item.source === "slack" ? "Slack" : item.source === "notion" ? "Notion" : (item.source ? item.source.charAt(0).toUpperCase() + item.source.slice(1) : "Source")}
-                  </p>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                      {item.source === "gmail" ? "Google Workspace" : item.source === "github" ? "GitHub" : item.source === "calendar" ? "Google Workspace" : item.source === "tasks" ? "Google Workspace" : item.source === "slack" ? "Slack" : item.source === "notion" ? "Notion" : (item.source ? item.source.charAt(0).toUpperCase() + item.source.slice(1) : "Source")}
+                    </span>
+                    <ArrowRight size={14} className="text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors" />
+                  </div>
                 </div>
-                <ArrowRight size={12} className="text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors shrink-0" />
-              </motion.div>
+              </AgentDesignSystemShell>
             ))}
           </div>
         )}

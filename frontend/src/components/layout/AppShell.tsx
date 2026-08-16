@@ -4,14 +4,20 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { PageTransition } from "@/components/layout/PageTransition";
+import { CommandPalette } from "@/components/layout/CommandPalette";
 import { useAuthStore } from "@/lib/store/useAuthStore";
+import { useRef } from "react";
 
 import { useWebSocket } from "@/lib/hooks/useWebSocket";
+import { Spinner } from "@/components/ui/Spinner";
+import { useQueryClient } from "@tanstack/react-query";
+import { connectorsAPI } from "@/lib/api/connectors";
+import { briefingAPI } from "@/lib/api/briefing";
 
 function HydrationSpinner() {
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-[var(--bg-primary)]">
-      <div className="w-5 h-5 border-2 border-white/20 border-t-white/80 rounded-full animate-spin" />
+      <Spinner size="md" />
     </div>
   );
 }
@@ -21,12 +27,65 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, isHydrated } = useAuthStore();
   const [isMounted, setIsMounted] = useState(false);
+  const clickTimestamps = useRef<number[]>([]);
+  const [rageLocked, setRageLocked] = useState(false);
 
   useWebSocket();
 
+  const queryClient = useQueryClient();
+
   useEffect(() => {
     setIsMounted(true);
-  }, []);
+    
+    // Prefetch dashboard data to make it load instantly
+    if (user && isHydrated) {
+      queryClient.prefetchQuery({
+        queryKey: ["connectors"],
+        queryFn: connectorsAPI.listConnectors,
+        staleTime: Infinity,
+      });
+      queryClient.prefetchQuery({
+        queryKey: ["briefing", "daily"],
+        queryFn: () => briefingAPI.getDaily(),
+        staleTime: Infinity,
+      });
+      
+      // Also prefetch mcp-manager status without blocking
+      if (typeof window !== "undefined" && window.atlasElectron?.mcpGetStatus) {
+        queryClient.prefetchQuery({
+          queryKey: ["mcpStatus"],
+          queryFn: () => window.atlasElectron!.mcpGetStatus(),
+          staleTime: Infinity,
+        });
+      }
+    }
+  }, [user, isHydrated, queryClient]);
+
+  useEffect(() => {
+    const handleGlobalClick = (e: MouseEvent) => {
+      const now = Date.now();
+      clickTimestamps.current = clickTimestamps.current.filter((t) => now - t < 1000);
+      clickTimestamps.current.push(now);
+
+      if (clickTimestamps.current.length >= 5) {
+        if (!rageLocked) {
+          setRageLocked(true);
+          setTimeout(() => {
+            setRageLocked(false);
+            clickTimestamps.current = [];
+          }, 2000);
+        }
+        e.stopPropagation();
+        e.preventDefault();
+      } else if (rageLocked) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener("click", handleGlobalClick, true);
+    return () => document.removeEventListener("click", handleGlobalClick, true);
+  }, [rageLocked]);
 
   useEffect(() => {
     if (!isMounted || !isHydrated) return;
@@ -85,11 +144,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         
         <div className={isChat ? "flex-1 overflow-hidden z-10" : "p-8 overflow-y-auto flex-1 z-10"}>
+          {rageLocked && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/5 backdrop-blur-sm pointer-events-none animate-fade-in">
+              <div className="bg-[var(--bg-secondary)] px-4 py-2 rounded-full text-sm font-medium text-orange-500">
+                Slow down! Clicks are debounced.
+              </div>
+            </div>
+          )}
           <PageTransition>
             {children}
           </PageTransition>
         </div>
       </main>
+      <CommandPalette />
     </div>
   );
 }

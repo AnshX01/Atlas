@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { CheckCircle2, AlertCircle, Wrench } from "lucide-react";
+import { Spinner } from "@/components/ui/Spinner";
 import {
   GoogleLogo,
   GitHubLogo,
@@ -14,6 +15,7 @@ import {
   GoogleTasksLogo,
 } from "@/components/icons/ProviderLogos";
 import type { ToolExecution } from "@/lib/hooks/useWorkflow";
+import { AgentDesignSystemShell } from "@/components/ui/AgentDesignSystemShell";
 
 interface ToolExecutionCardProps {
   execution: ToolExecution;
@@ -67,18 +69,19 @@ export function ToolExecutionCard({ execution }: ToolExecutionCardProps) {
   const isError = status === "error";
 
   return (
-    <motion.div
+    <AgentDesignSystemShell
       initial={{ opacity: 0, scale: 0.98, y: 10 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
+      layout
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
-      className="flex items-center gap-3 p-4 my-2 rounded-2xl border border-white/5 bg-gradient-to-br from-[var(--bg-secondary)]/80 to-[var(--bg-primary)]/40 backdrop-blur-xl shadow-[0_4px_24px_rgba(0,0,0,0.06)] relative overflow-hidden transition-all duration-300 group hover:shadow-[0_8px_32px_rgba(0,0,0,0.12)] hover:border-[var(--accent)]/30"
+      className="my-2"
+      contentClassName="flex flex-row items-center gap-3 p-4"
       role="status"
       aria-label={`Tool execution: ${formatToolName(tool)} — ${status}`}
     >
-      <div className="absolute inset-0 bg-gradient-to-r from-[var(--accent)]/0 to-transparent opacity-0 group-hover:from-[var(--accent)]/5 group-hover:opacity-100 transition-opacity duration-300" />
       
       {/* Server Icon */}
-      <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] flex items-center justify-center shadow-sm group-hover:shadow-md transition-shadow relative z-10">
+      <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-[var(--bg-tertiary)] flex items-center justify-center transition-shadow relative z-10">
         {getServerIcon(server)}
       </div>
 
@@ -107,7 +110,7 @@ export function ToolExecutionCard({ execution }: ToolExecutionCardProps) {
       {/* Status Indicator */}
       <div className="flex-shrink-0 relative z-10 ml-2">
         {isLoading && (
-          <div className="w-5 h-5 rounded-full border-2 border-[var(--accent)]/20 border-t-[var(--accent)] animate-spin" />
+          <Spinner size="md" />
         )}
         {isDone && (
           <CheckCircle2 size={18} className="text-green-400" />
@@ -116,6 +119,6 @@ export function ToolExecutionCard({ execution }: ToolExecutionCardProps) {
           <AlertCircle size={18} className="text-red-400" />
         )}
       </div>
-    </motion.div>
+    </AgentDesignSystemShell>
   );
 }

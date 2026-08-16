@@ -74,43 +74,43 @@ async def _async_sync_connector(task, user_id: uuid.UUID, connector_id: uuid.UUI
     reset_qdrant_client()
     reset_redis_pool()
     factory = get_session_factory()
-
-    async with factory() as session:
-        from app.domain.models.connector import Connector
-        from sqlalchemy import select
-
-        stmt = select(Connector).where(
-            Connector.id == connector_id,
-            Connector.user_id == user_id,  # RBAC: enforce user ownership
-        )
-        result = await session.execute(stmt)
-        connector_row = result.scalar_one_or_none()
-
-        if not connector_row:
-            logger.error("Connector not found or access denied: %s", str(connector_id))
-            return {"status": "error", "message": "Connector not found"}
-
-        # Create SyncLog entry
-        sync_log = SyncLog(
-            id=uuid.uuid4(),
-            connector_id=connector_id,
-            status=SyncStatus.RUNNING,
-        )
-        session.add(sync_log)
-        await session.commit()
-
-    # Publish start event
-    await publish_sync_event(
-        str(user_id),
-        {
-            "event": "sync_started",
-            "connector_id": str(connector_id),
-            "provider": connector_row.provider.value,
-            "timestamp": datetime.now(UTC).isoformat(),
-        },
-    )
-
+    
     try:
+        async with factory() as session:
+            from app.domain.models.connector import Connector
+            from sqlalchemy import select
+
+            stmt = select(Connector).where(
+                Connector.id == connector_id,
+                Connector.user_id == user_id,  # RBAC: enforce user ownership
+            )
+            result = await session.execute(stmt)
+            connector_row = result.scalar_one_or_none()
+
+            if not connector_row:
+                logger.error("Connector not found or access denied: %s", str(connector_id))
+                return {"status": "error", "message": "Connector not found"}
+
+            # Create SyncLog entry
+            sync_log = SyncLog(
+                id=uuid.uuid4(),
+                connector_id=connector_id,
+                status=SyncStatus.RUNNING,
+            )
+            session.add(sync_log)
+            await session.commit()
+
+        # Publish start event
+        await publish_sync_event(
+            str(user_id),
+            {
+                "event": "sync_started",
+                "connector_id": str(connector_id),
+                "provider": connector_row.provider.value,
+                "timestamp": datetime.now(UTC).isoformat(),
+            },
+        )
+
         connector = _get_connector_instance(connector_row, user_id)
         result = await connector.sync()
 
@@ -146,28 +146,38 @@ async def _async_sync_connector(task, user_id: uuid.UUID, connector_id: uuid.UUI
     except Exception as exc:
         logger.error("Sync failed: connector=%s error=%s", str(connector_id), str(exc))
 
-        async with factory() as session:
-            sync_log_obj = await session.get(SyncLog, sync_log.id)
-            if sync_log_obj:
-                sync_log_obj.status = SyncStatus.FAILED
-                sync_log_obj.error_msg = str(exc)[:2000]
-                session.add(sync_log_obj)
-            await session.commit()
+        # Attempt to update SyncLog if it was created
+        try:
+            async with factory() as session:
+                sync_log_obj = await session.get(SyncLog, sync_log.id)
+                if sync_log_obj:
+                    sync_log_obj.status = SyncStatus.FAILED
+                    sync_log_obj.error_msg = str(exc)[:2000]
+                    session.add(sync_log_obj)
+                await session.commit()
 
-        await publish_sync_event(
-            str(user_id),
-            {
-                "event": "sync_error",
-                "connector_id": str(connector_id),
-                "error": str(exc),
-                "timestamp": datetime.now(UTC).isoformat(),
-            },
-        )
+            await publish_sync_event(
+                str(user_id),
+                {
+                    "event": "sync_error",
+                    "connector_id": str(connector_id),
+                    "error": str(exc),
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
+        except Exception:
+            # If SyncLog was never created (e.g., initial DB query failed),
+            # we can't update it — just proceed to retry/raise.
+            pass
 
         if isinstance(exc, (NotImplementedError, ValueError, TypeError)):
             raise  # Bubble up fatal errors
 
         raise task.retry(exc=exc)
+
+    finally:
+        from app.infrastructure.database import dispose_engine
+        await dispose_engine()
 
 
 @celery_app.task(name="app.workers.sync_tasks.sync_all_active_connectors", queue="sync")
@@ -184,19 +194,23 @@ async def _async_sync_all() -> dict:
     reset_qdrant_client()
     reset_redis_pool()
     factory = get_session_factory()
-    async with factory() as session:
-        stmt = select(Connector).where(Connector.status == ConnectorStatus.ACTIVE)
-        result = await session.execute(stmt)
-        connectors = result.scalars().all()
+    try:
+        async with factory() as session:
+            stmt = select(Connector).where(Connector.status == ConnectorStatus.ACTIVE)
+            result = await session.execute(stmt)
+            connectors = result.scalars().all()
 
-    enqueued = 0
-    for connector in connectors:
-        await asyncio.to_thread(
-            sync_connector_job.apply_async,
-            args=[str(connector.user_id), str(connector.id)],
-            countdown=enqueued * 2,  # stagger to avoid thundering herd
-        )
-        enqueued += 1
+        enqueued = 0
+        for connector in connectors:
+            await asyncio.to_thread(
+                sync_connector_job.apply_async,
+                args=[str(connector.user_id), str(connector.id)],
+                countdown=enqueued * 2,  # stagger to avoid thundering herd
+            )
+            enqueued += 1
 
-    logger.info("Enqueued sync jobs: count=%d", enqueued)
-    return {"enqueued": enqueued}
+        logger.info("Enqueued sync jobs: count=%d", enqueued)
+        return {"enqueued": enqueued}
+    finally:
+        from app.infrastructure.database import dispose_engine
+        await dispose_engine()

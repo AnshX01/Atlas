@@ -78,7 +78,7 @@ class SynthesizerAgent(BaseAgent):
         """Expand the user's query into multiple search-optimized variants."""
         settings = get_settings()
         llm = ChatOpenAI(
-            model=settings.OPENAI_MODEL, temperature=0.0, api_key=settings.OPENAI_API_KEY
+            model=settings.OPENAI_MODEL, temperature=0.0, api_key=settings.OPENAI_API_KEY, timeout=30.0, max_retries=2
         )
 
         prompt = f"""Rewrite the following query into 3 search-optimized variants for a semantic search engine.
@@ -143,10 +143,12 @@ Query: {query}"""
             logger.warning("Graph search failed", error=str(e))
             return []
 
-    def _rerank(
+    async def _rerank(
         self, query: str, candidates: list[dict[str, Any]], top_k: int = 5
     ) -> list[dict[str, Any]]:
         """Apply cross-encoder reranking to select the most relevant contexts."""
+        import asyncio
+        
         if not candidates:
             return []
 
@@ -157,7 +159,7 @@ Query: {query}"""
         if not pairs:
             return candidates[:top_k]
 
-        scores = reranker.predict(pairs)
+        scores = await asyncio.to_thread(reranker.predict, pairs)
         scored = sorted(zip(candidates, scores, strict=False), key=lambda x: x[1], reverse=True)
         return [item for item, _ in scored[:top_k]]
 
@@ -185,7 +187,7 @@ Query: {query}"""
                 all_candidates[rid] = r
 
         # 3. Reranking
-        reranked = self._rerank(query, list(all_candidates.values()), top_k=5)
+        reranked = await self._rerank(query, list(all_candidates.values()), top_k=5)
 
         # Build context string for the LLM
         context_blocks = []
@@ -203,6 +205,8 @@ Query: {query}"""
             model=settings.OPENAI_MODEL,
             temperature=0.0,
             api_key=settings.OPENAI_API_KEY,
+            timeout=30.0,
+            max_retries=2,
         ).with_structured_output(RAGOutput)
 
         try:

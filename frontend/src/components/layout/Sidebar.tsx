@@ -23,7 +23,9 @@ import { cn } from "@/lib/utils";
 import { connectorsAPI, type ConnectorProvider } from "@/lib/api/connectors";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 import { useChatStore } from "@/lib/store/useChatStore";
-
+import { useAppStore } from "@/lib/store/useAppStore";
+import { useWebSocketStore } from "@/lib/store/useWebSocketStore";
+import { Cloud, CloudOff, RefreshCw, AlertTriangle } from "lucide-react";
 interface NavItem {
   id: string;
   label: string;
@@ -90,12 +92,14 @@ function getRelativeTime(dateStr: string): string {
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user } = useAuthStore();
+  const user = useAuthStore.use.user();
 
   // ── Avatar state ──────────────────────────────────────────────────
   const [avatar, setAvatar] = useState<string | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
+    setIsMounted(true);
     const stored = localStorage.getItem('atlas-profile-avatar');
     if (stored) setAvatar(stored);
     const handleFocus = () => {
@@ -124,7 +128,35 @@ export function Sidebar() {
   const setActiveConversation = useChatStore((s) => s.setActiveConversation);
   const removeConversation = useChatStore((s) => s.removeConversation);
 
-  const recentConversations = conversations.slice(0, 10);
+  const [syncState, setSyncState] = useState<"synced" | "syncing" | "offline" | "conflict">("synced");
+  const [syncLabel, setSyncLabel] = useState<string>("All changes synced");
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.atlasElectron?.onSyncStateChange) {
+      window.atlasElectron.getSyncState?.().then(state => {
+        setSyncState(state);
+      }).catch(console.error);
+
+      const unsub = window.atlasElectron.onSyncStateChange((state) => {
+        setSyncState(state);
+      });
+      return () => unsub();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (syncState === "offline") {
+      setSyncLabel(typeof window !== "undefined" && !navigator.onLine ? "Offline (No Internet)" : "Disconnected from Cloud");
+    } else if (syncState === "syncing") {
+      setSyncLabel(`Syncing...`);
+    } else if (syncState === "conflict") {
+      setSyncLabel("Sync Conflict / Error");
+    } else {
+      setSyncLabel("All changes synced");
+    }
+  }, [syncState]);
+
+  const recentConversations = isMounted ? conversations.slice(0, 10) : [];
 
   const connectorItems = connectors.map((c) => ({
     id: c.id,
@@ -152,7 +184,7 @@ export function Sidebar() {
       {/* Logo */}
       <div className="px-4 mb-6">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center shadow-sm">
+          <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center">
             <img src="/logo.png" alt="Atlas" className="w-6 h-6" />
           </div>
           <span className="text-sm font-bold text-[var(--text-primary)] tracking-tight">
@@ -237,7 +269,7 @@ export function Sidebar() {
           <Link
             href="/settings"
             prefetch={true}
-            className="flex items-center gap-2 px-3 py-2 mt-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors border border-[var(--border-default)] hover:border-[var(--accent)]/30"
+            className="flex items-center gap-2 px-3 py-2 mt-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors"
             aria-label="Connect a new integration"
           >
             <Plus size={12} />
@@ -255,7 +287,7 @@ export function Sidebar() {
         {/* New Chat Button */}
         <button
           onClick={handleNewChat}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors border border-[var(--border-default)] hover:border-[var(--accent)]/30 w-full flex-shrink-0"
+          className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs text-[var(--accent)] hover:bg-[var(--accent)]/5 transition-colors w-full flex-shrink-0"
           aria-label="Start a new chat conversation"
         >
           <Plus size={12} />
@@ -286,7 +318,14 @@ export function Sidebar() {
                     {getRelativeTime(conv.createdAt)}
                   </span>
                   <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); removeConversation(conv.id); }}
+                    onClick={(e) => { 
+                      e.preventDefault(); 
+                      e.stopPropagation(); 
+                      removeConversation(conv.id);
+                      if (activeConversationId === conv.id) {
+                        handleNewChat();
+                      }
+                    }}
                     className="flex-shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-[var(--text-muted)] hover:text-red-400"
                     aria-label="Delete conversation"
                   >
@@ -300,7 +339,7 @@ export function Sidebar() {
       </div>
 
       {/* Bottom: Profile + Settings */}
-      <div className="px-2 pt-4 border-t border-[var(--border-subtle)]">
+      <div className="px-2 pt-4">
         {/* Profile card */}
         <Link href="/profile" prefetch={true} className="block mb-2 w-full text-left">
           <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer">
@@ -309,16 +348,16 @@ export function Sidebar() {
                 <img src={avatar} alt="" className="w-full h-full object-cover" />
               ) : (
                 <span className="text-xs font-semibold text-[var(--text-secondary)]">
-                  {user?.full_name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U'}
+                  {isMounted ? (user?.full_name?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || 'U') : 'U'}
                 </span>
               )}
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-[var(--text-primary)] truncate">
-                {user?.full_name || 'User'}
+                {isMounted ? (user?.full_name || 'User') : 'User'}
               </p>
               <p className="text-[10px] text-[var(--text-muted)] truncate">
-                {user?.email || ''}
+                {isMounted ? (user?.email || '') : ''}
               </p>
             </div>
           </div>

@@ -172,7 +172,7 @@ export default function ProfilePage() {
         transition={{ delay: 0.05, type: "spring", stiffness: 400, damping: 30 }}
       >
         <div className="relative group">
-          <div className="w-24 h-24 rounded-full overflow-hidden bg-[var(--bg-tertiary)] border-2 border-[var(--border-default)] flex items-center justify-center">
+          <div className="w-24 h-24 rounded-full overflow-hidden bg-[var(--bg-tertiary)] flex items-center justify-center">
             {avatar ? (
               <img
                 src={avatar}
@@ -209,7 +209,7 @@ export default function ProfilePage() {
 
       {/* Personal Info Card */}
       <motion.div
-        className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--border-default)] p-6 mb-6"
+        className="bg-[var(--bg-secondary)] rounded-2xl p-6 mb-6"
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.1, type: "spring", stiffness: 400, damping: 30 }}
@@ -235,7 +235,7 @@ export default function ProfilePage() {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="Your full name"
-                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none transition-colors"
               />
             </div>
           </div>
@@ -256,7 +256,7 @@ export default function ProfilePage() {
                 value={email}
                 readOnly
                 placeholder="you@example.com"
-                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none transition-colors opacity-60 cursor-not-allowed"
+                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none transition-colors opacity-60 cursor-not-allowed"
               />
             </div>
             <p className="text-[11px] text-[var(--text-muted)] mt-1">Email cannot be changed</p>
@@ -279,7 +279,7 @@ export default function ProfilePage() {
 
       {/* Security Card */}
       <motion.div
-        className="bg-[var(--bg-secondary)] rounded-2xl border border-[var(--border-default)] p-6"
+        className="bg-[var(--bg-secondary)] rounded-2xl p-6"
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.15, type: "spring", stiffness: 400, damping: 30 }}
@@ -305,7 +305,7 @@ export default function ProfilePage() {
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 placeholder="Enter current password"
-                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none transition-colors"
               />
             </div>
           </div>
@@ -326,7 +326,7 @@ export default function ProfilePage() {
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Enter new password"
-                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none transition-colors"
               />
             </div>
           </div>
@@ -347,7 +347,7 @@ export default function ProfilePage() {
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Confirm new password"
-                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] border border-[var(--border-default)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent)] transition-colors"
+                className="w-full pl-9 pr-3 py-2 rounded-xl bg-[var(--bg-tertiary)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none transition-colors"
               />
             </div>
           </div>

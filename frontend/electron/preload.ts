@@ -47,6 +47,13 @@ contextBridge.exposeInMainWorld("atlasElectron", {
     ipcRenderer.on("window-unmaximized", handler);
     return () => ipcRenderer.removeListener("window-unmaximized", handler);
   },
+  onSyncStateChange: (callback: (state: "synced" | "syncing" | "offline" | "conflict") => void): (() => void) => {
+    const handler = (_event: any, state: "synced" | "syncing" | "offline" | "conflict") => callback(state);
+    ipcRenderer.on("sync-state-change", handler);
+    return () => ipcRenderer.removeListener("sync-state-change", handler);
+  },
+  getSyncState: (): Promise<"synced" | "syncing" | "offline" | "conflict"> =>
+    ipcRenderer.invoke("sync-get-state"),
 
 
   /**
@@ -71,6 +78,22 @@ contextBridge.exposeInMainWorld("atlasElectron", {
   /** Check if Ollama is running and list available models */
   checkOllamaHealth: (): Promise<{ available: boolean; models?: string[] }> =>
     ipcRenderer.invoke("ollama-health"),
+
+  /** Verify inference actually works */
+  verifyOllamaInference: (): Promise<boolean> =>
+    ipcRenderer.invoke("ollama-verify-inference"),
+
+  /** Check if Ollama is installed on the system */
+  checkOllamaInstalled: (): Promise<boolean> =>
+    ipcRenderer.invoke("ollama-is-installed"),
+
+  /** Start the Ollama daemon */
+  startOllama: (): Promise<void> =>
+    ipcRenderer.invoke("ollama-start"),
+
+  /** Install Ollama on the system */
+  installOllama: (): Promise<void> =>
+    ipcRenderer.invoke("ollama-install"),
 
   /**
    * Send a chat message to Ollama for streaming completion.
@@ -314,6 +337,10 @@ export type AtlasElectronAPI = {
   onToggleCommandBar: (callback: () => void) => () => void;
   onOAuthCallback: (callback: (data: { access_token?: string; refresh_token?: string; error?: string }) => void) => () => void;
   checkOllamaHealth: () => Promise<{ available: boolean; models?: string[] }>;
+  verifyOllamaInference: () => Promise<boolean>;
+  checkOllamaInstalled: () => Promise<boolean>;
+  startOllama: () => Promise<void>;
+  installOllama: () => Promise<void>;
   sendChatMessage: (
     messages: Array<{ role: string; content: string }>,
     model?: string

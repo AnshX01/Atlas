@@ -10,7 +10,6 @@ interface BriefingState {
   totalUnread: number;
   generatedAt: string | null;
   dismissedIds: string[];
-  proactiveSuggestion?: { item: BriefingItemData; reasoning: string };
 
   // ── UI State ──────────────────────────────────────────────────────
   loading: boolean;
@@ -27,7 +26,6 @@ interface BriefingState {
     total_unread: number;
     generated_at: string;
     is_summarizing?: boolean;
-    proactive_suggestion?: { item: BriefingItemData; reasoning: string };
   }) => void;
   markItemActioned: (itemId: string) => void;
   dismissItem: (id: string) => void;
@@ -37,7 +35,9 @@ interface BriefingState {
   restoreItem: (item: BriefingItemData) => void;
 }
 
-export const useBriefingStore = create<BriefingState>()(
+import { createSelectors } from "./createSelectors";
+
+export const useBriefingStoreBase = create<BriefingState>()(
   persist(
     (set, get) => ({
       // ── Initial State ──────────────────────────────────────────────────
@@ -47,7 +47,6 @@ export const useBriefingStore = create<BriefingState>()(
       totalUnread: 0,
       generatedAt: null,
       dismissedIds: [],
-      proactiveSuggestion: undefined,
       loading: false,
       error: null,
       isSummarizing: false,
@@ -64,7 +63,6 @@ export const useBriefingStore = create<BriefingState>()(
       totalUnread: data.total_unread,
       generatedAt: data.generated_at,
       isSummarizing: data.is_summarizing ?? false,
-      proactiveSuggestion: data.proactive_suggestion,
       loading: false,
       error: null,
     })),
@@ -101,7 +99,6 @@ export const useBriefingStore = create<BriefingState>()(
       generatedAt: null,
       error: null,
       isSummarizing: false,
-      proactiveSuggestion: undefined,
     }),
 
   restoreItem: (item) =>
@@ -113,7 +110,20 @@ export const useBriefingStore = create<BriefingState>()(
   }),
     {
       name: "atlas-briefing-store",
+      version: 1,
+      migrate: (persistedState: any, version: number) => {
+        if (version === 0) {
+          // v0 → v1: ensure dismissedIds is always an array
+          return {
+            ...persistedState,
+            dismissedIds: persistedState.dismissedIds ?? [],
+          };
+        }
+        return persistedState as Pick<BriefingState, "dismissedIds">;
+      },
       partialize: (state) => ({ dismissedIds: state.dismissedIds }),
     }
   )
 );
+
+export const useBriefingStore = createSelectors(useBriefingStoreBase);

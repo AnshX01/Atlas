@@ -12,13 +12,13 @@ interface BadgeProps {
 }
 
 const variantStyles: Record<BadgeVariant, string> = {
-  default: "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border-[var(--border-default)]",
-  urgent:  "bg-red-500/15 text-red-400 border-red-500/20",
-  high:    "bg-orange-500/15 text-orange-400 border-orange-500/20",
-  medium:  "bg-yellow-500/15 text-yellow-500 border-yellow-500/20",
-  low:     "bg-green-500/15 text-green-400 border-green-500/20",
-  blue:    "bg-blue-500/15 text-blue-400 border-blue-500/20",
-  outline: "bg-transparent text-[var(--text-muted)] border-[var(--border-default)]",
+  default: "bg-[var(--bg-tertiary)] text-[var(--text-secondary)]",
+  urgent:  "bg-red-500/15 text-red-400",
+  high:    "bg-orange-500/15 text-orange-400",
+  medium:  "bg-yellow-500/15 text-yellow-500",
+  low:     "bg-green-500/15 text-green-400",
+  blue:    "bg-blue-500/15 text-blue-400",
+  outline: "bg-transparent text-[var(--text-muted)]",
 };
 
 const dotColors: Record<BadgeVariant, string> = {
@@ -36,7 +36,7 @@ export function Badge({ children, variant = "default", className, dot }: BadgePr
     <span
       className={cn(
         "inline-flex items-center gap-1.5 px-2 py-0.5",
-        "rounded-full border text-[11px] font-medium tracking-wide",
+        "rounded-full text-[11px] font-medium tracking-wide",
         "select-none whitespace-nowrap",
         variantStyles[variant],
         className

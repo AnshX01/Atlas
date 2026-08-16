@@ -29,6 +29,7 @@ from app.api.v1 import (
     conversations_router,
     search_router,
     users_router,
+    gmail_router,
 )
 from app.api.v1.auth import router as auth_router
 from app.core.config import get_settings
@@ -113,6 +114,7 @@ def create_app() -> FastAPI:
     app.include_router(actions_router, prefix=api_prefix)
     app.include_router(users_router, prefix=api_prefix)
     app.include_router(conversations_router, prefix=api_prefix)
+    app.include_router(gmail_router, prefix=api_prefix)
 
     # ── Health & Metrics ──────────────────────────────────────────────────────
     class HealthResponse(BaseModel):

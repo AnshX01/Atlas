@@ -45,21 +45,18 @@ export default function RootLayout({
       </head>
       <body className={`${inter.className} antialiased flex flex-col h-screen overflow-hidden`}>
         <div className="flex-1 overflow-auto relative">
-          <OfflineBanner />
-        {/* Skip to main content — WCAG 2.1 AA */}
-        <a
-          href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-[var(--accent)] focus:text-white focus:rounded-xl"
-        >
-          Skip to main content
-        </a>
-
         <Providers>
-          <OnboardingWizard>
-            <AppShell>
-              {children}
-            </AppShell>
-          </OnboardingWizard>
+          {/* C-02: ErrorBoundary was imported but never used — any uncaught render
+              error would produce a white screen. Now the entire app tree is wrapped
+              so errors surface the built-in recovery UI instead of crashing. */}
+          <ErrorBoundary>
+            <OfflineBanner />
+            <OnboardingWizard>
+              <AppShell>
+                {children}
+              </AppShell>
+            </OnboardingWizard>
+          </ErrorBoundary>
         </Providers>
         <Toaster position="bottom-center" />
         </div>

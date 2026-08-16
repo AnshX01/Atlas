@@ -7,7 +7,6 @@ import {
   shell,
   session,
   Tray,
-  Tray,
   Menu,
   dialog,
 } from "electron";
@@ -20,6 +19,10 @@ import {
   getAvailableModels,
   streamChat,
   generateEmbedding,
+  verifyInference,
+  isOllamaInstalled,
+  startOllamaDaemon,
+  installOllama,
 } from "./services/ollama";
 import { Orchestrator } from "./services/orchestrator";
 import {
@@ -47,6 +50,7 @@ import {
   ProviderCredentials,
 } from "./services/token-store";
 import { startGoogleOAuth, handleOAuthCallback, hasPendingOAuth, setOAuthRedirectPort } from "./services/google-oauth";
+import { syncManager } from "./services/cloud-sync";
 import * as http from "http";
 import serve from "electron-serve";
 
@@ -339,6 +343,11 @@ app.on("will-quit", () => {
 
   if (cronEngine) cronEngine.stop();
 
+  // Destroy orchestrator (clears approval TTL interval and rejects pending approvals)
+  if (orchestrator) {
+    orchestrator.destroy();
+  }
+
   // Gracefully stop all MCP server subprocesses
   if (mcpManager) {
     mcpManager.stopAll().catch((err) => {
@@ -352,11 +361,27 @@ ipcMain.handle("get-platform", () => process.platform);
 
 ipcMain.handle("get-app-version", () => app.getVersion());
 
-ipcMain.handle("open-external", async (_event, url: string) => {
+ipcMain.handle("open-external", async (_event, url: unknown) => {
+  if (typeof url !== 'string' || url.length > 10000) {
+    throw new Error('[Atlas] open-external: invalid input — expected string URL');
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error('[Atlas] open-external: malformed URL');
+  }
+  // Strict allowlist — only web protocols permitted. Prevents file://, javascript:, ftp:, etc.
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error(`[Atlas] open-external: disallowed protocol '${parsed.protocol}'`);
+  }
   await shell.openExternal(url);
 });
 
 ipcMain.handle("set-theme", (_event, theme: "dark" | "light") => {
+  if (typeof theme !== 'string' || (theme !== 'dark' && theme !== 'light')) {
+    return { error: 'Invalid input: expected "dark" or "light"' };
+  }
   nativeTheme.themeSource = theme;
 });
 
@@ -387,8 +412,18 @@ ipcMain.handle("select-directory", async () => {
 });
 
 // Parse local file (extract text or base64 image)
-ipcMain.handle("parse-file", async (_event, filePath: string) => {
-  return parseFile(filePath);
+ipcMain.handle("parse-file", async (_event, filePath: unknown) => {
+  if (typeof filePath !== 'string' || filePath.length > 10000) {
+    throw new Error('[Atlas] parse-file: invalid input — expected file path string');
+  }
+  // Resolve and normalize to prevent path traversal (../../etc/passwd, etc.)
+  const resolved = path.resolve(filePath);
+  const homeDir = require('os').homedir();
+  // Only allow files within the user's home directory
+  if (!resolved.startsWith(homeDir + path.sep) && resolved !== homeDir) {
+    throw new Error(`[Atlas] parse-file: path '${resolved}' is outside the allowed directory`);
+  }
+  return parseFile(resolved);
 });
 
 // ── Ollama AI IPC Handlers ────────────────────────────────────────────────────
@@ -397,13 +432,36 @@ ipcMain.handle("ollama-health", async () => {
   return getHealthStatus();
 });
 
+ipcMain.handle("ollama-verify-inference", async () => {
+  return verifyInference();
+});
+
+ipcMain.handle("ollama-is-installed", async () => {
+  return isOllamaInstalled();
+});
+
+ipcMain.handle("ollama-start", async () => {
+  return startOllamaDaemon();
+});
+
+ipcMain.handle("ollama-install", async () => {
+  return installOllama();
+});
+
 ipcMain.handle("ollama-models", async () => {
   return getAvailableModels();
 });
 
 ipcMain.handle(
   "chat-send",
-  async (_event, { messages, model }: { messages: Array<{ role: string; content: string }>; model?: string }) => {
+  async (_event, arg: { messages: Array<{ role: string; content: string }>; model?: string }) => {
+    if (!arg || typeof arg !== 'object') {
+      return { error: 'Invalid input: expected object with messages array' };
+    }
+    const { messages, model } = arg;
+    if (!Array.isArray(messages)) {
+      return { error: 'Invalid input: messages must be an array' };
+    }
     if (!mainWindow) {
       throw new Error("No main window available");
     }
@@ -423,7 +481,14 @@ ipcMain.handle(
 
 ipcMain.handle(
   "embed-text",
-  async (_event, { text, model }: { text: string; model?: string }) => {
+  async (_event, arg: { text: string; model?: string }) => {
+    if (!arg || typeof arg !== 'object') {
+      return { error: 'Invalid input: expected object with text field' };
+    }
+    const { text, model } = arg;
+    if (typeof text !== 'string' || text.length > 10000) {
+      return { error: 'Invalid input: text must be a string under 10000 chars' };
+    }
     return generateEmbedding(text, model);
   }
 );
@@ -439,6 +504,9 @@ ipcMain.handle("mcp-status", () => {
 });
 
 ipcMain.handle("mcp-start", async (_event, serverName: string) => {
+  if (typeof serverName !== 'string' || serverName.length > 10000) {
+    return { error: 'Invalid input: expected server name string' };
+  }
   if (!mcpManager) {
     throw new Error("MCP Manager not initialized");
   }
@@ -446,6 +514,9 @@ ipcMain.handle("mcp-start", async (_event, serverName: string) => {
 });
 
 ipcMain.handle("mcp-stop", async (_event, serverName: string) => {
+  if (typeof serverName !== 'string' || serverName.length > 10000) {
+    return { error: 'Invalid input: expected server name string' };
+  }
   if (!mcpManager) {
     throw new Error("MCP Manager not initialized");
   }
@@ -456,8 +527,15 @@ ipcMain.handle(
   "mcp-call-tool",
   async (
     _event,
-    { server, tool, params }: { server: string; tool: string; params: Record<string, unknown> }
+    arg: { server: string; tool: string; params: Record<string, unknown> }
   ) => {
+    if (!arg || typeof arg !== 'object') {
+      return { error: 'Invalid input: expected object with server, tool, params' };
+    }
+    const { server, tool, params } = arg;
+    if (typeof server !== 'string' || typeof tool !== 'string') {
+      return { error: 'Invalid input: server and tool must be strings' };
+    }
     if (!mcpManager) {
       throw new Error("MCP Manager not initialized");
     }
@@ -466,6 +544,9 @@ ipcMain.handle(
 );
 
 ipcMain.handle("mcp-list-tools", async (_event, serverName: string) => {
+  if (typeof serverName !== 'string' || serverName.length > 10000) {
+    return { error: 'Invalid input: expected server name string' };
+  }
   if (!mcpManager) {
     throw new Error("MCP Manager not initialized");
   }
@@ -478,8 +559,15 @@ ipcMain.handle(
   "workflow-execute",
   async (
     _event,
-    { prompt, conversationId }: { prompt: string; conversationId?: string }
+    arg: { prompt: string; conversationId?: string }
   ) => {
+    if (!arg || typeof arg !== 'object') {
+      return { error: 'Invalid input: expected object with prompt' };
+    }
+    const { prompt, conversationId } = arg;
+    if (typeof prompt !== 'string' || prompt.length > 10000) {
+      return { error: 'Invalid input: prompt must be a string under 10000 chars' };
+    }
     if (!orchestrator) {
       throw new Error("Orchestrator not initialized");
     }
@@ -502,7 +590,14 @@ ipcMain.handle(
 
 ipcMain.handle(
   "workflow-approve",
-  async (_event, { executionId }: { executionId: string }) => {
+  async (_event, arg: { executionId: string }) => {
+    if (!arg || typeof arg !== 'object') {
+      return { error: 'Invalid input: expected object with executionId' };
+    }
+    const { executionId } = arg;
+    if (typeof executionId !== 'string' || executionId.length > 10000) {
+      return { error: 'Invalid input: executionId must be a string' };
+    }
     if (!orchestrator) {
       throw new Error("Orchestrator not initialized");
     }
@@ -516,7 +611,14 @@ ipcMain.handle(
 
 ipcMain.handle(
   "workflow-reject",
-  async (_event, { executionId }: { executionId: string }) => {
+  async (_event, arg: { executionId: string }) => {
+    if (!arg || typeof arg !== 'object') {
+      return { error: 'Invalid input: expected object with executionId' };
+    }
+    const { executionId } = arg;
+    if (typeof executionId !== 'string' || executionId.length > 10000) {
+      return { error: 'Invalid input: executionId must be a string' };
+    }
     if (!orchestrator) {
       throw new Error("Orchestrator not initialized");
     }
@@ -553,7 +655,14 @@ ipcMain.handle("conversations-list", async () => {
 
 ipcMain.handle(
   "conversation-history",
-  async (_event, { id, limit }: { id: string; limit?: number }) => {
+  async (_event, arg: { id: string; limit?: number }) => {
+    if (!arg || typeof arg !== 'object') {
+      return { error: 'Invalid input: expected object with id' };
+    }
+    const { id, limit } = arg;
+    if (typeof id !== 'string' || id.length > 10000) {
+      return { error: 'Invalid input: id must be a string' };
+    }
     return getConversationHistory(id, limit);
   }
 );
@@ -564,20 +673,51 @@ ipcMain.handle(
   "auth-register",
   async (
     _event,
-    { email, password, fullName }: { email: string; password: string; fullName: string }
+    arg: { email: string; password: string; fullName: string }
   ) => {
+    if (!arg || typeof arg !== 'object') {
+      return { error: 'Invalid input: expected object with email, password, fullName' };
+    }
+    const { email, password, fullName } = arg;
+    if (typeof email !== 'string' || typeof password !== 'string' || typeof fullName !== 'string') {
+      return { error: 'Invalid input: email, password, and fullName must be strings' };
+    }
+    if (email.length > 10000 || password.length > 10000 || fullName.length > 10000) {
+      return { error: 'Invalid input: field values too long' };
+    }
     return authRegister(email, password, fullName);
   }
 );
 
 ipcMain.handle(
   "auth-login",
-  async (_event, { email, password }: { email: string; password: string }) => {
-    return authLogin(email, password);
+  async (_event, arg: { email: string; password: string }) => {
+    if (!arg || typeof arg !== 'object') {
+      return { error: 'Invalid input: expected object with email and password' };
+    }
+    const { email, password } = arg;
+    if (typeof email !== 'string' || typeof password !== 'string') {
+      return { error: 'Invalid input: email and password must be strings' };
+    }
+    if (email.length > 10000 || password.length > 10000) {
+      return { error: 'Invalid input: field values too long' };
+    }
+    const user = authLogin(email, password);
+    if (user && mcpManager) {
+      mcpManager.startAll().catch(console.error);
+    }
+    return user;
   }
 );
 
-ipcMain.handle("auth-login-google", (_event, { email, fullName, sub }) => {
+ipcMain.handle("auth-login-google", (_event, arg: { email: string; fullName: string; sub: string }) => {
+  if (!arg || typeof arg !== 'object') {
+    return { error: 'Invalid input: expected object with email, fullName, sub' };
+  }
+  const { email, fullName, sub } = arg;
+  if (typeof email !== 'string' || typeof fullName !== 'string' || typeof sub !== 'string') {
+    return { error: 'Invalid input: email, fullName, and sub must be strings' };
+  }
   return authLoginGoogle(email, fullName, sub);
 });
 
@@ -586,7 +726,11 @@ ipcMain.handle("auth-logout", () => {
 });
 
 ipcMain.handle("auth-current-user", async () => {
-  return authGetCurrentUser();
+  const user = authGetCurrentUser();
+  if (user && mcpManager) {
+    mcpManager.startAll().catch(console.error);
+  }
+  return user;
 });
 
 ipcMain.handle(
@@ -595,6 +739,9 @@ ipcMain.handle(
     _event,
     data: { email?: string; full_name?: string; password?: string }
   ) => {
+    if (!data || typeof data !== 'object') {
+      return { error: 'Invalid input: expected object' };
+    }
     return authUpdateProfile(data);
   }
 );
@@ -602,6 +749,9 @@ ipcMain.handle(
 // ── Token Store IPC Handlers ──────────────────────────────────────────────────
 
 ipcMain.handle("token-get", async (_event, provider: ProviderName) => {
+  if (typeof provider !== 'string' || provider.length > 10000) {
+    return { error: 'Invalid input: expected provider name string' };
+  }
   return getToken(provider);
 });
 
@@ -609,13 +759,26 @@ ipcMain.handle(
   "token-set",
   async (
     _event,
-    { provider, credentials }: { provider: ProviderName; credentials: ProviderCredentials }
+    arg: { provider: ProviderName; credentials: ProviderCredentials }
   ) => {
+    if (!arg || typeof arg !== 'object') {
+      return { error: 'Invalid input: expected object with provider and credentials' };
+    }
+    const { provider, credentials } = arg;
+    if (typeof provider !== 'string') {
+      return { error: 'Invalid input: provider must be a string' };
+    }
+    if (!credentials || typeof credentials !== 'object') {
+      return { error: 'Invalid input: credentials must be an object' };
+    }
     setToken(provider, credentials);
   }
 );
 
 ipcMain.handle("token-remove", async (_event, provider: ProviderName) => {
+  if (typeof provider !== 'string' || provider.length > 10000) {
+    return { error: 'Invalid input: expected provider name string' };
+  }
   removeToken(provider);
 });
 
@@ -625,11 +788,38 @@ ipcMain.handle("token-list-configured", async () => {
 
 // ── Google OAuth IPC Handler ──────────────────────────────────────────────────
 
-ipcMain.handle('google-oauth-start', async (_event, { clientId, clientSecret }: { clientId: string; clientSecret: string }) => {
+ipcMain.handle('google-oauth-start', async (_event, arg: { clientId: string; clientSecret: string }) => {
+  if (!arg || typeof arg !== 'object') {
+    return { success: false, error: 'Invalid input: expected object with clientId and clientSecret' };
+  }
+  const { clientId, clientSecret } = arg;
+  if (typeof clientId !== 'string' || typeof clientSecret !== 'string') {
+    return { success: false, error: 'Invalid input: clientId and clientSecret must be strings' };
+  }
+  if (clientId.length > 10000 || clientSecret.length > 10000) {
+    return { success: false, error: 'Invalid input: field values too long' };
+  }
   try {
     const tokens = await startGoogleOAuth(clientId, clientSecret);
     return { success: true, tokens };
   } catch (err: any) {
     return { success: false, error: err.message };
   }
+});
+
+// ── Cloud Sync IPC Handlers ───────────────────────────────────────────────────
+
+ipcMain.handle("sync-get-state", async () => {
+  return await syncManager.getState();
+});
+
+ipcMain.handle("sync-set-online", (_event, online: boolean) => {
+  if (typeof online !== 'boolean') {
+    return { error: 'Invalid input: expected boolean' };
+  }
+  syncManager.handleOnlineStatus(online);
+});
+
+ipcMain.handle("sync-force", async () => {
+  return await syncManager.forceSync();
 });

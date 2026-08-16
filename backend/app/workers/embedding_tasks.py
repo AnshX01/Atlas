@@ -120,12 +120,14 @@ async def _async_embed(user_id: uuid.UUID, chunks: list[dict[str, Any]]) -> dict
                     retries += 1
                     if retries > MAX_RETRIES:
                         logger.error("Max retries reached for rate limit: error=%s", str(e), exc_info=True)
+                        failed += len(batch)
                         raise
                     logger.warning("Rate limit hit, retrying %d/%d in %ds...", retries, MAX_RETRIES, 2 ** retries)
                     await asyncio.sleep(2 ** retries)
                 else:
                     # Do not swallow other errors silently
                     logger.error("Failed to embed batch: error=%s", str(e), exc_info=True)
+                    failed += len(batch)
                     raise
 
     if points:

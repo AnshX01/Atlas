@@ -1,8 +1,11 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ShieldAlert, Check, X, Loader2 } from "lucide-react";
+import { ShieldAlert, Check, X } from "lucide-react";
+import { Spinner } from "@/components/ui/Spinner";
 import type { ApprovalData } from "@/lib/hooks/useWorkflow";
+import { AgentDesignSystemShell } from "@/components/ui/AgentDesignSystemShell";
 
 interface ActionApprovalCardProps {
   approval: ApprovalData;
@@ -55,21 +58,54 @@ export function ActionApprovalCard({ approval, onApprove, onReject }: ActionAppr
   const isRejected = status === "rejected";
   const isError = status === "error";
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeAction, setActiveAction] = useState<"approve" | "reject" | null>(null);
+
+  // Safety timeout: if status doesn't change after 3s, reset submitting state
+  useEffect(() => {
+    if (isSubmitting && status === "pending") {
+      const timer = setTimeout(() => {
+        setIsSubmitting(false);
+        setActiveAction(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+    if (status !== "pending") {
+      setIsSubmitting(false);
+      setActiveAction(null);
+    }
+  }, [isSubmitting, status]);
+
+  const handleApprove = () => {
+    if (isSubmitting || !isPending) return;
+    setIsSubmitting(true);
+    setActiveAction("approve");
+    onApprove(executionId);
+  };
+
+  const handleReject = () => {
+    if (isSubmitting || !isPending) return;
+    setIsSubmitting(true);
+    setActiveAction("reject");
+    onReject(executionId);
+  };
+
   return (
-    <motion.div
+    <AgentDesignSystemShell
       initial={{ opacity: 0, y: 8, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -4, scale: 0.96 }}
+      layout
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
-      className="my-2 rounded-2xl border border-white/5 bg-gradient-to-br from-[var(--bg-secondary)]/80 to-[var(--bg-primary)]/40 backdrop-blur-xl shadow-[0_4px_24px_rgba(0,0,0,0.06)] relative overflow-hidden transition-all duration-300 group hover:shadow-[0_8px_32px_rgba(0,0,0,0.12)] hover:border-[var(--accent)]/30"
+      className="my-2"
       role="alert"
       aria-live="polite"
       aria-label={`Action requiring approval: ${getActionLabel(action)}`}
     >
       {/* Header */}
-      <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-subtle)]">
-        <ShieldAlert size={16} className="text-amber-400 flex-shrink-0" />
-        <span className="text-xs font-semibold text-amber-400 uppercase tracking-wide">
+      <div className="flex items-center gap-2 px-4 py-3">
+        <ShieldAlert size={16} className="text-[var(--text-primary)] flex-shrink-0" />
+        <span className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide">
           Requires Approval
         </span>
       </div>
@@ -90,7 +126,7 @@ export function ActionApprovalCard({ approval, onApprove, onReject }: ActionAppr
       </div>
 
       {/* Actions */}
-      <div className="px-4 py-3 border-t border-[var(--border-subtle)]">
+      <div className="px-4 py-3">
         <AnimatePresence mode="wait">
           {isPending && (
             <motion.div
@@ -101,19 +137,29 @@ export function ActionApprovalCard({ approval, onApprove, onReject }: ActionAppr
               className="flex items-center gap-2"
             >
               <button
-                onClick={() => onApprove(executionId)}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors"
+                onClick={handleApprove}
+                disabled={isSubmitting}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                 aria-label="Approve action"
               >
-                <Check size={14} />
+                {isSubmitting && activeAction === "approve" ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <Check size={14} />
+                )}
                 Approve
               </button>
               <button
-                onClick={() => onReject(executionId)}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+                onClick={handleReject}
+                disabled={isSubmitting}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:opacity-80 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                 aria-label="Reject action"
               >
-                <X size={14} />
+                {isSubmitting && activeAction === "reject" ? (
+                  <Spinner size="sm" />
+                ) : (
+                  <X size={14} />
+                )}
                 Reject
               </button>
             </motion.div>
@@ -127,7 +173,7 @@ export function ActionApprovalCard({ approval, onApprove, onReject }: ActionAppr
               exit={{ opacity: 0 }}
               className="flex items-center justify-center gap-2 py-2"
             >
-              <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-white/80 animate-spin" />
+              <Spinner size="sm" />
               <span className="text-xs text-[var(--text-secondary)]">Executing…</span>
             </motion.div>
           )}
@@ -139,10 +185,10 @@ export function ActionApprovalCard({ approval, onApprove, onReject }: ActionAppr
               animate={{ opacity: 1, scale: 1 }}
               className="flex items-center justify-center gap-2 py-2"
             >
-              <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
-                <Check size={12} className="text-green-400" />
+              <div className="w-5 h-5 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center">
+                <Check size={12} className="text-[var(--text-primary)]" />
               </div>
-              <span className="text-xs text-green-400 font-medium">Action completed</span>
+              <span className="text-xs text-[var(--text-primary)] font-medium">Action completed</span>
             </motion.div>
           )}
 
@@ -153,10 +199,10 @@ export function ActionApprovalCard({ approval, onApprove, onReject }: ActionAppr
               animate={{ opacity: 1, scale: 1 }}
               className="flex items-center justify-center gap-2 py-2"
             >
-              <div className="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center">
-                <X size={12} className="text-red-400" />
+              <div className="w-5 h-5 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center">
+                <X size={12} className="text-[var(--text-primary)]" />
               </div>
-              <span className="text-xs text-red-400 font-medium">Action rejected</span>
+              <span className="text-xs text-[var(--text-primary)] font-medium">Action rejected</span>
             </motion.div>
           )}
 
@@ -167,16 +213,16 @@ export function ActionApprovalCard({ approval, onApprove, onReject }: ActionAppr
               animate={{ opacity: 1, scale: 1 }}
               className="flex items-center justify-center gap-2 py-2"
             >
-              <div className="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center">
-                <X size={12} className="text-red-400" />
+              <div className="w-5 h-5 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center">
+                <X size={12} className="text-[var(--text-primary)]" />
               </div>
-              <span className="text-xs text-red-400 font-medium">
+              <span className="text-xs text-[var(--text-primary)] font-medium">
                 Error: {approval.error || "Action failed"}
               </span>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
-    </motion.div>
+    </AgentDesignSystemShell>
   );
 }

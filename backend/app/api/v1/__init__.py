@@ -439,7 +439,7 @@ async def put_connector_token(
 )
 async def trigger_sync(
     provider: ConnectorProvider = Path(...),
-    background_tasks: BackgroundTasks = BackgroundTasks(),
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     _idempotency_key: str = Depends(require_idempotency_key),
 ) -> SyncTriggerResponse:
@@ -656,9 +656,17 @@ async def get_conversation_messages(
 ) -> list[MessageResponse]:
     from app.infrastructure.database import get_session_factory
     from sqlalchemy import text
+    from app.core.exceptions import NotFoundError
 
     factory = get_session_factory()
     async with factory() as session:
+        auth_check = await session.execute(
+            text("SELECT 1 FROM user_conversations WHERE id = :cid AND user_id = :uid"),
+            {"cid": conversation_id, "uid": str(current_user.id)},
+        )
+        if not auth_check.scalar_one_or_none():
+            raise NotFoundError(f"Conversation {conversation_id} not found")
+
         result = await session.execute(
             text("SELECT id, role, content, timestamp FROM conversation_messages WHERE conversation_id = :cid ORDER BY timestamp ASC"),
             {"cid": conversation_id},
@@ -669,5 +677,6 @@ async def get_conversation_messages(
 
 # ── Re-export Routers ────────────────────────────────────────────────────────
 from app.api.v1.users import users_router  # noqa: E402
+from app.api.v1.gmail import gmail_router  # noqa: E402
 
-__all__ = ["briefing_router", "search_router", "connectors_router", "actions_router", "conversations_router", "users_router"]
+__all__ = ["briefing_router", "search_router", "connectors_router", "actions_router", "conversations_router", "users_router", "gmail_router"]

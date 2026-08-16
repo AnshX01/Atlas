@@ -1,4 +1,4 @@
-import { create } from "zustand";
+﻿import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export interface AuthUser {
@@ -23,7 +23,9 @@ interface AuthState {
   logout: () => void;
 }
 
-export const useAuthStore = create<AuthState>()(
+import { createSelectors } from "./createSelectors";
+
+export const useAuthStoreBase = create<AuthState>()(
   persist(
     (set) => ({
       accessToken: null,
@@ -43,34 +45,77 @@ export const useAuthStore = create<AuthState>()(
         if (typeof window !== "undefined" && (window as any).atlasElectron?.localAuth) {
           (window as any).atlasElectron.localAuth.logout().catch(console.error);
         }
+        // C-04: Clear all conversation data on logout so sensitive message content
+        // (email bodies, file contents, tool results) does not persist in localStorage
+        // after the user has signed out. Import lazily to avoid circular dependency.
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const { useChatStoreBase } = require("./useChatStore");
+          useChatStoreBase.getState().clearAllConversations();
+        } catch {
+          // Safe to ignore -- store may not be initialized in SSR or test environments
+        }
         set({ accessToken: null, refreshToken: null, user: null });
       },
     }),
     {
       name: "atlas-auth-storage",
+      version: 1,
+      // C-03: Exclude accessToken and refreshToken from localStorage persistence.
+      // OAuth tokens in localStorage are accessible to any JS in the page context.
+      // Tokens are kept in memory only and re-obtained via Electron localAuth on
+      // app restart (the onRehydrateStorage handler re-hydrates the user profile).
+      partialize: (state) => ({
+        user: state.user,
+        // accessToken and refreshToken are intentionally NOT persisted
+      }),
+      migrate: (persistedState: any, version: number) => {
+        if (version === 0) {
+          // v0 -> v1: ensure all required fields have defaults
+          return {
+            ...persistedState,
+            accessToken: persistedState.accessToken ?? null,
+            refreshToken: persistedState.refreshToken ?? null,
+            user: persistedState.user ?? null,
+            isHydrated: false,
+          };
+        }
+        return persistedState as AuthState;
+      },
       onRehydrateStorage: () => {
-        return () => {
+        return (_state: any, error: any) => {
+          if (error) {
+            console.error("[AuthStore] Rehydration error:", error);
+          }
+          let cancelled = false;
           setTimeout(async () => {
-            const store = useAuthStore.getState();
+            if (cancelled) return;
+            const store = useAuthStoreBase.getState();
             // In Electron, localStorage wipes across restarts on file://
             // We must re-hydrate the session from SQLite localAuth if available
             if (typeof window !== "undefined" && (window as any).atlasElectron?.localAuth) {
               try {
                 const localUser = await (window as any).atlasElectron.localAuth.getCurrentUser();
+                if (cancelled) return; // guard against late arrival after logout
                 if (localUser) {
                   store.setUser({ ...localUser, is_active: true, avatar_url: null });
                 } else {
-                  // Explicitly clear memory if the DB says we aren't logged in
+                  // Explicitly clear memory if the DB says we are not logged in
                   store.logout();
                 }
               } catch (e) {
                 console.warn("[AuthStore] Failed to rehydrate from Electron:", e);
               }
             }
-            store.setHydrated();
+            if (!cancelled) store.setHydrated();
           }, 0);
+          // NOTE: Zustand ignores the return value of this inner subscriber.
+          // The cancelled flag is a best-effort guard against stale closures.
+          return () => { cancelled = true; };
         };
       },
     }
   )
 );
+
+export const useAuthStore = createSelectors(useAuthStoreBase);

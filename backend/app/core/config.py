@@ -70,7 +70,8 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/v1/auth/oauth/google/callback"
     GOOGLE_SCOPES: str = (
         "openid email profile "
-        "https://www.googleapis.com/auth/gmail.readonly "
+        "https://www.googleapis.com/auth/gmail.modify "
+        "https://www.googleapis.com/auth/gmail.send "
         "https://www.googleapis.com/auth/calendar.readonly "
         "https://www.googleapis.com/auth/tasks.readonly"
     )

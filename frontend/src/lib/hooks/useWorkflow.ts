@@ -145,6 +145,25 @@ export function useWorkflow(): UseWorkflowReturn {
     const unsubStream = api.onWorkflowStream((token: string) => {
       streamingContentRef.current += token;
       setCurrentStreamingContent(streamingContentRef.current);
+      
+      setMessages((prev) => {
+        const updated = [...prev];
+        let lastAssistantIndex = -1;
+        for (let i = updated.length - 1; i >= 0; i--) {
+          if (updated[i].role === "assistant") {
+            lastAssistantIndex = i;
+            break;
+          }
+        }
+        if (lastAssistantIndex !== -1) {
+          updated[lastAssistantIndex] = {
+            ...updated[lastAssistantIndex],
+            content: streamingContentRef.current,
+            streaming: true,
+          };
+        }
+        return updated;
+      });
     });
 
     const unsubApproval = api.onWorkflowApprovalNeeded((data: any) => {
@@ -196,12 +215,13 @@ export function useWorkflow(): UseWorkflowReturn {
       setIsStreaming(false);
 
       // Finalize the assistant message with the full content
-      const finalContent = streamingContentRef.current || data?.content || "";
+      const finalContent = data?.error ? `Error: ${data.error}` : (streamingContentRef.current || data?.response || data?.content || "");
       setMessages((prev) => {
         const updated = [...prev];
         const lastAssistant = [...updated].reverse().find((m) => m.role === "assistant");
         if (lastAssistant) {
           lastAssistant.content = finalContent;
+          lastAssistant.streaming = false;
           // Mark all tool executions as done
           if (lastAssistant.toolExecutions) {
             lastAssistant.toolExecutions = lastAssistant.toolExecutions.map((t) =>

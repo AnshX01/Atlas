@@ -11,7 +11,22 @@ export class MissingArgumentError extends Error {
   }
 }
 
+const MAX_INPUT_BYTES = 512 * 1024; // 512KB
+
+function checkDepth(str: string, maxDepth = 50): void {
+  let depth = 0;
+  for (const ch of str) {
+    if (ch === '{' || ch === '[') depth++;
+    else if (ch === '}' || ch === ']') depth--;
+    if (depth > maxDepth) throw new Error(`JSON nesting depth exceeds ${maxDepth} — possible malicious input.`);
+  }
+}
+
 export function repairAndParseJson(input: string): any {
+  if (input.length > MAX_INPUT_BYTES) {
+    throw new Error(`JSON input too large: ${input.length} chars (max ${MAX_INPUT_BYTES}). Possible runaway model output.`);
+  }
+
   let cleaned = input;
 
   // 1. Strip surrounding markdown code blocks if present
@@ -46,8 +61,13 @@ export function repairAndParseJson(input: string): any {
 
   // 3. Attempt to parse
   try {
+    checkDepth(cleaned);
     return JSON.parse(cleaned);
   } catch (err) {
+    // If it's our depth error, re-throw immediately
+    if (err instanceof Error && err.message.includes('nesting depth exceeds')) {
+      throw err;
+    }
     // 4. Attempt to repair truncated JSON
     const repairAttempts = [
       cleaned + '"}',
@@ -57,8 +77,13 @@ export function repairAndParseJson(input: string): any {
     ];
     for (const attempt of repairAttempts) {
       try {
+        checkDepth(attempt);
         return JSON.parse(attempt);
       } catch (e) {
+        // If depth error, re-throw
+        if (e instanceof Error && e.message.includes('nesting depth exceeds')) {
+          throw e;
+        }
         // Continue
       }
     }

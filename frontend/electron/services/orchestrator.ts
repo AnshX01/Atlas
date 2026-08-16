@@ -65,6 +65,7 @@ export interface PendingApproval {
   conversationId: string;
   state: WorkflowState;
   resolve: (approved: boolean) => void;
+  createdAt: number;
 }
 
 // ── Constants ──────────────────────────────────────────────────────────────────
@@ -143,7 +144,6 @@ const TOOL_ROUTING: Record<string, { server: string; tool: string }[]> = {
   ],
   schedule: [
     { server: "google_workspace", tool: "list_calendar" },
-    { server: "google_workspace", tool: "create_event" },
   ],
   event: [
     { server: "google_workspace", tool: "list_calendar" },
@@ -185,6 +185,8 @@ const TOOL_ROUTING: Record<string, { server: string; tool: string }[]> = {
     { server: "slack", tool: "read_messages" },
   ],
   message: [
+    { server: "slack", tool: "read_messages" },
+    { server: "slack", tool: "search_messages" },
     { server: "slack", tool: "post_message" },
     { server: "slack", tool: "send_message" },
   ],
@@ -310,6 +312,9 @@ const STANDALONE_RESPONSE_KEYWORDS = new Set([
   "nevermind", "never mind", "skip", "done", "thanks", "thank you",
 ]);
 
+// ── Approval TTL ───────────────────────────────────────────────────────────────
+export const APPROVAL_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
 // ── ISO-8601 date regex ────────────────────────────────────────────────────────
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/;
 const ISO_DATE_LOOSE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
@@ -360,9 +365,35 @@ export class Orchestrator {
   private mcpManager: MCPServerManager;
   private pendingApprovals: Map<string, PendingApproval> = new Map();
   private activeStreams: Map<string, AbortController> = new Map();
+  private approvalCleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(mcpManager: MCPServerManager) {
     this.mcpManager = mcpManager;
+    // Evict stale pending approvals every 60 seconds to prevent memory leaks
+    // and zombie approval cards that the user will never see again.
+    this.approvalCleanupInterval = setInterval(() => {
+      const now = Date.now();
+      for (const [id, pending] of this.pendingApprovals) {
+        if (now - pending.createdAt > APPROVAL_TTL_MS) {
+          console.warn(`[Orchestrator] Auto-rejecting stale approval ${id} (TTL exceeded)`);
+          try { pending.resolve(false); } catch {}
+          this.pendingApprovals.delete(id);
+        }
+      }
+    }, 60_000);
+  }
+
+  /** Release resources — call on app shutdown. */
+  destroy(): void {
+    if (this.approvalCleanupInterval) {
+      clearInterval(this.approvalCleanupInterval);
+      this.approvalCleanupInterval = null;
+    }
+    // Auto-reject all remaining pending approvals
+    for (const [id, pending] of this.pendingApprovals) {
+      try { pending.resolve(false); } catch {}
+      this.pendingApprovals.delete(id);
+    }
   }
 
   private safeSend(mainWindow: BrowserWindow, channel: string, ...args: any[]): void {
@@ -1191,6 +1222,7 @@ Rules:
         conversationId: state.conversationId,
         state,
         resolve: resolveWithClear,
+        createdAt: Date.now(),
       };
 
       this.pendingApprovals.set(executionId, pending);
@@ -1298,6 +1330,12 @@ Rules:
       }
 
       state.response = fullResponse;
+      
+      if (!state.response.trim()) {
+        console.warn("[Orchestrator] Ollama returned empty response, using fallback");
+        state.response = this.generateFallbackResponse(state);
+        this.safeSend(mainWindow, "workflow-stream", state.response);
+      }
     } catch (error: any) {
       if (error.name === 'AbortError' || abortController.signal.aborted) {
         throw error;
@@ -1999,6 +2037,13 @@ Rules:
       console.warn(`[Orchestrator] No pending approval found for: ${executionId}`);
       return false;
     }
+    // Check TTL expiry
+    if (Date.now() - pending.createdAt > APPROVAL_TTL_MS) {
+      console.warn(`[Orchestrator] Approval expired for: ${executionId}`);
+      this.pendingApprovals.delete(executionId);
+      pending.resolve(false);
+      return false;
+    }
     this.pendingApprovals.delete(executionId);
     pending.resolve(true);
     return true;
@@ -2008,6 +2053,13 @@ Rules:
     const pending = this.pendingApprovals.get(executionId);
     if (!pending) {
       console.warn(`[Orchestrator] No pending approval found for: ${executionId}`);
+      return false;
+    }
+    // Check TTL expiry
+    if (Date.now() - pending.createdAt > APPROVAL_TTL_MS) {
+      console.warn(`[Orchestrator] Approval expired for: ${executionId}`);
+      this.pendingApprovals.delete(executionId);
+      pending.resolve(false);
       return false;
     }
     this.pendingApprovals.delete(executionId);

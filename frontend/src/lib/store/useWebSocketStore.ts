@@ -16,7 +16,9 @@ interface WebSocketState {
   clearEvents: () => void;
 }
 
-export const useWebSocketStore = create<WebSocketState>((set) => ({
+import { createSelectors } from "./createSelectors";
+
+export const useWebSocketStoreBase = create<WebSocketState>((set) => ({
   events: [],
   dispatch: (event) =>
     set((state) => ({
@@ -24,3 +26,5 @@ export const useWebSocketStore = create<WebSocketState>((set) => ({
     })),
   clearEvents: () => set({ events: [] }),
 }));
+
+export const useWebSocketStore = createSelectors(useWebSocketStoreBase);

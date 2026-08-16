@@ -87,12 +87,34 @@ def decode_token(token: str) -> dict[str, Any]:
     return jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
 
 
+def require_access_token(token: str) -> dict[str, Any]:
+    """
+    Decode a JWT and enforce that it is an access token.
+
+    Args:
+        token: Encoded JWT string.
+
+    Returns:
+        Decoded payload dict.
+
+    Raises:
+        JWTError: If the token is invalid or expired.
+        ValueError: If the token type is not "access".
+    """
+    payload = decode_token(token)
+    if payload.get("type") != "access":
+        raise ValueError("Expected access token, got refresh")
+    return payload
+
+
 # ── AES-256-GCM Encryption ────────────────────────────────────────────────────
 def _get_aes_key() -> bytes:
     """Derive the 32-byte AES key from the master encryption key env var."""
     settings = get_settings()
-    # Pad base64 and decode
-    raw = base64.urlsafe_b64decode(settings.APP_MASTER_ENCRYPTION_KEY + "==")
+    # Pad base64 correctly
+    b64_str = settings.APP_MASTER_ENCRYPTION_KEY
+    b64_str += "=" * (-len(b64_str) % 4)
+    raw = base64.urlsafe_b64decode(b64_str)
     return raw[:32]
 
 
@@ -127,7 +149,8 @@ def decrypt_token(encrypted_b64: str) -> str:
     """
     key = _get_aes_key()
     aesgcm = AESGCM(key)
-    raw = base64.urlsafe_b64decode(encrypted_b64 + "==")
+    encrypted_b64 += "=" * (-len(encrypted_b64) % 4)
+    raw = base64.urlsafe_b64decode(encrypted_b64)
     nonce = raw[:12]
     ciphertext = raw[12:]
     try:

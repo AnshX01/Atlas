@@ -10,7 +10,7 @@ import { Skeleton } from "./Skeleton";
 function SearchResultSkeleton({ index }: { index: number }) {
   return (
     <motion.div
-      className="p-4 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--border-default)]"
+      className="p-4 rounded-2xl bg-[var(--bg-secondary)]"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.06, type: "spring", stiffness: 400, damping: 30 }}

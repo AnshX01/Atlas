@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { type ButtonHTMLAttributes, forwardRef, useCallback, useRef } from "react";
+import { Spinner } from "@/components/ui/Spinner";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 export type ButtonSize = "sm" | "md" | "lg";
@@ -18,24 +19,19 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 const variantStyles: Record<ButtonVariant, string> = {
   primary: `
     bg-[var(--accent)] text-[var(--bg-primary)] font-medium
-    hover:bg-[var(--accent-hover)] active:scale-[0.98]
-    shadow-[0_0_12px_var(--accent-glow)]
-    hover:shadow-[0_0_20px_var(--accent-glow)]
+    hover:bg-[var(--accent-hover)]
   `,
   secondary: `
-    bg-[var(--bg-tertiary)] text-[var(--text-primary)] font-medium
-    border border-[var(--border-default)]
-    hover:bg-[var(--bg-secondary)] active:scale-[0.98]
+    bg-[var(--bg-primary)] text-[var(--text-primary)] font-medium
+    hover:bg-[var(--bg-secondary)]
   `,
   ghost: `
     bg-transparent text-[var(--text-secondary)] font-medium
     hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]
-    active:scale-[0.98]
   `,
   danger: `
-    bg-red-500/10 text-red-400 font-medium
-    border border-red-500/20
-    hover:bg-red-500/20 active:scale-[0.98]
+    bg-red-500/10 text-red-500 font-medium
+    hover:bg-red-500/20
   `,
 };
 
@@ -97,7 +93,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         {...(props as any)}
       >
         {isLoading ? (
-          <span className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+          <Spinner size="sm" />
         ) : (
           leftIcon
         )}

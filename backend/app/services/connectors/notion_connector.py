@@ -53,6 +53,8 @@ class NotionConnector(BaseConnector):
         async with httpx.AsyncClient() as client:
             if method == "GET":
                 resp = await client.get(f"{NOTION_API}{path}", headers=headers)
+            elif method == "PATCH":
+                resp = await client.patch(f"{NOTION_API}{path}", headers=headers, json=json_body or {})
             else:
                 resp = await client.post(f"{NOTION_API}{path}", headers=headers, json=json_body or {})
             try:
@@ -65,6 +67,55 @@ class NotionConnector(BaseConnector):
 
     async def authenticate(self, auth_code: str) -> None:
         pass  # Handled in OAuth callback
+
+    async def query_database(self, database_id: str, query_filter: dict | None = None, sorts: list[dict] | None = None) -> dict:
+        """Query a Notion database."""
+        body = {}
+        if query_filter:
+            body["filter"] = query_filter
+        if sorts:
+            body["sorts"] = sorts
+        return await self._notion_api("POST", f"/databases/{database_id}/query", body)
+
+    async def read_page(self, page_id: str) -> dict:
+        """Read a Notion page's properties."""
+        return await self._notion_api("GET", f"/pages/{page_id}")
+        
+    async def create_page(self, parent: dict, properties: dict, children: list[dict] | None = None) -> dict:
+        """Create a new Notion page."""
+        body = {
+            "parent": parent,
+            "properties": properties,
+        }
+        if children:
+            body["children"] = children
+        return await self._notion_api("POST", "/pages", body)
+
+    async def update_page(self, page_id: str, properties: dict, archived: bool | None = None) -> dict:
+        """Update a Notion page."""
+        body = {"properties": properties}
+        if archived is not None:
+            body["archived"] = archived
+        return await self._notion_api("PATCH", f"/pages/{page_id}", body)
+        
+    async def create_database(self, parent: dict, title: list[dict], properties: dict) -> dict:
+        """Create a new Notion database."""
+        body = {
+            "parent": parent,
+            "title": title,
+            "properties": properties,
+        }
+        return await self._notion_api("POST", "/databases", body)
+
+    async def update_database(self, database_id: str, title: list[dict] | None = None, properties: dict | None = None) -> dict:
+        """Update a Notion database."""
+        body = {}
+        if title is not None:
+            body["title"] = title
+        if properties is not None:
+            body["properties"] = properties
+        return await self._notion_api("PATCH", f"/databases/{database_id}", body)
+
 
     async def _get_blocks(self, block_id: str) -> list[dict]:
         blocks = []

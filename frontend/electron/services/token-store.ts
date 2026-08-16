@@ -62,14 +62,29 @@ function readStore(): TokenStoreData {
     }
     const raw = fs.readFileSync(storePath, "utf-8");
     
-    // Check if it's plaintext JSON
+    // Reject plaintext JSON — tokens MUST be encrypted at rest.
+    // A file starting with '{' means it was written without encryption (legacy or bug).
+    // Back it up and return empty so the user is prompted to re-authenticate.
     if (raw.trim().startsWith("{")) {
-      return JSON.parse(raw) as TokenStoreData;
+      console.error("[Token Store] SECURITY: Plaintext token store detected. Backing up and clearing.");
+      const backupPath = storePath + ".plaintext-backup";
+      try { fs.copyFileSync(storePath, backupPath); } catch {}
+      try { fs.unlinkSync(storePath); } catch {}
+      try {
+        const { BrowserWindow } = require('electron');
+        const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+        if (win) {
+          win.webContents.send('token-store:corrupted', {
+            message: 'Your integration credentials were stored without encryption and have been cleared for security. Please reconnect your integrations.'
+          });
+        }
+      } catch { /* not in Electron context */ }
+      return {};
     }
 
-    // Otherwise, assume it's encrypted base64
     const pwd = getEncryptionKey();
     if (!pwd) {
+      console.warn("[Token Store] Encryption key unavailable — returning empty store (user may not be logged in yet).");
       return {};
     }
 
@@ -77,6 +92,27 @@ function readStore(): TokenStoreData {
     return JSON.parse(decrypted) as TokenStoreData;
   } catch (err) {
     console.error("[Token Store] Failed to read token store:", err);
+    // Back up the corrupted file so it's not silently lost
+    const storePath = getStorePath();
+    try {
+      const backupPath = storePath + '.corrupted';
+      if (fs.existsSync(storePath)) {
+        fs.copyFileSync(storePath, backupPath);
+        console.warn('[Token Store] Backed up corrupted store to:', backupPath);
+      }
+    } catch (backupErr) {
+      console.error('[Token Store] Failed to back up corrupted store:', backupErr);
+    }
+    // Emit IPC event to notify renderer (only in Electron context)
+    try {
+      const { BrowserWindow } = require('electron');
+      const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+      if (win) {
+        win.webContents.send('token-store:corrupted', {
+          message: 'Your saved integration credentials could not be read and have been backed up. You may need to reconnect your integrations.'
+        });
+      }
+    } catch { /* not in Electron context */ }
     return {};
   }
 }
@@ -241,5 +277,19 @@ export async function syncTokensFromCloud(): Promise<void> {
     console.log("[Token Store] Successfully synced cross-device tokens.");
   } catch (err) {
     console.error("[Token Store] Failed to decrypt pulled tokens. Key mismatch?", err);
+  }
+}
+
+/**
+ * Clear all tokens from disk
+ */
+export function clearAllTokens(): void {
+  const storePath = getStorePath();
+  try {
+    if (fs.existsSync(storePath)) {
+      fs.unlinkSync(storePath);
+    }
+  } catch (err) {
+    console.error("[Token Store] Failed to clear token store:", err);
   }
 }
