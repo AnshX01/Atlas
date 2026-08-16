@@ -61,31 +61,42 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [user, isHydrated, queryClient]);
 
+  const rageLockedRef = useRef(false);
+
   useEffect(() => {
+    rageLockedRef.current = rageLocked;
+  }, [rageLocked]);
+
+  useEffect(() => {
+    let rageTimeout: NodeJS.Timeout | null = null;
     const handleGlobalClick = (e: MouseEvent) => {
       const now = Date.now();
       clickTimestamps.current = clickTimestamps.current.filter((t) => now - t < 1000);
       clickTimestamps.current.push(now);
 
       if (clickTimestamps.current.length >= 5) {
-        if (!rageLocked) {
+        if (!rageLockedRef.current) {
           setRageLocked(true);
-          setTimeout(() => {
+          if (rageTimeout) clearTimeout(rageTimeout);
+          rageTimeout = setTimeout(() => {
             setRageLocked(false);
             clickTimestamps.current = [];
           }, 2000);
         }
         e.stopPropagation();
         e.preventDefault();
-      } else if (rageLocked) {
+      } else if (rageLockedRef.current) {
         e.stopPropagation();
         e.preventDefault();
       }
     };
 
     document.addEventListener("click", handleGlobalClick, true);
-    return () => document.removeEventListener("click", handleGlobalClick, true);
-  }, [rageLocked]);
+    return () => {
+      document.removeEventListener("click", handleGlobalClick, true);
+      if (rageTimeout) clearTimeout(rageTimeout);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isMounted || !isHydrated) return;
