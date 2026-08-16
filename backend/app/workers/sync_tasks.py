@@ -74,6 +74,7 @@ async def _async_sync_connector(task, user_id: uuid.UUID, connector_id: uuid.UUI
     reset_qdrant_client()
     reset_redis_pool()
     factory = get_session_factory()
+    sync_log = None
     
     try:
         async with factory() as session:
@@ -149,11 +150,12 @@ async def _async_sync_connector(task, user_id: uuid.UUID, connector_id: uuid.UUI
         # Attempt to update SyncLog if it was created
         try:
             async with factory() as session:
-                sync_log_obj = await session.get(SyncLog, sync_log.id)
-                if sync_log_obj:
-                    sync_log_obj.status = SyncStatus.FAILED
-                    sync_log_obj.error_msg = str(exc)[:2000]
-                    session.add(sync_log_obj)
+                if sync_log:
+                    sync_log_obj = await session.get(SyncLog, sync_log.id)
+                    if sync_log_obj:
+                        sync_log_obj.status = SyncStatus.FAILED
+                        sync_log_obj.error_msg = str(exc)[:2000]
+                        session.add(sync_log_obj)
                 await session.commit()
 
             await publish_sync_event(
