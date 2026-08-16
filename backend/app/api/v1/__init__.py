@@ -21,6 +21,8 @@ from app.domain.schemas import (
 )
 from app.services.ai.supervisor_agent import run_atlas_pipeline
 from app.services.briefing_service import BriefingService
+from app.core.rate_limit import RateLimiter
+from app.core.circuit_breaker import circuit_breaker
 from fastapi import APIRouter, BackgroundTasks, Depends, Path, status
 from pydantic import BaseModel, Field
 from typing import Any
@@ -71,7 +73,7 @@ class MessageResponse(BaseModel):
     timestamp: datetime | str
 
 # ── Briefing Router ───────────────────────────────────────────────────────────
-briefing_router = APIRouter(prefix="/briefing", tags=["Briefing"])
+briefing_router = APIRouter(prefix="/briefing", tags=["Briefing"], dependencies=[Depends(RateLimiter(times=10, seconds=60))])
 
 
 @briefing_router.get(
@@ -95,7 +97,7 @@ async def get_daily_briefing(
 
 
 # ── Search Router ─────────────────────────────────────────────────────────────
-search_router = APIRouter(prefix="/search", tags=["Search"])
+search_router = APIRouter(prefix="/search", tags=["Search"], dependencies=[Depends(RateLimiter(times=20, seconds=60))])
 
 
 @search_router.post(
@@ -103,6 +105,7 @@ search_router = APIRouter(prefix="/search", tags=["Search"])
     response_model=OmniSearchResponse,
     summary="Universal semantic search across all connected sources",
 )
+@circuit_breaker(failure_threshold=5, recovery_timeout=60)
 async def omni_search(
     payload: OmniSearchRequest,
     current_user: User = Depends(get_current_user),

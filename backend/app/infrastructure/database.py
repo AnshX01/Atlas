@@ -59,6 +59,7 @@ def get_engine() -> AsyncEngine:
                     cursor = dbapi_connection.cursor()
                     cursor.execute("PRAGMA journal_mode=WAL")
                     cursor.execute("PRAGMA synchronous=NORMAL")
+                    cursor.execute("PRAGMA busy_timeout=5000")
                     cursor.close()
                     
             logger.info("SQLAlchemy async engine created", url=settings.DATABASE_URL.split("@")[-1])
@@ -117,6 +118,7 @@ def create_worker_session_factory() -> async_sessionmaker[AsyncSession]:
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=5000")
             cursor.close()
     return async_sessionmaker(
         bind=engine,

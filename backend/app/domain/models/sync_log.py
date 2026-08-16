@@ -6,7 +6,7 @@ import enum
 import uuid
 
 from app.domain.models.base import Base
-from sqlalchemy import Enum, ForeignKey, Integer, Text
+from sqlalchemy import Enum, ForeignKey, Integer, Text, Index
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,6 +28,8 @@ class SyncLog(Base):
     """
 
     __tablename__ = "sync_logs"
+
+    __table_args__ = (Index("ix_sync_logs_connector_created", "connector_id", "created_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     connector_id: Mapped[uuid.UUID] = mapped_column(

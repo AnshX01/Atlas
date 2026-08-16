@@ -5,7 +5,7 @@ const IV_LENGTH = 12;
 const SALT_LENGTH = 16;
 const TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
-const ITERATIONS = 100000;
+const ITERATIONS = 600000;
 
 let globalEncryptionKey = "";
 let crossDeviceKey = "";
@@ -34,7 +34,7 @@ export function setCrossDeviceDetails(email: string, password: string): void {
   const key = pbkdf2Sync(password, salt, ITERATIONS, KEY_LENGTH, "sha256");
   crossDeviceKey = key.toString("hex");
   // Derive a stable per-email ID using a constant app-level salt (not the email itself)
-  hashedEmailId = pbkdf2Sync(email.toLowerCase(), EMAIL_ID_DERIVATION_SALT, 100_000, 32, "sha256").toString("hex");
+  hashedEmailId = pbkdf2Sync(email.toLowerCase(), EMAIL_ID_DERIVATION_SALT, 600_000, 32, "sha256").toString("hex");
 }
 
 export function getCrossDeviceKey(): string {
