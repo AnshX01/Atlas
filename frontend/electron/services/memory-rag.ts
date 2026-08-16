@@ -3,6 +3,7 @@ import * as path from "path";
 import { app } from "electron";
 import { generateEmbedding } from "./ollama";
 import * as crypto from "crypto";
+import { chat } from "./ollama";
 
 export interface RAGEntry {
   id: string;
@@ -14,11 +15,22 @@ export interface RAGEntry {
 let ragStore: RAGEntry[] = [];
 let storePath: string = "";
 
+export interface SemanticCacheEntry {
+  queryEmbedding: number[];
+  response: string;
+  timestamp: number;
+}
+let semanticCacheStore: SemanticCacheEntry[] = [];
+let cacheStorePath: string = "";
+
+
 export function initRAGStore() {
   if (app) {
     storePath = path.join(app.getPath("userData"), "atlas-rag-store.json");
+    cacheStorePath = path.join(app.getPath("userData"), "atlas-semantic-cache.json");
   } else {
     storePath = path.join(process.cwd(), "atlas-rag-store.json");
+    cacheStorePath = path.join(process.cwd(), "atlas-semantic-cache.json");
   }
   
   if (fs.existsSync(storePath)) {
@@ -45,6 +57,18 @@ function persistStore() {
   }
 }
 
+
+function persistSemanticCache() {
+  if (!cacheStorePath) return;
+  try {
+    const tmpPath = cacheStorePath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(semanticCacheStore));
+    fs.renameSync(tmpPath, cacheStorePath);
+  } catch (e) {
+    console.error("[Atlas RAG] Failed to persist semantic cache:", e);
+  }
+}
+
 export async function storeContext(summary: string) {
   try {
     const embedding = await generateEmbedding(summary);
@@ -57,6 +81,73 @@ export async function storeContext(summary: string) {
     persistStore();
   } catch (e) {
     console.error("[Atlas RAG] Failed to store context:", e);
+  }
+}
+
+
+export async function checkSemanticCache(query: string, threshold: number = 0.95): Promise<string | null> {
+  if (semanticCacheStore.length === 0) return null;
+  try {
+    const queryEmbedding = await generateEmbedding(query);
+    let bestMatch: string | null = null;
+    let highestSimilarity = -1;
+    for (const entry of semanticCacheStore) {
+      const similarity = cosineSimilarity(queryEmbedding, entry.queryEmbedding);
+      if (similarity > highestSimilarity && similarity >= threshold) {
+        highestSimilarity = similarity;
+        bestMatch = entry.response;
+      }
+    }
+    return bestMatch;
+  } catch (e) {
+    return null;
+  }
+}
+
+export async function storeInSemanticCache(query: string, response: string) {
+  try {
+    const queryEmbedding = await generateEmbedding(query);
+    semanticCacheStore.push({
+      queryEmbedding,
+      response,
+      timestamp: Date.now()
+    });
+    if (semanticCacheStore.length > 500) {
+      semanticCacheStore.shift();
+    }
+    persistSemanticCache();
+  } catch (e) {
+    console.error("[Atlas RAG] Failed to store in semantic cache:", e);
+  }
+}
+
+export async function crossEncoderRerank(query: string, documents: string[], topK: number = 3): Promise<string[]> {
+  if (documents.length === 0) return [];
+  if (documents.length <= 1) return documents;
+  
+  const prompt = `Rate the relevance of each document to the query on a scale of 0 to 10.
+Query: "${query}"
+Documents:
+${documents.map((d, i) => `[${i}] ${d}`).join('\n')}
+
+Output ONLY a JSON array of numbers corresponding to the scores, e.g. [8, 2, 5]. Nothing else.`;
+  
+  try {
+    const response = await chat([{ role: 'user', content: prompt }]);
+    const match = response.match(/\[[\s\S]*\]/);
+    if (!match) throw new Error("No JSON array found in response");
+    
+    let scores = JSON.parse(match[0]);
+    if (!Array.isArray(scores) || scores.length !== documents.length) {
+      throw new Error("Invalid scoring output");
+    }
+    
+    const scoredDocs = documents.map((doc, idx) => ({ doc, score: scores[idx] }));
+    scoredDocs.sort((a, b) => b.score - a.score);
+    return scoredDocs.slice(0, topK).map(d => d.doc);
+  } catch (e) {
+    console.warn("[Atlas RAG] Cross-encoder reranking failed, falling back to original order:", e);
+    return documents.slice(0, topK);
   }
 }
 
@@ -78,7 +169,8 @@ export async function searchContext(query: string, topK: number = 3): Promise<st
     results.sort((a, b) => b.similarity - a.similarity);
     
     // Return top K summaries
-    return results.slice(0, topK).map(r => r.summary);
+    const topCandidates = results.slice(0, topK * 2).map(r => r.summary);
+    return await crossEncoderRerank(query, topCandidates, topK);
   } catch (e) {
     console.error("[Atlas RAG] Failed to search context:", e);
     return [];
