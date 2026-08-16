@@ -1,5 +1,5 @@
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+const vi = jest;
 import * as memoryRag from '../../electron/services/memory-rag';
 import * as ollama from '../../electron/services/ollama';
 

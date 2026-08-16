@@ -1,5 +1,5 @@
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+const vi = jest;
 import { Orchestrator } from '../../electron/services/orchestrator';
 import { MCPServerManager } from '../../electron/services/mcp-manager';
 import * as localStore from '../../electron/services/local-store';
