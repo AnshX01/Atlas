@@ -59,8 +59,8 @@ Identify any implicit entities (e.g. pronouns like 'it', 'he', 'they', or ambigu
         try:
             # 30s overall timeout is reasonable for this small resolution call
             # Use a retry strategy for transient network errors.
-retry_client = httpx.AsyncClient(timeout=30.0, limits=httpx.Limits(max_keepalive_connections=5))
-async with retry_client as client:
+            retry_client = httpx.AsyncClient(timeout=30.0, limits=httpx.Limits(max_keepalive_connections=5))
+            async with retry_client as client:
                 response = await client.post(f"{self.base_url}/api/chat", json=payload)
                 response.raise_for_status()
                 data = response.json()
