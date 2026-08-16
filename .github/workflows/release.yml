@@ -70,6 +70,7 @@ jobs:
           timeout_minutes: 15
           max_attempts: 3
           retry_wait_seconds: 15
+          shell: bash
           command: |
             cd frontend
             OS_FLAG=""
