@@ -27,6 +27,9 @@ import {
   getConversationHistory,
   saveToolExecution,
   Message,
+  saveWorkflowCheckpoint,
+  deleteWorkflowCheckpoint,
+  getAllWorkflowCheckpoints
 } from "./local-store";
 import { initRAGStore, searchContext, storeContext } from "./memory-rag";
 
@@ -383,6 +386,70 @@ export class Orchestrator {
     }, 60_000);
   }
 
+
+  public async recoverCheckpoints(mainWindow: BrowserWindow): Promise<void> {
+    initDB();
+    const checkpoints = getAllWorkflowCheckpoints();
+    for (const cp of checkpoints) {
+      console.log(`[Orchestrator] Recovering workflow for conversation: ${cp.conversationId}`);
+      const state = cp.state as WorkflowState;
+      
+      // If it was waiting for approval, we can restore it to pending approvals
+      if (state.requiresApproval && !state.approved && state.draft) {
+        this.safeSend(mainWindow, "workflow-draft-ready", {
+          conversationId: state.conversationId,
+          draft: state.draft
+        });
+        
+        // Setup pending approval promise
+        const approved = await new Promise<boolean>((resolve) => {
+          this.pendingApprovals.set(state.conversationId, {
+            executionId: state.draft!.executionId,
+            conversationId: state.conversationId,
+            state,
+            resolve,
+            createdAt: Date.now()
+          });
+        });
+
+        if (approved) {
+          state.approved = true;
+          saveWorkflowCheckpoint(state.conversationId, state);
+          try {
+             await this.executeNode(state, mainWindow);
+             await this.responseNode(state, mainWindow);
+             if (state.response) {
+               saveMessage(state.conversationId, "assistant", state.response);
+               storeContext(`User: ${state.input}\nAtlas: ${state.response}`);
+             }
+             deleteWorkflowCheckpoint(state ? state.conversationId : conversationId);
+    this.safeSend(mainWindow, "workflow-complete", {
+               conversationId: state.conversationId,
+               response: state.response,
+               intent: state.intent,
+               toolCalls: state.toolCalls,
+               results: [],
+               error: undefined,
+               cancelled: false
+             });
+          } catch (e) {
+             console.error("Error executing recovered state", e);
+          }
+        } else {
+           // Cancelled
+           this.safeSend(mainWindow, "workflow-complete", {
+             conversationId: state.conversationId,
+             cancelled: true
+           });
+        }
+        deleteWorkflowCheckpoint(state.conversationId);
+      } else {
+        // If it was in some other state, we can either resume from scratch or just delete the checkpoint for safety
+        deleteWorkflowCheckpoint(state.conversationId);
+      }
+    }
+  }
+
   /** Release resources — call on app shutdown. */
   destroy(): void {
     if (this.approvalCleanupInterval) {
@@ -485,6 +552,7 @@ export class Orchestrator {
             await this.actionNode(state, mainWindow);
             if (state.requiresApproval) {
               await this.draftNode(state, mainWindow);
+saveWorkflowCheckpoint(state.conversationId, state);
               const approved = await this.approvalNode(state, mainWindow);
               if (approved) {
                 await this.executeNode(state, mainWindow);

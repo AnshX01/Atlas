@@ -185,7 +185,8 @@ export class MCPServerManager {
       let proc: ChildProcess;
       try {
         proc = spawn(server.config.command, args, {
-          env: { ...process.env, ...env },
+          // Strict zero-trust environment for MCP subprocesses
+          env: { PATH: process.env.PATH, NODE_ENV: process.env.NODE_ENV || 'production', ...env },
           stdio: ['pipe', 'pipe', 'pipe'],
           windowsHide: true,
           shell: false,

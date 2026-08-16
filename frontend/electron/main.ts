@@ -132,6 +132,16 @@ function createWindow(): BrowserWindow {
 // ── App lifecycle ──────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   try {
+    // Enforce aggressive CSP blocking eval() and inline scripts
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws://localhost:* http://localhost:* https://*;"]
+        }
+      });
+    });
+
     // Automatically grant permissions for media/microphone
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
     const allowedPermissions = ['media', 'mediaKeySystem', 'display-capture'];

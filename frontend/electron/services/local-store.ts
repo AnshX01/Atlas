@@ -207,6 +207,14 @@ export async function initDB(): Promise<void> {
       );
 
       CREATE INDEX IF NOT EXISTS idx_messages_conversationId ON messages(conversation_id);
+
+      CREATE TABLE IF NOT EXISTS workflow_checkpoints (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        state_json TEXT NOT NULL,
+        timestamp TEXT NOT NULL
+      );
+
     `);
     
     // Add columns to existing tables if missing (ignore errors if they exist)
@@ -508,4 +516,68 @@ export function clearCacheAndQueue(): void {
     db.run("ROLLBACK");
   }
   persistToDisk();
+}
+
+
+export function saveWorkflowCheckpoint(conversationId: string, state: any): void {
+  if (!db) return;
+  const timestamp = new Date().toISOString();
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run("INSERT OR REPLACE INTO workflow_checkpoints (id, conversation_id, state_json, timestamp) VALUES (?, ?, ?, ?)", [conversationId, conversationId, JSON.stringify(state), timestamp]);
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+  }
+  persistToDisk();
+}
+
+export function getWorkflowCheckpoint(conversationId: string): any | null {
+  if (!db) return null;
+  const stmt = db.prepare("SELECT state_json FROM workflow_checkpoints WHERE conversation_id = ?");
+  try {
+    stmt.bind([conversationId]);
+    if (stmt.step()) {
+      const row = stmt.getAsObject();
+      return JSON.parse(row.state_json as string);
+    }
+  } catch (err) {
+    console.error("[Atlas Store] Failed to get checkpoint:", err);
+  } finally {
+    stmt.free();
+  }
+  return null;
+}
+
+export function deleteWorkflowCheckpoint(conversationId: string): void {
+  if (!db) return;
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run("DELETE FROM workflow_checkpoints WHERE conversation_id = ?", [conversationId]);
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+  }
+  persistToDisk();
+}
+
+
+export function getAllWorkflowCheckpoints(): any[] {
+  if (!db) return [];
+  const stmt = db.prepare("SELECT conversation_id, state_json FROM workflow_checkpoints");
+  const results = [];
+  try {
+    while (stmt.step()) {
+      const row = stmt.getAsObject();
+      results.push({
+        conversationId: row.conversation_id as string,
+        state: JSON.parse(row.state_json as string)
+      });
+    }
+  } catch (err) {
+    console.error("[Atlas Store] Failed to get checkpoints:", err);
+  } finally {
+    stmt.free();
+  }
+  return results;
 }

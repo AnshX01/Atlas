@@ -1,4 +1,6 @@
 import { Notification } from 'electron';
+import { getToken, setToken, listConfigured } from './token-store';
+import { refreshGoogleToken } from './google-oauth';
 import { MCPServerManager } from './mcp-manager';
 
 export class CronEngine {
@@ -67,6 +69,21 @@ export class CronEngine {
         }
       }
       
+      // 3. Automated OAuth token rotation
+      const configured = listConfigured();
+      if (configured.includes("google_workspace")) {
+        const creds = getToken("google_workspace") as any;
+        if (creds && creds.refresh_token && creds.client_id && creds.client_secret) {
+          try {
+            const newToken = await refreshGoogleToken(creds.client_id, creds.client_secret, creds.refresh_token);
+            setToken("google_workspace", { ...creds, access_token: newToken });
+            console.log("[CronEngine] Automated OAuth token rotation successful for google_workspace");
+          } catch (e) {
+            console.error("[CronEngine] Automated OAuth token rotation failed:", e);
+          }
+        }
+      }
+
       // 2. Check Calendar for upcoming events in the next hour
       const timeMin = new Date().toISOString();
       const timeMax = new Date(Date.now() + 60 * 60 * 1000).toISOString(); 
