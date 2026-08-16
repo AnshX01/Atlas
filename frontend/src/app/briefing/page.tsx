@@ -2,6 +2,8 @@
 
 import { useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useWindowVirtualizer } from "@tanstack/react-virtual";
+import { useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw, CheckSquare } from "lucide-react";
 import { BriefingCard } from "@/components/composite/BriefingCard";

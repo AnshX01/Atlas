@@ -352,7 +352,7 @@ Rules:
     });
 
     // Parse the JSON response from Ollama
-    const items = parseOllamaResponse(response);
+    const items = await parseOllamaResponse(response);
     if (items.length > 0) return items;
 
     // If parsing failed, fall back to non-AI items
@@ -368,7 +368,9 @@ Rules:
  * Parse Ollama's response which should be a JSON array of briefing items.
  * Handles common LLM quirks like markdown code fences or extra text.
  */
-function parseOllamaResponse(response: string): BriefingItemData[] {
+import { JsonWorkerPool } from '../utils/json-worker-pool';
+
+async function parseOllamaResponse(response: string): Promise<BriefingItemData[]> {
   let cleaned = response.trim();
   
   // Try to parse as JSONL first
@@ -395,7 +397,7 @@ function parseOllamaResponse(response: string): BriefingItemData[] {
   if (!arrayMatch) return [];
 
   try {
-    const parsed = JSON.parse(arrayMatch[0]);
+    const parsed = await JsonWorkerPool.parse(cleaned, 'parseArray');
     if (!Array.isArray(parsed)) return [];
 
     return parsed

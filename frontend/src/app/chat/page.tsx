@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect, Suspense, type KeyboardEvent, memo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { AgentDesignSystemShell } from "@/components/ui/AgentDesignSystemShell";
 import {
   Send,
