@@ -1020,9 +1020,7 @@ Output JSON only: {"valid": boolean, "feedback": "if invalid, explain why and wh
       }
       const result = repairAndParseJson(fullResponse);
       return { valid: result.valid === true, feedback: result.feedback || "" };
-    } catch {
-      return { valid: true, feedback: "" }; // Fallback to passing
-    }
+    } catch (error: any) { if (error.name === 'AbortError' || (abortSignal && abortSignal.aborted)) { throw error; } return { valid: true, feedback: "" }; }
   }
 
   private buildDraftPrompt(
@@ -2200,3 +2198,4 @@ Rules:
     return pending;
   }
 }
+

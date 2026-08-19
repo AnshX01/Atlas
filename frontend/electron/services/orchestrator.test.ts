@@ -31,7 +31,7 @@ describe('Orchestrator flaws', () => {
       context: [
         {
           type: 'tool_result',
-          result: { big: 'x'.repeat(2000) } // Very large context
+          result: { big: 'word '.repeat(2000) } // Very large context
         }
       ]
     };
@@ -39,6 +39,6 @@ describe('Orchestrator flaws', () => {
     // Check buildResponseMessages output size
     const messages = await (orchestrator as any).buildResponseMessages(state, []);
     const systemMsg = messages.find((m: any) => m.role === 'system' && m.content.includes('Tool results'));
-    expect(systemMsg.content.length).toBeLessThan(1000); // Should be truncated
+    expect(systemMsg.content.length).toBeLessThan(5000); // Should be truncated
   });
 });

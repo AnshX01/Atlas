@@ -6,7 +6,7 @@ let window: Page;
 
 test.beforeAll(async () => {
   // Launch Electron app
-  const mainPath = path.join(__dirname, '../../../'); 
+  const mainPath = path.join(__dirname, '../../'); 
   electronApp = await electron.launch({ args: ['.'], cwd: mainPath });
   window = await electronApp.firstWindow();
 });

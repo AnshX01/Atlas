@@ -54,13 +54,13 @@ describe('Orchestrator State Recovery', () => {
     // Mock resolving the approval
     setTimeout(() => {
       // Find the pending approval
-      const pending = (orchestrator as any).pendingApprovals.get('1234');
+      const pending = (orchestrator as any).pendingApprovals.get('exe-1');
       if (pending) {
         pending.resolve(true); // Approve
       }
     }, 50);
 
-    await recoverPromise;
+    await recoverPromise; await new Promise(r => setTimeout(r, 100));
 
     expect(localStore.getAllWorkflowCheckpoints).toHaveBeenCalled();
     expect(mockMainWindow.webContents.send).toHaveBeenCalledWith('workflow-draft-ready', expect.any(Object));

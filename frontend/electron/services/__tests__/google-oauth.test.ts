@@ -1,5 +1,5 @@
 
-import { startGoogleOAuth } from '../../frontend/electron/services/google-oauth';
+import { startGoogleOAuth } from '../google-oauth';
 
 // Mock electron
 jest.mock('electron', () => ({
@@ -34,3 +34,4 @@ describe('startGoogleOAuth', () => {
     await expect(promise2).rejects.toThrow('OAuth timed out');
   });
 });
+

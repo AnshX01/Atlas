@@ -8,6 +8,11 @@ export default defineConfig({
     timeout: 10000,
   },
   reporter: 'list',
+  webServer: {
+    command: 'npm run dev -- -p 3000',
+    port: 3000,
+    reuseExistingServer: true,
+  },
   use: {
     trace: 'on-first-retry',
     strictSelectors: true,

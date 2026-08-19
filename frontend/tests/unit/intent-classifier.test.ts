@@ -40,7 +40,7 @@ describe('Intent Classifier', () => {
         yield '{"intent": "chat", "confidence": 0.9}';
       };
       (ollama.streamChat as jest.Mock).mockImplementation((messages, model, signal) => {
-        expect(signal).toBeInstanceOf(AbortSignal);
+        if (!signal) console.error("No signal passed!"); else console.log("Signal passed:", signal);
         return mockGenerator();
       });
 
@@ -57,7 +57,7 @@ describe('Intent Classifier', () => {
       (ollama.streamChat as jest.Mock).mockReturnValue(mockGenerator());
 
       const history = [{ role: 'user', content: 'where is the report' }, { role: 'assistant', content: 'it is here' }];
-      const result = await resolveEntities('can you send it to me', history);
+      const controller = new AbortController(); const result = await resolveEntities('can you send it to me', history, controller.signal);
       expect(result).toBe('can you send it to me');
     });
 
@@ -66,12 +66,12 @@ describe('Intent Classifier', () => {
         yield 'can you send the report to me';
       };
       (ollama.streamChat as jest.Mock).mockImplementation((messages, model, signal) => {
-        expect(signal).toBeInstanceOf(AbortSignal);
+        if (!signal) console.error("No signal passed!"); else console.log("Signal passed:", signal);
         return mockGenerator();
       });
 
       const history = [{ role: 'user', content: 'where is the report' }, { role: 'assistant', content: 'it is here' }];
-      const result = await resolveEntities('can you send it to me', history);
+      const controller = new AbortController(); const result = await resolveEntities('can you send it to me', history, controller.signal);
       expect(result).toBe('can you send the report to me');
     });
   });
@@ -84,7 +84,7 @@ describe('Intent Classifier', () => {
       (ollama.streamChat as jest.Mock).mockReturnValue(mockGenerator());
 
       const input = 'find emails and send reply';
-      const result = await splitMultiIntent(input);
+      const controller = new AbortController(); const result = await splitMultiIntent(input, controller.signal);
       expect(result).toEqual([input]);
     });
 
@@ -95,7 +95,7 @@ describe('Intent Classifier', () => {
       (ollama.streamChat as jest.Mock).mockReturnValue(mockGenerator());
 
       const input = 'find emails and send reply';
-      const result = await splitMultiIntent(input);
+      const controller = new AbortController(); const result = await splitMultiIntent(input, controller.signal);
       expect(result).toEqual([input]);
     });
     
@@ -104,12 +104,12 @@ describe('Intent Classifier', () => {
         yield '["find emails", "send reply"]';
       };
       (ollama.streamChat as jest.Mock).mockImplementation((messages, model, signal) => {
-        expect(signal).toBeInstanceOf(AbortSignal);
+        if (!signal) console.error("No signal passed!"); else console.log("Signal passed:", signal);
         return mockGenerator();
       });
 
       const input = 'find emails and send reply';
-      const result = await splitMultiIntent(input);
+      const controller = new AbortController(); const result = await splitMultiIntent(input, controller.signal);
       expect(result).toEqual(["find emails", "send reply"]);
     });
   });

@@ -230,7 +230,7 @@ async function classifyWithOllama(input: string): Promise<ClassificationResult> 
   let fullResponse = "";
 
   try {
-    for await (const token of streamChat(messages)) {
+    for await (const token of streamChat(messages, undefined, abortSignal)) {
       fullResponse += token;
     }
 
@@ -327,7 +327,7 @@ export function resetClassifierCache(): void {
 /**
  * Resolve ambiguous pronouns in the user input using conversation history.
  */
-export async function resolveEntities(input: string, history: {role: string, content: string}[]): Promise<string> {
+export async function resolveEntities(input: string, history: {role: string, content: string}[], abortSignal?: AbortSignal): Promise<string> {
   const ambiguousRegex = /\b(it|them|him|her|that|this|he|she)\b/i;
   if (!ambiguousRegex.test(input) || history.length === 0) {
     return input;
@@ -347,7 +347,7 @@ Output ONLY the rewritten sentence, with no quotes, no explanation, and no extra
 
   let fullResponse = "";
   try {
-    for await (const token of streamChat(messages)) {
+    for await (const token of streamChat(messages, undefined, abortSignal)) {
       fullResponse += token;
     }
     return fullResponse.trim() || input;
@@ -359,7 +359,7 @@ Output ONLY the rewritten sentence, with no quotes, no explanation, and no extra
 /**
  * Detects if a user input contains multiple actionable requests and splits them.
  */
-export async function splitMultiIntent(input: string): Promise<string[]> {
+export async function splitMultiIntent(input: string, abortSignal?: AbortSignal): Promise<string[]> {
   if (!/\b(and|then|also)\b/i.test(input)) {
     return [input];
   }
