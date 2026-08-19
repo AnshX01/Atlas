@@ -12,6 +12,8 @@ from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import ORJSONResponse
 from jose import JWTError
+from sqlalchemy.exc import OperationalError
+
 
 
 # ── Custom Exception Classes ──────────────────────────────────────────────────
@@ -139,6 +141,25 @@ def register_exception_handlers(app: FastAPI) -> None:
             status_code=status.HTTP_401_UNAUTHORIZED,
             title="Authentication Error",
             detail="Invalid or expired token.",
+            instance=str(request.url),
+        )
+
+    @app.exception_handler(OperationalError)
+    async def sqlalchemy_operational_error_handler(request: Request, exc: OperationalError) -> ORJSONResponse:
+        # Detect transient DB locks or disconnects
+        detail_msg = str(exc).lower()
+        if "locked" in detail_msg or "timeout" in detail_msg or "server closed the connection" in detail_msg:
+            return _problem_response(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                title="Database Unavailable",
+                detail="The database is temporarily locked or unavailable. Please retry.",
+                instance=str(request.url),
+            )
+        # Fallback for other operational errors
+        return _problem_response(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            title="Database Error",
+            detail="An internal database error occurred.",
             instance=str(request.url),
         )
 

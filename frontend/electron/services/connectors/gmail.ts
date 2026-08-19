@@ -55,7 +55,17 @@ export class GmailConnector {
     }
 
     const headers = { Authorization: `Bearer ${this.accessToken}`, ...options.headers };
-    let res = await fetch(url, { ...options, headers });
+    let res: Response;
+    try {
+      res = await fetch(url, { ...options, headers });
+    } catch (err: any) {
+      if (attempt <= 3) {
+        const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return this.authFetch(url, options, attempt + 1);
+      }
+      throw new Error(`Network error in Google Workspace connector: ${err.message}`);
+    }
 
     if (res.status === 401 && this.refreshToken && this.clientId && this.clientSecret) {
       // Re-read token just in case another request already refreshed it
@@ -96,13 +106,13 @@ export class GmailConnector {
       throw new Error('Google token expired and no refresh token available. Please re-authenticate in Settings.');
     }
     
-    if (res.status === 429) {
+    if (res.status === 429 || res.status >= 500) {
       if (attempt <= 3) {
         const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
         await new Promise(resolve => setTimeout(resolve, delay));
         return this.authFetch(url, options, attempt + 1);
       } else {
-        throw new Error('Google Workspace rate limit exceeded. Please try again later.');
+        throw new Error(`Google Workspace request failed (status ${res.status}). Please try again later.`);
       }
     }
     

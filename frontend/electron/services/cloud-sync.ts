@@ -100,6 +100,7 @@ export class SyncManager {
     console.log(`[SyncManager] Flushing ${queueToProcess.length} items to Supabase...`);
 
     let hasConflict = false;
+    let transientError = false;
 
     try {
       for (const item of queueToProcess) {
@@ -110,7 +111,11 @@ export class SyncManager {
               .upsert(item.data, { onConflict: 'id', ignoreDuplicates: false });
             
             if (error) {
-              hasConflict = true;
+              if (error.code === '23505' || error.code === '23503' || (error.message && error.message.includes('conflict'))) {
+                hasConflict = true;
+              } else {
+                transientError = true;
+              }
               throw error;
             }
           } else if (item.operation === "DELETE") {
@@ -120,7 +125,11 @@ export class SyncManager {
               .eq('id', item.data.id);
               
             if (error) {
-              hasConflict = true;
+              if (error.code === '23505' || error.code === '23503' || (error.message && error.message.includes('conflict'))) {
+                hasConflict = true;
+              } else {
+                transientError = true;
+              }
               throw error;
             }
           }
@@ -130,6 +139,7 @@ export class SyncManager {
           console.log(`[SyncManager] Synced ${item.operation} on ${item.table_name} to cloud.`);
         } catch (err) {
           console.error(`[SyncManager] Failed to sync delta for ${item.table_name}:`, err);
+          if (transientError) break;
         }
       }
     } finally {
@@ -142,6 +152,8 @@ export class SyncManager {
     
     if (hasConflict) {
       this.setState("conflict");
+    } else if (transientError) {
+      this.setState("offline");
     } else if (remainingQueue.length === 0) {
       this.setState("synced");
     } else {
@@ -158,11 +170,23 @@ export class SyncManager {
 
     console.log(`[SyncManager] Pulling latest changes from Supabase since ${lastSyncTime}...`);
     
+    const timeoutMs = 10000;
+    let resolveTimeout: (val: any) => void;
+    const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) => {
+      resolveTimeout = resolve;
+    });
+
+    const timeoutId = setTimeout(() => {
+      resolveTimeout({ data: null, error: new Error("pullFromCloud timeout") });
+    }, timeoutMs);
+    
     try {
-      const { data, error } = await this.supabase
+      const queryPromise = this.supabase
         .from('conversations')
         .select('*')
         .gt('updated_at', lastSyncTime);
+        
+      const { data, error } = await Promise.race([queryPromise, timeoutPromise]) as any;
         
       if (error) throw error;
       
@@ -185,6 +209,8 @@ export class SyncManager {
       }
     } catch (err) {
       console.error("[SyncManager] Pull failed:", err);
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
