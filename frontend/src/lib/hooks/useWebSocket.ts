@@ -19,11 +19,13 @@ export function useWebSocket() {
     const ws = new WebSocket(`${wsUrl}/ws/${user.id}?token=${accessToken}`);
 
     ws.onopen = () => {
+      if (wsRef.current !== ws) return;
       console.log("[WebSocket] Connected");
       setWsConnected(true);
     };
 
     ws.onmessage = (event) => {
+      if (wsRef.current !== ws) return;
       try {
         const data = JSON.parse(event.data);
         dispatch(data);
@@ -40,11 +42,13 @@ export function useWebSocket() {
     };
 
     ws.onclose = () => {
+      if (wsRef.current !== ws) return;
       console.log("[WebSocket] Disconnected");
       setWsConnected(false);
     };
 
     ws.onerror = (err) => {
+      if (wsRef.current !== ws) return;
       console.debug("[WebSocket] Connection attempt failed (will retry):", err);
     };
 
