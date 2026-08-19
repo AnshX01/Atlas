@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { connectorsAPI } from "@/lib/api/connectors";
 import { motion, AnimatePresence } from "framer-motion";
 import { RefreshCw, ServerOff, Play, Download } from "lucide-react";
@@ -12,6 +12,13 @@ export function OnboardingWizard({ children }: { children: React.ReactNode }) {
   const [isChecking, setIsChecking] = useState(true);
   const [isActionPending, setIsActionPending] = useState(false);
   const [checkingStatus, setCheckingStatus] = useState<string>('');
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
 
   const checkSystem = async () => {
     setIsChecking(true);
@@ -139,6 +146,7 @@ export function OnboardingWizard({ children }: { children: React.ReactNode }) {
           checkSystem();
         }
       }, 3000);
+      pollIntervalRef.current = interval;
     } catch (err) {
       console.error(err);
       setIsActionPending(false);
@@ -186,6 +194,7 @@ export function OnboardingWizard({ children }: { children: React.ReactNode }) {
           checkSystem();
         }
       }, 3000);
+      pollIntervalRef.current = interval;
     } catch (err) {
       console.error(err);
       setIsActionPending(false);

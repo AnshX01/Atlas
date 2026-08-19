@@ -249,8 +249,7 @@ export default function BriefingPage() {
             {visibleItems.length === 0 ? (
               <EmptyBriefing key="empty" />
             ) : (
-              <motion.div
-                className="flex flex-col gap-4"
+              <motion.div key="briefing-list" className="flex flex-col gap-4"
                 role="feed"
                 aria-label="Today's briefing items"
                 aria-live="polite"

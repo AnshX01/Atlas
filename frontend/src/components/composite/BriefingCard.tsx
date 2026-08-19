@@ -167,7 +167,7 @@ export function BriefingCard({ item, index, onDone }: BriefingCardProps) {
 
         <AnimatePresence>
           {expanded && (
-            <motion.div
+            <motion.div key="expanded-briefing"
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}

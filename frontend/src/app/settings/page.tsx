@@ -318,7 +318,7 @@ function ConnectorCard({
       {/* Inline configuration form */}
       <AnimatePresence>
         {expanded && (
-          <motion.div
+          <motion.div key="expanded-settings"
             className="pb-4 px-1"
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}

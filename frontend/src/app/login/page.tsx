@@ -318,7 +318,7 @@ export default function LoginPage() {
         >
           <AnimatePresence>
             {isSyncing && (
-              <motion.div
+              <motion.div key="syncing-overlay"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -458,7 +458,7 @@ export default function LoginPage() {
             {/* Full Name (register only) */}
             <AnimatePresence>
               {isRegister && (
-                <motion.div
+                <motion.div key="register-fields"
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
