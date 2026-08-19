@@ -850,23 +850,36 @@ saveWorkflowCheckpoint(state.conversationId, state);
       let attempts = 0;
       let evalContext = "";
 
-      while (!evaluationPass && attempts < 2) {
+      while (!evaluationPass && attempts < 3) {
         this.safeSend(mainWindow, "workflow-stream", {
           conversationId: state.conversationId,
           role: "assistant",
           content: attempts === 0 ? "\n*Drafting action...*" : "\n*Self-correcting draft...*"
         });
 
-        fields = await this.generateDraft(actionType, state.input, state.context, toolSchemaStr, evalContext, abortController.signal);
-        
-        // Evaluate draft
-        const evalResult = await this.evaluateDraft(actionType, fields, state.input, toolSchemaStr, abortController.signal);
-        if (evalResult.valid) {
-          evaluationPass = true;
-        } else {
-          evalContext += `\nError in previous draft: ${evalResult.feedback}. Please fix this.`;
+        try {
+          fields = await this.generateDraft(actionType, state.input, state.context, toolSchemaStr, evalContext, abortController.signal);
+          
+          // Evaluate draft
+          const evalResult = await this.evaluateDraft(actionType, fields, state.input, toolSchemaStr, abortController.signal);
+          if (evalResult.valid) {
+            evaluationPass = true;
+          } else {
+            evalContext += `\nError in previous draft: ${evalResult.feedback}. Please fix this.`;
+            attempts++;
+          }
+        } catch (error) {
+          if (error instanceof MissingArgumentError) {
+            throw error;
+          }
+          evalContext += `\nError in previous draft generation: ${error instanceof Error ? error.message : String(error)}. Please output ONLY valid JSON.`;
           attempts++;
         }
+      }
+      
+      // If we exhausted attempts and still don't have fields (because of parse errors), use fallback
+      if (Object.keys(fields).length === 0) {
+         fields = this.getFallbackDraftFields(actionType, state.input);
       }
       
       // Check for placeholders in required fields
@@ -964,11 +977,9 @@ saveWorkflowCheckpoint(state.conversationId, state);
       if (error instanceof MissingArgumentError) {
         throw error;
       }
-      console.warn("[Orchestrator] Draft generation failed, using fallback:", error);
+      console.warn("[Orchestrator] Draft generation failed:", error);
+      throw error;
     }
-
-    // Fallback: return basic fields based on action type
-    return this.getFallbackDraftFields(actionType, userInput);
   }
 
   /**
@@ -1383,7 +1394,7 @@ Rules:
     }
 
     const history = getConversationHistory(state.conversationId, 10);
-    const messages = await this.buildResponseMessages(state, history);
+    let messages = await this.buildResponseMessages(state, history);
 
     let fullResponse = "";
     const abortController = new AbortController();
@@ -1391,29 +1402,43 @@ Rules:
     if (existing) existing.abort();
     this.activeStreams.set(state.conversationId, abortController);
 
-    try {
-      for await (const token of streamChat(messages, undefined, abortController.signal)) {
-        fullResponse += token;
-        this.safeSend(mainWindow, "workflow-stream", token);
-      }
+    let attempt = 0;
+    let success = false;
+    
+    while (!success && attempt < 2) {
+      try {
+        for await (const token of streamChat(messages, undefined, abortController.signal)) {
+          fullResponse += token;
+          this.safeSend(mainWindow, "workflow-stream", token);
+        }
 
-      state.response = fullResponse;
-      
-      if (!state.response.trim()) {
-        console.warn("[Orchestrator] Ollama returned empty response, using fallback");
+        state.response = fullResponse;
+        
+        if (!state.response.trim()) {
+          console.warn("[Orchestrator] Ollama returned empty response, using fallback");
+          state.response = this.generateFallbackResponse(state);
+          this.safeSend(mainWindow, "workflow-stream", state.response);
+        }
+        success = true;
+      } catch (error: any) {
+        if (error.name === 'AbortError' || abortController.signal.aborted) {
+          throw error;
+        }
+        if (error.name === 'ContextWindowOverflowError' && attempt === 0) {
+          console.warn("[Orchestrator] Context window overflow, retrying with aggressive truncation...");
+          attempt++;
+          // Re-build messages with much smaller limits
+          messages = await this.buildResponseMessages(state, history.slice(-2), true);
+          continue;
+        }
+        console.warn("[Orchestrator] Ollama unavailable for response, using fallback:", error);
         state.response = this.generateFallbackResponse(state);
         this.safeSend(mainWindow, "workflow-stream", state.response);
+        success = true;
       }
-    } catch (error: any) {
-      if (error.name === 'AbortError' || abortController.signal.aborted) {
-        throw error;
-      }
-      console.warn("[Orchestrator] Ollama unavailable for response, using fallback");
-      state.response = this.generateFallbackResponse(state);
-      this.safeSend(mainWindow, "workflow-stream", state.response);
-    } finally {
-      this.activeStreams.delete(state.conversationId);
     }
+    
+    this.activeStreams.delete(state.conversationId);
   }
 
   // ── Stream Management ──────────────────────────────────────────────────────
@@ -1601,7 +1626,8 @@ Rules:
 
   private async buildResponseMessages(
     state: WorkflowState,
-    history: Message[]
+    history: Message[],
+    aggressiveTruncation: boolean = false
   ): Promise<Array<{ role: "system" | "user" | "assistant"; content: string }>> {
     const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
 
@@ -1620,7 +1646,8 @@ Rules:
             const humanized = humanizeDates(c.result);
             const str = JSON.stringify(humanized);
             const strTokens = str.split(/\s+/);
-            return strTokens.length > 750 ? strTokens.slice(0, 750).join(" ") + "..." : str;
+            const limit = aggressiveTruncation ? 200 : 750;
+            return strTokens.length > limit ? strTokens.slice(0, limit).join(" ") + "..." : str;
           }
           return `Error fetching from ${c.server}: ${c.error}`;
         })
@@ -1654,8 +1681,9 @@ Rules:
       for (const msg of recentHistory) {
         if (msg.role === "user" || msg.role === "assistant") {
           // Truncate history messages to prevent context window overflow
-          const content = msg.content.length > 2000 
-            ? msg.content.slice(0, 2000) + "... [truncated]" 
+          const charLimit = aggressiveTruncation ? 500 : 2000;
+          const content = msg.content.length > charLimit 
+            ? msg.content.slice(0, charLimit) + "... [truncated]" 
             : msg.content;
           messages.push({ role: msg.role as "user" | "assistant", content });
         }

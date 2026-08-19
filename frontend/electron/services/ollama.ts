@@ -191,6 +191,11 @@ export async function* streamChat(
     if (response.status === 404) {
       throw new Error(`Model '${model}' is not installed. Run: ollama pull ${model}`);
     }
+    if (response.status === 400 && errorText.toLowerCase().includes('context window')) {
+      const err = new Error(`Context window overflow: ${errorText}`);
+      err.name = "ContextWindowOverflowError";
+      throw err;
+    }
     throw new Error(
       `Ollama chat stream failed (HTTP ${response.status}): ${errorText}`
     );
@@ -342,6 +347,11 @@ export async function chat(
     const errorText = await response.text().catch(() => 'Unknown error');
     if (response.status === 404) {
       throw new Error(`Model '${model}' is not installed. Run: ollama pull ${model}`);
+    }
+    if (response.status === 400 && errorText.toLowerCase().includes('context window')) {
+      const err = new Error(`Context window overflow: ${errorText}`);
+      err.name = "ContextWindowOverflowError";
+      throw err;
     }
     throw new Error(
       `Ollama chat failed (HTTP ${response.status}): ${errorText}`
