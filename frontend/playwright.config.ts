@@ -9,8 +9,8 @@ export default defineConfig({
   },
   reporter: 'list',
   webServer: {
-    command: 'npm run dev -- -p 3000',
-    port: 3000,
+    command: 'npm run dev -- -p 3001',
+    port: 3001,
     reuseExistingServer: true,
   },
   use: {

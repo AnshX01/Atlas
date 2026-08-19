@@ -56,7 +56,7 @@ import * as http from "http";
 import serve from "electron-serve";
 
 const isDev = !app.isPackaged;
-const NEXT_URL = "http://localhost:3000";
+const NEXT_URL = "http://localhost:3001";
 const loadProd = serve({ directory: path.join(__dirname, "../out") });
 
 let mainWindow: BrowserWindow | null = null;
