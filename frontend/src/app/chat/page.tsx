@@ -651,7 +651,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
                         <div className="flex items-center justify-between px-4 py-2 bg-black/40">
                           <span className="text-xs font-mono text-[var(--text-muted)]">{match?.[1] || "text"}</span>
                           <button 
-                            onClick={() => navigator.clipboard.writeText(String(children).replace(/\n$/, "")).catch(() => {})}
+                            onClick={() => navigator.clipboard.writeText(String(children).replace(/\n$/, "")).catch(console.error)}
                             className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex items-center gap-1"
                           >
                             Copy
@@ -1402,7 +1402,7 @@ function ChatPageInner() {
 
     // Signal the main process (best-effort acknowledgement)
     if (hasElectronIPC()) {
-      window.atlasElectron!.abortWorkflow().catch(() => {});
+      window.atlasElectron!.abortWorkflow().catch(console.error);
     }
 
     // Stop streaming — mark all messages as not streaming

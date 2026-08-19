@@ -529,9 +529,7 @@ export default function SettingsPage() {
         try {
           const { tokenSyncAPI } = await import("@/lib/api/token-sync");
           await tokenSyncAPI.uploadToken(connectorId, values);
-        } catch {
-          // Silent — cloud sync is best-effort, local still works
-        }
+        } catch (err) { console.warn("Cloud sync failed (best-effort):", err); }
 
         queryClient.invalidateQueries({ queryKey: ["connectors"] });
 
@@ -570,7 +568,7 @@ export default function SettingsPage() {
         try {
           const { tokenSyncAPI } = await import("@/lib/api/token-sync");
           await tokenSyncAPI.uploadToken(connectorId, {});
-        } catch {}
+        } catch (err) { console.warn("Operation failed (best-effort):", err); }
 
         setToast({ message: `${connectorId.replace("_", " ")} disconnected.`, type: "success" });
       } catch (err: any) {
@@ -640,7 +638,7 @@ export default function SettingsPage() {
               const { tokenSyncAPI } = await import("@/lib/api/token-sync");
               await tokenSyncAPI.uploadToken("google_workspace", creds);
             }
-          } catch {}
+          } catch (err) { console.warn("Operation failed (best-effort):", err); }
         } else {
           throw new Error(result.error || "OAuth flow failed");
         }

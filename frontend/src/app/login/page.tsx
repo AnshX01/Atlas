@@ -49,7 +49,7 @@ export default function LoginPage() {
           localStorage.setItem(`atlas_connector_${provider}`, JSON.stringify(creds));
           (window as any).atlasElectron?.tokenStore?.set(provider, creds);
         }
-      }).catch(() => {});
+      }).catch(console.error);
       setSyncProgress(40);
 
       // 2. Download conversations
@@ -70,7 +70,7 @@ export default function LoginPage() {
             }
           }
         }
-      }).catch(() => {});
+      }).catch(console.error);
       setSyncProgress(75);
 
       // 3. Download avatar
@@ -80,14 +80,14 @@ export default function LoginPage() {
           localStorage.setItem('atlas-profile-avatar', data.image_data);
           window.dispatchEvent(new Event('atlas-avatar-updated'));
         }
-      }).catch(() => {});
+      }).catch(console.error);
       setSyncProgress(100);
 
       // Smooth transition UX
       await new Promise(resolve => setTimeout(resolve, 800));
 
       router.push("/dashboard");
-    } catch (e) {
+    } catch (e) { console.error("Sync failed:", e);
       router.push("/dashboard");
     }
   }, [setUser, router]);
@@ -244,8 +244,7 @@ export default function LoginPage() {
               user = await authAPI.getMe();
             }
             handleLoginSuccess(user);
-          } catch (err) {
-            setError("Google sign-in failed. Please try again.");
+          } catch (err) { console.error("Google sign-in error:", err); setError("Google sign-in failed. Please try again.");
             setLoading(false);
           }
         } else {
