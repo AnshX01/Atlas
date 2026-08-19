@@ -32,6 +32,7 @@ export function Toast({ message, type = "success", duration = 4000, onClose }: T
     <AnimatePresence>
       {visible && (
         <motion.div
+          key="toast-instance" 
           className="fixed bottom-4 right-4 z-[9999] max-w-sm"
           initial={{ opacity: 0, x: 80, scale: 0.95 }}
           animate={{ opacity: 1, x: 0, scale: 1 }}
