@@ -593,7 +593,13 @@ saveWorkflowCheckpoint(state.conversationId, state);
         }
         lastIntent = state.intent;
 
-      } catch (error) {
+      } catch (error: any) {
+        if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+          console.log("[Orchestrator] Workflow aborted by user");
+          isCancelled = true;
+          break;
+        }
+        
         if (error instanceof MissingArgumentError) {
           const clarificationMsg = `I need a bit more info before I can do that: ${error.message}`;
           combinedResponse += (combinedResponse ? "\n\n" : "") + clarificationMsg;
