@@ -52,6 +52,22 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Sync Version from Tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Syncing version $VERSION"
+          
+          # Update frontend
+          cd frontend
+          npm version $VERSION --no-git-tag-version || true
+          cd ..
+          
+          # Update backend
+          cd backend
+          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
+          cd ..
+        shell: bash
+
       - name: Install Dependencies
         run: npm ci
         working-directory: frontend
@@ -87,16 +103,15 @@ jobs:
           # Generate checksums based on OS
           cd dist
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            sha256sum *.* > checksums-windows.txt
+            sha256sum *.exe > checksums-windows.txt
           elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            shasum -a 256 *.* > checksums-macos.txt
+            shasum -a 256 *.dmg > checksums-macos.txt
           else
-            sha256sum *.* > checksums-linux.txt
+            sha256sum *.AppImage *.deb > checksums-linux.txt || sha256sum *.AppImage > checksums-linux.txt
           fi
           
           # Smoke Test: check if the executable/installer exists
           ls -la
-          # In a real environment, we would also run a smoke test command here if we had headless tools.
         shell: bash
 
   finalize-release:
