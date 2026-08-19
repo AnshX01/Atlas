@@ -99,6 +99,10 @@ const DRAFT_TYPE_LABELS: Record<string, string> = {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function generateId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // Fallback for non-standard environments (e.g., older Electron renderers)
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
@@ -725,7 +729,7 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
       </div>
     </motion.div>
   );
-}, (prev, next) => JSON.stringify(prev.message) === JSON.stringify(next.message));
+});
 
 function ChatInput({
   onSend,
@@ -857,7 +861,14 @@ function ChatPageInner() {
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      // Cancel any in-flight HTTP request (browser/dev-mode path)
+      abortRef.current?.abort();
+      // Drain all IPC workflow listeners so they don't fire after unmount
+      unsubscribersRef.current.forEach((fn) => fn());
+      unsubscribersRef.current = [];
+    };
   }, []);
   const searchParams = useSearchParams();
   const router = useRouter();

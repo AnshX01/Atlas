@@ -57,24 +57,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     },
     ref
   ) => {
-    const isClicking = useRef(false);
-
-    const handleClick = useCallback(
-      (e: React.MouseEvent<HTMLButtonElement>) => {
-        if (isClicking.current || disabled || isLoading) return;
-        isClicking.current = true;
-        if (onClick) {
-          onClick(e);
-        }
-        setTimeout(() => {
-          isClicking.current = false;
-        }, 300);
-      },
-      [onClick, disabled, isLoading]
-    );
-
     return (
       <motion.button
+        type={props.type || "button"}
         ref={ref}
         whileTap={disabled || isLoading ? undefined : { scale: 0.97 }}
         transition={{ duration: 0.1 }}
@@ -89,7 +74,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
           className
         )}
         disabled={disabled || isLoading}
-        onClick={handleClick}
+        aria-disabled={disabled || isLoading}
+        aria-busy={isLoading}
+        onClick={onClick}
         {...(props as any)}
       >
         {isLoading ? (

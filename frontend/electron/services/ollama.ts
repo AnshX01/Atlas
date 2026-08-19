@@ -151,8 +151,9 @@ export async function* streamChat(
     inactivityTimer = setTimeout(() => controller.abort(), 600000);
   };
 
+  const abortListener = () => controller.abort();
   if (abortSignal) {
-    abortSignal.addEventListener('abort', () => controller.abort());
+    abortSignal.addEventListener('abort', abortListener);
     if (abortSignal.aborted) controller.abort();
   }
 
@@ -218,7 +219,8 @@ export async function* streamChat(
               yield chunk.message.content;
             }
           } catch (e: any) {
-            if (e.message.startsWith('Ollama stream error:')) throw e;
+            if (e.message?.startsWith('Ollama stream error:')) throw e;
+            if (e instanceof SyntaxError) throw e;
           }
         }
         break;
@@ -242,12 +244,16 @@ export async function* streamChat(
             yield chunk.message.content;
           }
         } catch (e: any) {
-          if (e.message.startsWith('Ollama stream error:')) throw e;
+          if (e.message?.startsWith('Ollama stream error:')) throw e;
+          if (e instanceof SyntaxError) throw e;
         }
       }
     }
   } finally {
     clearTimeout(inactivityTimer);
+    if (abortSignal) {
+      abortSignal.removeEventListener('abort', abortListener);
+    }
     reader.releaseLock();
   }
 }
@@ -380,7 +386,10 @@ export async function verifyInference(): Promise<boolean> {
         10000
       );
       return !!response;
-    } catch {
+    } catch (e: any) {
+      if (e.name !== 'TimeoutError' && e.name !== 'AbortError') {
+        return false;
+      }
       // Model needs loading from disk — allow up to 60s.
       const response = await chat(
         [{ role: 'user', content: 'hi' }],
@@ -409,7 +418,7 @@ export async function isOllamaInstalled(): Promise<boolean> {
     }
     // Also try checking PATH
     return new Promise((resolve) => {
-      exec('where ollama', (error) => {
+      exec('where ollama', { timeout: 5000 }, (error) => {
         resolve(!error);
       });
     });
@@ -417,7 +426,7 @@ export async function isOllamaInstalled(): Promise<boolean> {
     return fs.existsSync('/Applications/Ollama.app');
   } else {
     return new Promise((resolve) => {
-      exec('which ollama', (error) => {
+      exec('which ollama', { timeout: 5000 }, (error) => {
         resolve(!error);
       });
     });
@@ -482,7 +491,11 @@ export async function installOllama(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       const https = require('https');
       const file = fs.createWriteStream(installerPath);
-      https.get(installerUrl, (response: any) => {
+      const req = https.get(installerUrl, (response: any) => {
+        response.on('error', (err: any) => {
+          fs.unlinkSync(installerPath);
+          reject(err);
+        });
         response.pipe(file);
         file.on('finish', () => {
           file.close();
@@ -491,6 +504,9 @@ export async function installOllama(): Promise<void> {
       }).on('error', (err: any) => {
         fs.unlinkSync(installerPath);
         reject(err);
+      });
+      req.setTimeout(60000, () => {
+        req.destroy(new Error('Download timeout'));
       });
     });
 

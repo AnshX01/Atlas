@@ -54,12 +54,13 @@ export class CronEngine {
         }
         for (const email of newEmails) {
           const subject = email.subject || '';
-          const from = email.from || '';
-          // Identify urgent items based on heuristic
-          if (subject.toLowerCase().includes('urgent') || from.toLowerCase().includes('sarah')) {
+          const urgentKeywords = ['urgent', 'important', 'action required', 'asap'];
+          const isUrgent = urgentKeywords.some((kw) => subject.toLowerCase().includes(kw));
+          if (isUrgent) {
              try {
+               const senderName = (email.from || '').split('<')[0].trim() || 'Unknown Sender';
                new Notification({
-                  title: `Urgent email from ${from.split('<')[0].trim()}`,
+                  title: `Urgent email from ${senderName}`,
                   body: subject
                }).show();
              } catch (e) {

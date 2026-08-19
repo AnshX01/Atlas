@@ -26,6 +26,19 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error("Uncaught error:", error, errorInfo);
+    // Report to Electron main process for persistent logging in production.
+    // Gracefully no-ops in browser/SSR/test environments.
+    try {
+      if (typeof window !== "undefined" && (window as any).atlasElectron?.reportError) {
+        (window as any).atlasElectron.reportError({
+          message: error.message,
+          stack: error.stack ?? "",
+          componentStack: errorInfo.componentStack ?? "",
+        });
+      }
+    } catch {
+      // Never let error reporting itself crash the boundary
+    }
   }
 
   private handleRetry = () => {

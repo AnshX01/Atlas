@@ -281,6 +281,11 @@ export async function classifyIntent(input: string): Promise<ClassificationResul
     return { intent: "unknown", confidence: 0, extractedParams: {} };
   }
 
+  // Prevent prompt injection and excessive resource usage
+  if (input.length > 2000) {
+    input = input.substring(0, 2000);
+  }
+
   // First try keyword classification — if it's very confident (high score), use it directly
   const keywordResult = classifyWithKeywords(input);
   if (keywordResult.confidence >= 0.75) {

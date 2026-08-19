@@ -2,6 +2,16 @@ import { app } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 
+// ── Supabase connection constants ─────────────────────────────────────────────
+// These are exported so the Electron main process (cloud-sync.ts, etc.) can
+// reliably access them. In the main process, NEXT_PUBLIC_* vars are not injected
+// by Next.js; they must be passed explicitly.
+export const SUPABASE_URL: string =
+  process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+export const SUPABASE_ANON_KEY: string =
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+
+
 /**
  * Atlas MCP Configuration Manager.
  *

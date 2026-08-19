@@ -1,17 +1,17 @@
 
-const vi = jest;
+
 import * as memoryRag from '../../electron/services/memory-rag';
 import * as ollama from '../../electron/services/ollama';
 
-vi.mock('electron', () => ({ app: { getPath: vi.fn().mockReturnValue('') } }));
-vi.mock('../../electron/services/ollama', () => ({
-  generateEmbedding: vi.fn(),
-  chat: vi.fn(),
+jest.mock('electron', () => ({ app: { getPath: jest.fn().mockReturnValue('') } }));
+jest.mock('../../electron/services/ollama', () => ({
+  generateEmbedding: jest.fn(),
+  chat: jest.fn(),
 }));
 
 describe('RAG Pipeline (Phase 2)', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   it('should store and check semantic cache', async () => {
@@ -44,6 +44,35 @@ describe('RAG Pipeline (Phase 2)', () => {
   it('should handle cross-encoder fallback on invalid JSON', async () => {
     const docs = ['Doc A', 'Doc B', 'Doc C'];
     (ollama.chat as any).mockResolvedValue('invalid output'); 
+
+    const reranked = await memoryRag.crossEncoderRerank('test query', docs, 3);
+    
+    expect(reranked.length).toBe(3);
+    expect(reranked[0]).toBe('Doc A'); // original order
+  });
+
+  it('should handle network failures gracefully in searchContext', async () => {
+    (ollama.generateEmbedding as any).mockRejectedValue(new Error('Network error'));
+    
+    // Attempting to search with network failure should return empty array safely
+    const result = await memoryRag.searchContext('test query', 3);
+    expect(result).toEqual([]);
+  });
+
+  it('should pass abort signal (timeout) to crossEncoderRerank chat', async () => {
+    const docs = ['Doc A', 'Doc B', 'Doc C'];
+    (ollama.chat as any).mockImplementation((messages, model, timeout) => {
+      expect(timeout).toBe(30000); // Verify timeout is passed to prevent hanging
+      return Promise.resolve('[2, 9, 5]');
+    });
+
+    const reranked = await memoryRag.crossEncoderRerank('test query', docs, 3);
+    expect(reranked[0]).toBe('Doc B');
+  });
+
+  it('should handle network failures gracefully in crossEncoderRerank', async () => {
+    const docs = ['Doc A', 'Doc B', 'Doc C'];
+    (ollama.chat as any).mockRejectedValue(new Error('Network failure'));
 
     const reranked = await memoryRag.crossEncoderRerank('test query', docs, 3);
     

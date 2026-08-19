@@ -9,6 +9,7 @@ import {
   Tray,
   Menu,
   dialog,
+  net,
 } from "electron";
 import * as path from "path";
 import { MCPServerManager } from "./services/mcp-manager";
@@ -832,4 +833,27 @@ ipcMain.handle("sync-set-online", (_event, online: boolean) => {
 
 ipcMain.handle("sync-force", async () => {
   return await syncManager.forceSync();
+});
+
+// ── Error Reporting & Network Status Handlers ────────────────────────────────
+
+ipcMain.handle("error:report", (_event, data: { message: string; stack?: string; componentStack?: string }) => {
+  console.error(`[Renderer Error] ${data.message}\nStack: ${data.stack || 'N/A'}\nComponent Stack: ${data.componentStack || 'N/A'}`);
+});
+
+let lastNetStatus = true;
+app.whenReady().then(() => {
+  if (net && typeof net.isOnline === 'function') {
+    lastNetStatus = net.isOnline();
+    const interval = setInterval(() => {
+      const current = net.isOnline();
+      if (current !== lastNetStatus) {
+        lastNetStatus = current;
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("net:status", current);
+        }
+      }
+    }, 3000);
+    if (interval.unref) interval.unref();
+  }
 });

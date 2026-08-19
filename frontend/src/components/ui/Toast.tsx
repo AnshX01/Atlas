@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle2, XCircle, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface ToastProps {
   message: string;
@@ -38,11 +39,12 @@ export function Toast({ message, type = "success", duration = 4000, onClose }: T
           transition={{ type: "spring", stiffness: 400, damping: 30 }}
         >
           <div
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl backdrop-blur-sm ${
-              type === "success"
-                ? "bg-[var(--bg-secondary)]"
-                : "bg-[var(--bg-secondary)]"
-            }`}
+            role={type === "error" ? "alert" : "status"}
+            aria-live={type === "error" ? "assertive" : "polite"}
+            className={cn(
+              "flex items-center gap-3 px-4 py-3 rounded-xl backdrop-blur-sm",
+              type === "success" ? "bg-[var(--bg-secondary)]" : "bg-red-500/10 border border-red-500/20"
+            )}
           >
             {type === "success" ? (
               <CheckCircle2 size={16} className="text-green-400 flex-shrink-0" />

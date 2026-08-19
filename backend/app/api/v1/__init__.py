@@ -228,6 +228,7 @@ async def list_connectors(
 async def create_connector(
     payload: ConnectorCreateRequest,
     current_user: User = Depends(get_current_user),
+    _idempotency_key: str = Depends(require_idempotency_key),
 ) -> ConnectorResponse:
     """
     Create a new connector for the current user and provider.
@@ -272,6 +273,7 @@ async def create_connector(
 async def disconnect_connector(
     provider: ConnectorProvider = Path(...),
     current_user: User = Depends(get_current_user),
+    _idempotency_key: str = Depends(require_idempotency_key),
 ) -> DisconnectResponse:
     """
     Disconnect a connector: set status to INACTIVE and delete OAuth tokens.
@@ -372,6 +374,7 @@ async def put_connector_token(
     provider: ConnectorProvider = Path(...),
     payload: PutTokenRequest = PutTokenRequest(),
     current_user: User = Depends(get_current_user),
+    _idempotency_key: str = Depends(require_idempotency_key),
 ) -> PutTokenResponse:
     """Store or update connector credentials. Used when syncing from another device."""
     import uuid as _uuid
@@ -492,6 +495,7 @@ async def configure_local_fs(
     payload: LocalFSConfigureRequest,
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
+    _idempotency_key: str = Depends(require_idempotency_key),
 ) -> ConnectorResponse:
     """
     Configure and activate the local file system connector.
@@ -616,9 +620,11 @@ async def list_conversations(
 async def upsert_conversation(
     payload: UpsertConversationRequest,
     current_user: User = Depends(get_current_user),
+    _idempotency_key: str = Depends(require_idempotency_key),
 ) -> UpsertConversationResponse:
     from app.infrastructure.database import get_session_factory
     from sqlalchemy import text
+    from fastapi import HTTPException
 
     conv_id = payload.id or str(uuid.uuid4())
     title = payload.title
@@ -627,6 +633,15 @@ async def upsert_conversation(
 
     factory = get_session_factory()
     async with factory() as session:
+        # Prevent cross-user overwrite: verify ownership if the conversation exists
+        auth_check = await session.execute(
+            text("SELECT user_id FROM user_conversations WHERE id = :cid"),
+            {"cid": conv_id},
+        )
+        existing_owner = auth_check.scalar_one_or_none()
+        if existing_owner and str(existing_owner) != str(current_user.id):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
         await session.execute(
             text("""INSERT INTO user_conversations (id, user_id, title, last_message, created_at)
                     VALUES (:id, :uid, :title, :last_msg, NOW())

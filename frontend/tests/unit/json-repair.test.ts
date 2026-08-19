@@ -25,6 +25,17 @@ describe('repairAndParseJson', () => {
     expect(result).toEqual({ key: 'value' });
   });
 
+  describe('input validation', () => {
+    it('throws MissingArgumentError for empty string', () => {
+      expect(() => repairAndParseJson('')).toThrow(/non-empty string/);
+    });
+    
+    it('throws MissingArgumentError for non-string', () => {
+      expect(() => repairAndParseJson(null as any)).toThrow(/non-empty string/);
+      expect(() => repairAndParseJson(undefined as any)).toThrow(/non-empty string/);
+    });
+  });
+
   // ── Size guard tests ───────────────────────────────────────────────────────
 
   describe('size guard', () => {

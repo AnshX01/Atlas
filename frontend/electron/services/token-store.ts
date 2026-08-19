@@ -66,9 +66,7 @@ function readStore(): TokenStoreData {
     // A file starting with '{' means it was written without encryption (legacy or bug).
     // Back it up and return empty so the user is prompted to re-authenticate.
     if (raw.trim().startsWith("{")) {
-      console.error("[Token Store] SECURITY: Plaintext token store detected. Backing up and clearing.");
-      const backupPath = storePath + ".plaintext-backup";
-      try { fs.copyFileSync(storePath, backupPath); } catch {}
+      console.error("[Token Store] SECURITY: Plaintext token store detected. Clearing.");
       try { fs.unlinkSync(storePath); } catch {}
       try {
         const { BrowserWindow } = require('electron');

@@ -401,48 +401,48 @@ export class Orchestrator {
           draft: state.draft
         });
         
-        // Setup pending approval promise
-        const approved = await new Promise<boolean>((resolve) => {
-          this.pendingApprovals.set(state.conversationId, {
+        // Setup pending approval promise without blocking the loop
+        new Promise<boolean>((resolve) => {
+          this.pendingApprovals.set(state.draft!.executionId, {
             executionId: state.draft!.executionId,
             conversationId: state.conversationId,
             state,
             resolve,
             createdAt: Date.now()
           });
-        });
-
-        if (approved) {
-          state.approved = true;
-          saveWorkflowCheckpoint(state.conversationId, state);
-          try {
-             await this.executeNode(state, mainWindow);
-             await this.responseNode(state, mainWindow);
-             if (state.response) {
-               saveMessage(state.conversationId, "assistant", state.response);
-               storeContext(`User: ${state.input}\nAtlas: ${state.response}`);
-             }
-             deleteWorkflowCheckpoint(state ? state.conversationId : conversationId);
-    this.safeSend(mainWindow, "workflow-complete", {
-               conversationId: state.conversationId,
-               response: state.response,
-               intent: state.intent,
-               toolCalls: state.toolCalls,
-               results: [],
-               error: undefined,
-               cancelled: false
-             });
-          } catch (e) {
-             console.error("Error executing recovered state", e);
+        }).then(async (approved) => {
+          if (approved) {
+            state.approved = true;
+            saveWorkflowCheckpoint(state.conversationId, state);
+            try {
+               await this.executeNode(state, mainWindow);
+               await this.responseNode(state, mainWindow);
+               if (state.response) {
+                 saveMessage(state.conversationId, "assistant", state.response);
+                 storeContext(`User: ${state.input}\nAtlas: ${state.response}`);
+               }
+               deleteWorkflowCheckpoint(state.conversationId);
+               this.safeSend(mainWindow, "workflow-complete", {
+                 conversationId: state.conversationId,
+                 response: state.response,
+                 intent: state.intent,
+                 toolCalls: state.toolCalls,
+                 results: [],
+                 error: undefined,
+                 cancelled: false
+               });
+            } catch (err) {
+              console.error("[Orchestrator] Error completing recovered workflow:", err);
+            }
+          } else {
+            // User rejected or TTL expired
+            this.safeSend(mainWindow, "workflow-complete", {
+              conversationId: state.conversationId,
+              cancelled: true
+            });
+            deleteWorkflowCheckpoint(state.conversationId);
           }
-        } else {
-           // Cancelled
-           this.safeSend(mainWindow, "workflow-complete", {
-             conversationId: state.conversationId,
-             cancelled: true
-           });
-        }
-        deleteWorkflowCheckpoint(state.conversationId);
+        });
       } else {
         // If it was in some other state, we can either resume from scratch or just delete the checkpoint for safety
         deleteWorkflowCheckpoint(state.conversationId);
@@ -1653,7 +1653,11 @@ Rules:
       const recentHistory = history.slice(-10);
       for (const msg of recentHistory) {
         if (msg.role === "user" || msg.role === "assistant") {
-          messages.push({ role: msg.role as "user" | "assistant", content: msg.content });
+          // Truncate history messages to prevent context window overflow
+          const content = msg.content.length > 2000 
+            ? msg.content.slice(0, 2000) + "... [truncated]" 
+            : msg.content;
+          messages.push({ role: msg.role as "user" | "assistant", content });
         }
       }
 
@@ -1676,9 +1680,10 @@ Rules:
         const contextStr = toolResults
           .map((c) => {
             if (c.type === "tool_result") {
-              // Humanize ISO dates so LLM outputs natural phrasing
               const humanized = humanizeDates(c.result);
-              return JSON.stringify(humanized, null, 2);
+              const str = JSON.stringify(humanized, null, 2);
+              const strTokens = str.split(/\s+/);
+              return strTokens.length > 750 ? strTokens.slice(0, 750).join(" ") + "..." : str;
             }
             return `Error: ${c.error}`;
           })

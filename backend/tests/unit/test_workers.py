@@ -57,7 +57,7 @@ class TestSyncConnectorJob:
              patch("app.workers.sync_tasks.reset_qdrant_client"), \
              patch("app.workers.sync_tasks.reset_redis_pool"), \
              patch("app.workers.sync_tasks.publish_sync_event", new_callable=AsyncMock), \
-             patch("app.workers.sync_tasks.dispose_engine", new_callable=AsyncMock):
+             patch("app.infrastructure.database.dispose_engine", new_callable=AsyncMock):
 
             from app.workers.sync_tasks import _async_sync_connector
 
@@ -112,7 +112,7 @@ class TestSyncConnectorJob:
              patch("app.workers.sync_tasks.reset_qdrant_client"), \
              patch("app.workers.sync_tasks.reset_redis_pool"), \
              patch("app.workers.sync_tasks.publish_sync_event", new_callable=AsyncMock), \
-             patch("app.workers.sync_tasks.dispose_engine", new_callable=AsyncMock), \
+             patch("app.infrastructure.database.dispose_engine", new_callable=AsyncMock), \
              patch(
                  "app.workers.sync_tasks._get_connector_instance",
                  side_effect=NotImplementedError("Connector not implemented: test"),
@@ -159,7 +159,7 @@ class TestSyncConnectorJob:
              patch("app.workers.sync_tasks.reset_engine_for_worker"), \
              patch("app.workers.sync_tasks.reset_qdrant_client"), \
              patch("app.workers.sync_tasks.reset_redis_pool"), \
-             patch("app.workers.sync_tasks.dispose_engine", new_callable=AsyncMock), \
+             patch("app.infrastructure.database.dispose_engine", new_callable=AsyncMock), \
              patch("app.workers.sync_tasks.sync_connector_job") as mock_task:
 
             mock_task.apply_async = mock_apply_async

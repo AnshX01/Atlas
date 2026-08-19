@@ -42,7 +42,11 @@ interface AtlasElectronAPI {
   windowClose: () => Promise<void>;
   onWindowMaximized: (callback: () => void) => () => void;
   onWindowUnmaximized: (callback: () => void) => () => void;
+  reportError: (data: { message: string; stack?: string; componentStack?: string }) => Promise<void>;
+  onNetStatus: (callback: (online: boolean) => void) => () => void;
   onToggleCommandBar: (callback: () => void) => () => void;
+  onSyncStateChange: (callback: (state: "synced" | "syncing" | "offline" | "conflict") => void) => () => void;
+  getSyncState: () => Promise<"synced" | "syncing" | "offline" | "conflict">;
   checkOllamaHealth: () => Promise<{ available: boolean; models?: string[] }>;
   verifyOllamaInference: () => Promise<boolean>;
   checkOllamaInstalled: () => Promise<boolean>;

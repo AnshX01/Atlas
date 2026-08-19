@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { type InputHTMLAttributes, forwardRef, useState } from "react";
+import React, { type InputHTMLAttributes, forwardRef } from "react";
 import { Search } from "lucide-react";
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -13,8 +13,9 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
   ({ icon, rightElement, error, label, className, id, ...props }, ref) => {
-    const [focused, setFocused] = useState(false);
-    const inputId = id || `input-${Math.random().toString(36).slice(2)}`;
+    const reactId = React.useId();
+    const inputId = id || reactId;
+    const errorId = `${inputId}-error`;
 
     return (
       <div className="flex flex-col gap-1.5">
@@ -30,10 +31,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           className={cn(
             "relative flex items-center",
             "rounded-xl transition-all duration-150",
-            focused
-              ? ""
-              : "",
-            error && ""
+            "focus-within:ring-2 focus-within:ring-[var(--accent)]",
+            error && "ring-2 ring-red-400 focus-within:ring-red-400"
           )}
         >
           {icon && (
@@ -51,15 +50,19 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               rightElement && "pr-10",
               className
             )}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
+            aria-invalid={!!error}
+            aria-describedby={error ? errorId : undefined}
             {...props}
           />
           {rightElement && (
             <span className="absolute right-3 text-[var(--text-muted)]">{rightElement}</span>
           )}
         </div>
-        {error && <p className="text-xs text-red-400">{error}</p>}
+        {error && (
+          <p id={errorId} className="text-xs text-red-400">
+            {error}
+          </p>
+        )}
       </div>
     );
   }

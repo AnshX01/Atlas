@@ -98,7 +98,8 @@ class TestEngineSingleton:
         db_module._engine = None
         db_module._session_factory = None
 
-        with patch("app.infrastructure.database.create_async_engine") as mock_create:
+        with patch("app.infrastructure.database.create_async_engine") as mock_create, \
+             patch("sqlalchemy.event.listens_for"):
             mock_engine = MagicMock()
             mock_engine.sync_engine = MagicMock()
             mock_create.return_value = mock_engine
@@ -122,7 +123,8 @@ class TestEngineSingleton:
         db_module._engine = None
         db_module._session_factory = None
 
-        with patch("app.infrastructure.database.create_async_engine") as mock_create:
+        with patch("app.infrastructure.database.create_async_engine") as mock_create, \
+             patch("sqlalchemy.event.listens_for"):
             mock_engine_1 = MagicMock()
             mock_engine_1.sync_engine = MagicMock()
             mock_engine_2 = MagicMock()

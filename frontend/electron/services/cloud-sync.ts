@@ -32,10 +32,25 @@ export class SyncManager {
   }
 
   constructor() {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    // NOTE: In Electron main process, process.env does NOT contain Next.js
+    // NEXT_PUBLIC_* variables — those are injected at Next.js build time for
+    // the renderer. We must read them from the bundled config module.
+    let supabaseUrl: string | undefined;
+    let supabaseKey: string | undefined;
+    try {
+      // Try to import from the Electron config module (main process path)
+      const config = require("./config");
+      supabaseUrl = config.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL;
+      supabaseKey = config.SUPABASE_ANON_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    } catch {
+      // Fallback: direct process.env (works in renderer/test environments)
+      supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    }
     if (supabaseUrl && supabaseKey) {
       this.supabase = createClient(supabaseUrl, supabaseKey);
+    } else {
+      console.warn("[SyncManager] Supabase not configured: SUPABASE_URL or SUPABASE_ANON_KEY is missing.");
     }
   }
 
@@ -135,7 +150,7 @@ export class SyncManager {
     }
   }
 
-  public async pullFromCloud(lastSyncTime: string) {
+  public async pullFromCloud(lastSyncTime: string, currentUserId?: string) {
     if (!this.isOnline || !this.supabase) {
       console.log(`[SyncManager] Cannot pull from cloud while offline or unconfigured.`);
       return;
@@ -152,10 +167,21 @@ export class SyncManager {
       if (error) throw error;
       
       if (data && data.length > 0) {
+        let written = 0;
+        let skipped = 0;
         data.forEach(conv => {
+          // Ownership validation: only write rows that belong to the current user.
+          // This guards against Supabase RLS misconfiguration where foreign rows
+          // could overwrite local state.
+          if (currentUserId && conv.user_id && conv.user_id !== currentUserId) {
+            console.warn(`[SyncManager] Skipping foreign conversation row (id=${conv.id}, owner=${conv.user_id})`);
+            skipped++;
+            return;
+          }
            localStore.updateLocalRecord('conversations', conv);
+          written++;
         });
-        console.log(`[SyncManager] Pulled ${data.length} conversations from cloud.`);
+        console.log(`[SyncManager] Pulled ${written} conversations from cloud (${skipped} foreign rows skipped).`);
       }
     } catch (err) {
       console.error("[SyncManager] Pull failed:", err);
@@ -165,18 +191,34 @@ export class SyncManager {
   public async pullSecret(hashedEmailId: string, secretKey: string): Promise<string | null> {
     if (!this.isOnline || !this.supabase) return null;
 
+    // 5-second timeout guard: a hung Supabase response must not block app startup.
+    const timeoutMs = 5000;
+    const timeoutId = setTimeout(() => {
+      console.warn("[SyncManager] pullSecret timed out after 5s.");
+    }, timeoutMs);
+
     try {
-      const { data, error } = await this.supabase
+      // Supabase JS v2 does not directly support AbortSignal on queries,
+      // so we race the query against a manual timeout promise.
+      const queryPromise = this.supabase
         .from('user_secrets')
         .select('encrypted_value')
         .eq('user_id', hashedEmailId)
         .eq('secret_key', secretKey)
         .single();
+
+      const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) =>
+        setTimeout(() => resolve({ data: null, error: new Error("pullSecret timeout") }), timeoutMs)
+      );
+
+      const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
         
       if (error) throw error;
-      return data ? data.encrypted_value : null;
+      return data ? (data as any).encrypted_value : null;
     } catch (err) {
       console.error("[SyncManager] Failed to pull secret:", err);
+    } finally {
+      clearTimeout(timeoutId);
     }
     return null;
   }

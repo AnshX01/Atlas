@@ -4,6 +4,7 @@ import { app } from "electron";
 import { generateEmbedding } from "./ollama";
 import * as crypto from "crypto";
 import { chat } from "./ollama";
+import { repairAndParseJson } from "./json-repair";
 
 export interface RAGEntry {
   id: string;
@@ -44,12 +45,24 @@ export function initRAGStore() {
   } else {
     ragStore = [];
   }
+
+  if (fs.existsSync(cacheStorePath)) {
+    try {
+      const data = fs.readFileSync(cacheStorePath, "utf-8");
+      semanticCacheStore = JSON.parse(data);
+    } catch (e) {
+      console.error("[Atlas RAG] Failed to load semantic cache:", e);
+      semanticCacheStore = [];
+    }
+  } else {
+    semanticCacheStore = [];
+  }
 }
 
 function persistStore() {
   if (!storePath) return;
   try {
-    const tmpPath = storePath + '.tmp';
+    const tmpPath = `${storePath}.${crypto.randomUUID()}.tmp`;
     fs.writeFileSync(tmpPath, JSON.stringify(ragStore));
     fs.renameSync(tmpPath, storePath);
   } catch (e) {
@@ -61,7 +74,7 @@ function persistStore() {
 function persistSemanticCache() {
   if (!cacheStorePath) return;
   try {
-    const tmpPath = cacheStorePath + '.tmp';
+    const tmpPath = `${cacheStorePath}.${crypto.randomUUID()}.tmp`;
     fs.writeFileSync(tmpPath, JSON.stringify(semanticCacheStore));
     fs.renameSync(tmpPath, cacheStorePath);
   } catch (e) {
@@ -69,15 +82,28 @@ function persistSemanticCache() {
   }
 }
 
+const MAX_RAG_STORE_SIZE = 1000;
+const RAG_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
 export async function storeContext(summary: string) {
   try {
     const embedding = await generateEmbedding(summary);
+    const now = Date.now();
+    
     ragStore.push({
       id: crypto.randomUUID(),
       summary,
       embedding,
-      timestamp: Date.now()
+      timestamp: now
     });
+    
+    // Prune old entries (TTL) and enforce max cap
+    ragStore = ragStore.filter(entry => (now - entry.timestamp) < RAG_TTL_MS);
+    if (ragStore.length > MAX_RAG_STORE_SIZE) {
+      // Keep the most recent MAX_RAG_STORE_SIZE entries
+      ragStore = ragStore.slice(-MAX_RAG_STORE_SIZE);
+    }
+    
     persistStore();
   } catch (e) {
     console.error("[Atlas RAG] Failed to store context:", e);
@@ -133,11 +159,12 @@ ${documents.map((d, i) => `[${i}] ${d}`).join('\n')}
 Output ONLY a JSON array of numbers corresponding to the scores, e.g. [8, 2, 5]. Nothing else.`;
   
   try {
-    const response = await chat([{ role: 'user', content: prompt }]);
+    // Adding 30s timeout to prevent hanging if model fails
+    const response = await chat([{ role: 'user', content: prompt }], undefined, 30000);
     const match = response.match(/\[[\s\S]*\]/);
     if (!match) throw new Error("No JSON array found in response");
     
-    let scores = JSON.parse(match[0]);
+    let scores = repairAndParseJson(match[0]);
     if (!Array.isArray(scores) || scores.length !== documents.length) {
       throw new Error("Invalid scoring output");
     }

@@ -84,9 +84,22 @@ function generateId(): string {
 
 const syncTimers: Record<string, ReturnType<typeof setTimeout>> = {};
 
-/** Fire-and-forget background sync to cloud backend */
+// Circuit breaker state per conversation: tracks consecutive failures.
+// After MAX_SYNC_FAILURES the circuit trips open and sync is suspended.
+const syncFailureCounts: Record<string, number> = {};
+const syncBackoffDelays: Record<string, number> = {};
+const MAX_SYNC_FAILURES = 5;
+const SYNC_BASE_DELAY_MS = 1000;
+const SYNC_MAX_DELAY_MS = 30_000;
+
+/** Fire-and-forget background sync to cloud backend with circuit breaker + exponential backoff */
 function backgroundSync(conversationId: string, getState: () => ChatState): void {
-  // Debounce: wait 1s after last change before syncing per conversation
+  // Circuit breaker: if this conversation has failed too many times, stop trying
+  if ((syncFailureCounts[conversationId] ?? 0) >= MAX_SYNC_FAILURES) return;
+
+  const delay = syncBackoffDelays[conversationId] ?? SYNC_BASE_DELAY_MS;
+
+  // Debounce: wait for `delay` after last change before syncing per conversation
   if (syncTimers[conversationId]) clearTimeout(syncTimers[conversationId]);
   syncTimers[conversationId] = setTimeout(() => {
     const state = getState();
@@ -110,12 +123,23 @@ function backgroundSync(conversationId: string, getState: () => ChatState): void
       title: conv.title,
       last_message: conv.lastMessage,
       messages,
+    }).then(() => {
+      // Success: reset circuit breaker for this conversation
+      delete syncFailureCounts[conversationId];
+      delete syncBackoffDelays[conversationId];
     }).catch(err => {
       console.error("Background sync error:", err);
+      // Increment failure count and apply exponential backoff
+      const failures = (syncFailureCounts[conversationId] ?? 0) + 1;
+      syncFailureCounts[conversationId] = failures;
+      syncBackoffDelays[conversationId] = Math.min(delay * 2, SYNC_MAX_DELAY_MS);
+      if (failures >= MAX_SYNC_FAILURES) {
+        console.warn(`[SyncManager] Circuit breaker tripped for conversation ${conversationId} after ${failures} failures. Sync suspended.`);
+      }
     }).finally(() => {
       delete syncTimers[conversationId];
     });
-  }, 1000);
+  }, delay);
 }
 
 /** Shallow JSON comparison — safe against circular references */
@@ -173,6 +197,9 @@ export const useChatStoreBase = create<ChatState>()(
           clearTimeout(syncTimers[id]);
           delete syncTimers[id];
         }
+        // Clean up circuit breaker state
+        delete syncFailureCounts[id];
+        delete syncBackoffDelays[id];
         set((state) => {
           const { [id]: _, ...restMessages } = state.messages;
           return {
@@ -244,10 +271,16 @@ export const useChatStoreBase = create<ChatState>()(
       },
 
       clearAllConversations: () => {
-        // Cancel all pending sync timers
+        // Cancel all pending sync timers and reset circuit breaker state
         for (const id of Object.keys(syncTimers)) {
           clearTimeout(syncTimers[id]);
           delete syncTimers[id];
+        }
+        for (const id of Object.keys(syncFailureCounts)) {
+          delete syncFailureCounts[id];
+        }
+        for (const id of Object.keys(syncBackoffDelays)) {
+          delete syncBackoffDelays[id];
         }
         set({ conversations: [], activeConversationId: null, messages: {} });
       },
@@ -267,11 +300,14 @@ export const useChatStoreBase = create<ChatState>()(
         }
         return persistedState as ChatState;
       },
-      // Persist conversations list and messages (including card data) to localStorage
+      // Persist conversations list only — messages are kept in-memory.
+      // Including messages in persist caused a write storm: every addMessage()
+      // call serialized the full message history (potentially megabytes) to
+      // localStorage synchronously. Messages survive navigation because the
+      // Zustand store is module-level (not unmounted between page navigations).
       partialize: (state) => ({
         conversations: state.conversations,
         activeConversationId: state.activeConversationId,
-        messages: state.messages,
       }),
       onRehydrateStorage: () => (state, error) => {
         if (error) {

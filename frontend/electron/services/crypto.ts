@@ -6,6 +6,11 @@ const SALT_LENGTH = 16;
 const TAG_LENGTH = 16;
 const KEY_LENGTH = 32;
 const ITERATIONS = 600000;
+// ENCRYPT_ITERATIONS raised from 1,000 → 210,000 (NIST SP 800-132 / 2024 minimum for PBKDF2-SHA256).
+// The legacy value of 1,000 was 210× below minimum. decryptData falls back to 1,000 for
+// backward-compatibility, so existing stores are transparently re-encrypted on next write.
+const ENCRYPT_ITERATIONS = 210_000;
+const LEGACY_ENCRYPT_ITERATIONS = 1_000;
 
 let globalEncryptionKey = "";
 let crossDeviceKey = "";
@@ -28,13 +33,14 @@ export function getEncryptionKey(): string {
 // Constant application-level salt for hashed email ID derivation.
 // Must NOT use the email as salt — that made the hash deterministic and precomputable.
 const EMAIL_ID_DERIVATION_SALT = "atlas-app-v1-email-id-derivation";
+const CROSS_DEVICE_SALT_PEPPER = "atlas-cross-device-salt";
 
 export function setCrossDeviceDetails(email: string, password: string): void {
-  const salt = Buffer.from(email.toLowerCase(), "utf-8");
+  const salt = Buffer.from(email.toLowerCase() + CROSS_DEVICE_SALT_PEPPER, "utf-8");
   const key = pbkdf2Sync(password, salt, ITERATIONS, KEY_LENGTH, "sha256");
   crossDeviceKey = key.toString("hex");
   // Derive a stable per-email ID using a constant app-level salt (not the email itself)
-  hashedEmailId = pbkdf2Sync(email.toLowerCase(), EMAIL_ID_DERIVATION_SALT, 600_000, 32, "sha256").toString("hex");
+  hashedEmailId = pbkdf2Sync(email.toLowerCase(), EMAIL_ID_DERIVATION_SALT, ITERATIONS, 32, "sha256").toString("hex");
 }
 
 export function getCrossDeviceKey(): string {
@@ -61,7 +67,7 @@ export function encryptData(data: string, keyString: string): string {
   }
 
   const salt = randomBytes(SALT_LENGTH);
-  const key = pbkdf2Sync(keyString, salt, ITERATIONS, KEY_LENGTH, "sha256");
+  const key = pbkdf2Sync(keyString, salt, ENCRYPT_ITERATIONS, KEY_LENGTH, "sha256");
   const iv = randomBytes(IV_LENGTH);
 
   const cipher = createCipheriv(ALGORITHM, key, iv);
@@ -91,11 +97,20 @@ export function decryptData(encryptedBase64: string, keyString: string): string 
   const tag = buf.subarray(SALT_LENGTH + IV_LENGTH, SALT_LENGTH + IV_LENGTH + TAG_LENGTH);
   const ciphertext = buf.subarray(SALT_LENGTH + IV_LENGTH + TAG_LENGTH);
 
-  const key = pbkdf2Sync(keyString, salt, ITERATIONS, KEY_LENGTH, "sha256");
-
-  const decipher = createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(tag);
-
-  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-  return decrypted.toString("utf8");
+  let key: Buffer;
+  // Backward-compat: try current iteration count first, then legacy 1,000.
+  // This enables transparent migration: legacy-encrypted tokens decrypt here,
+  // then the next write call re-encrypts them at ENCRYPT_ITERATIONS (210,000).
+  try {
+    key = pbkdf2Sync(keyString, salt, ENCRYPT_ITERATIONS, KEY_LENGTH, "sha256");
+    const decipher = createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+  } catch {
+    // First attempt failed (likely legacy data) — try the legacy iteration count
+    key = pbkdf2Sync(keyString, salt, LEGACY_ENCRYPT_ITERATIONS, KEY_LENGTH, "sha256");
+    const decipher = createDecipheriv(ALGORITHM, key, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+  }
 }

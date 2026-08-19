@@ -159,7 +159,6 @@ export function useWorkflow(): UseWorkflowReturn {
           updated[lastAssistantIndex] = {
             ...updated[lastAssistantIndex],
             content: streamingContentRef.current,
-            streaming: true,
           };
         }
         return updated;
@@ -221,7 +220,6 @@ export function useWorkflow(): UseWorkflowReturn {
         const lastAssistant = [...updated].reverse().find((m) => m.role === "assistant");
         if (lastAssistant) {
           lastAssistant.content = finalContent;
-          lastAssistant.streaming = false;
           // Mark all tool executions as done
           if (lastAssistant.toolExecutions) {
             lastAssistant.toolExecutions = lastAssistant.toolExecutions.map((t) =>

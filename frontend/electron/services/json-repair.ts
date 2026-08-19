@@ -23,6 +23,10 @@ function checkDepth(str: string, maxDepth = 50): void {
 }
 
 export function repairAndParseJson(input: string): any {
+  if (typeof input !== 'string' || input.trim() === '') {
+    throw new MissingArgumentError(`JSON input must be a non-empty string. Received: ${typeof input}`);
+  }
+  
   if (input.length > MAX_INPUT_BYTES) {
     throw new Error(`JSON input too large: ${input.length} chars (max ${MAX_INPUT_BYTES}). Possible runaway model output.`);
   }

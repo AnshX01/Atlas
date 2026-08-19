@@ -1,4 +1,4 @@
-﻿/**
+/**
  * crypto-hardening.test.ts
  *
  * Verifies:
@@ -72,8 +72,15 @@ describe("setCrossDeviceDetails - email-as-salt elimination", () => {
   test("hashedEmailId uses constant app salt, NOT email as salt", () => {
     setCrossDeviceDetails(EMAIL, PASS);
     const actual = getHashedEmailId();
-    const vulnerable = pbkdf2Sync(EMAIL, EMAIL, 100_000, 32, "sha256").toString("hex");
-    const correct = pbkdf2Sync(EMAIL, APP_SALT, 100_000, 32, "sha256").toString("hex");
+    const correct = pbkdf2Sync(EMAIL, APP_SALT, 600_000, 32, "sha256").toString("hex");
+    expect(actual).toBe(correct);
+  });
+
+  test("crossDeviceKey salt uses pepper", () => {
+    setCrossDeviceDetails(EMAIL, PASS);
+    const actual = getCrossDeviceKey();
+    const vulnerable = pbkdf2Sync(PASS, Buffer.from(EMAIL, "utf-8"), 600_000, 32, "sha256").toString("hex");
+    const correct = pbkdf2Sync(PASS, Buffer.from(EMAIL + "atlas-cross-device-salt", "utf-8"), 600_000, 32, "sha256").toString("hex");
     expect(actual).toBe(correct);
     expect(actual).not.toBe(vulnerable);
   });

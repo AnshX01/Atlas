@@ -1,21 +1,21 @@
 
-const vi = jest;
+
 import { Orchestrator } from '../../electron/services/orchestrator';
 import { MCPServerManager } from '../../electron/services/mcp-manager';
 import * as localStore from '../../electron/services/local-store';
 
-vi.mock('electron', () => ({ app: { getPath: vi.fn().mockReturnValue('') }, BrowserWindow: { getAllWindows: vi.fn().mockReturnValue([]) } }));
-vi.mock('../../electron/services/cloud-sync', () => ({ syncManager: { queueDelta: vi.fn() } }));
-vi.mock('../../electron/services/mcp-manager', () => ({ MCPServerManager: class { constructor() {} } }));
-vi.mock('../../electron/services/local-store', () => ({
-  initDB: vi.fn(),
-  createConversation: vi.fn(),
-  saveMessage: vi.fn(),
-  getConversationHistory: vi.fn().mockReturnValue([]),
-  saveToolExecution: vi.fn(),
-  saveWorkflowCheckpoint: vi.fn(),
-  deleteWorkflowCheckpoint: vi.fn(),
-  getAllWorkflowCheckpoints: vi.fn(),
+jest.mock('electron', () => ({ app: { getPath: jest.fn().mockReturnValue('') }, BrowserWindow: { getAllWindows: jest.fn().mockReturnValue([]) } }));
+jest.mock('../../electron/services/cloud-sync', () => ({ syncManager: { queueDelta: jest.fn() } }));
+jest.mock('../../electron/services/mcp-manager', () => ({ MCPServerManager: class { constructor() {} } }));
+jest.mock('../../electron/services/local-store', () => ({
+  initDB: jest.fn(),
+  createConversation: jest.fn(),
+  saveMessage: jest.fn(),
+  getConversationHistory: jest.fn().mockReturnValue([]),
+  saveToolExecution: jest.fn(),
+  saveWorkflowCheckpoint: jest.fn(),
+  deleteWorkflowCheckpoint: jest.fn(),
+  getAllWorkflowCheckpoints: jest.fn(),
 }));
 
 describe('Orchestrator State Recovery', () => {
@@ -23,7 +23,7 @@ describe('Orchestrator State Recovery', () => {
   let orchestrator: Orchestrator;
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
     mcpManager = new MCPServerManager();
     orchestrator = new Orchestrator(mcpManager);
   });
@@ -45,7 +45,7 @@ describe('Orchestrator State Recovery', () => {
       { conversationId: '1234', state: mockState }
     ]);
 
-    const mockMainWindow = { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: vi.fn() } } as any;
+    const mockMainWindow = { isDestroyed: () => false, webContents: { isDestroyed: () => false, send: jest.fn() } } as any;
 
     // Trigger recovery
     // Promise won't resolve immediately because it waits for approval
@@ -83,7 +83,7 @@ describe('Orchestrator State Recovery', () => {
       { conversationId: '5678', state: mockState }
     ]);
 
-    const mockMainWindow = { webContents: { send: vi.fn() } } as any;
+    const mockMainWindow = { webContents: { send: jest.fn() } } as any;
     await orchestrator.recoverCheckpoints(mockMainWindow);
 
     expect(localStore.deleteWorkflowCheckpoint).toHaveBeenCalledWith('5678');

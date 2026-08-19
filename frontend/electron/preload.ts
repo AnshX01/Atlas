@@ -55,6 +55,14 @@ contextBridge.exposeInMainWorld("atlasElectron", {
   getSyncState: (): Promise<"synced" | "syncing" | "offline" | "conflict"> =>
     ipcRenderer.invoke("sync-get-state"),
 
+  reportError: (data: { message: string; stack?: string; componentStack?: string }): Promise<void> =>
+    ipcRenderer.invoke("error:report", data),
+
+  onNetStatus: (callback: (online: boolean) => void): (() => void) => {
+    const handler = (_event: any, online: boolean) => callback(online);
+    ipcRenderer.on("net:status", handler);
+    return () => ipcRenderer.removeListener("net:status", handler);
+  },
 
   /**
    * Subscribe to the global Cmd+Space command bar toggle event.
@@ -334,7 +342,11 @@ export type AtlasElectronAPI = {
   windowClose: () => Promise<void>;
   onWindowMaximized: (callback: () => void) => () => void;
   onWindowUnmaximized: (callback: () => void) => () => void;
+  reportError: (data: { message: string; stack?: string; componentStack?: string }) => Promise<void>;
+  onNetStatus: (callback: (online: boolean) => void) => () => void;
   onToggleCommandBar: (callback: () => void) => () => void;
+  onSyncStateChange: (callback: (state: "synced" | "syncing" | "offline" | "conflict") => void) => () => void;
+  getSyncState: () => Promise<"synced" | "syncing" | "offline" | "conflict">;
   onOAuthCallback: (callback: (data: { access_token?: string; refresh_token?: string; error?: string }) => void) => () => void;
   checkOllamaHealth: () => Promise<{ available: boolean; models?: string[] }>;
   verifyOllamaInference: () => Promise<boolean>;

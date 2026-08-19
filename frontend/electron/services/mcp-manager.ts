@@ -126,8 +126,17 @@ export class MCPServerManager {
         if (!creds?.watch_paths && !creds?.paths) return null;
         const paths = (creds.watch_paths || creds.paths || '').split('\n').filter(Boolean);
         if (paths.length === 0) return null;
+        
+        // Strict zero-trust path sanitization to prevent Windows batch script command injection via npx.cmd
+        const sanitizedPaths = paths.map(p => {
+          if (/[&|;<>^"%]/.test(p)) {
+            throw new Error(`SECURITY: Invalid characters in filesystem path to prevent command injection: ${p}`);
+          }
+          return p.trim();
+        });
+        
         // @modelcontextprotocol/server-filesystem takes directory paths as CLI arguments
-        return ['-y', '@modelcontextprotocol/server-filesystem', ...paths];
+        return ['-y', '@modelcontextprotocol/server-filesystem', ...sanitizedPaths];
       },
     });
 

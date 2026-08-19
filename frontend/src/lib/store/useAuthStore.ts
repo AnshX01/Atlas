@@ -1,4 +1,4 @@
-﻿import { create } from "zustand";
+import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export interface AuthUser {
@@ -17,9 +17,11 @@ interface AuthState {
   refreshToken: string | null;
   user: AuthUser | null;
   isHydrated: boolean;
+  isLoading: boolean;
   setTokens: (access: string, refresh: string) => void;
   setUser: (user: AuthUser) => void;
   setHydrated: () => void;
+  setLoading: (loading: boolean) => void;
   logout: () => void;
 }
 
@@ -32,30 +34,38 @@ export const useAuthStoreBase = create<AuthState>()(
       refreshToken: null,
       user: null,
       isHydrated: false,
+      isLoading: false,
 
-      setTokens: (access, refresh) => {
+      setTokens: (access: string, refresh: string) => {
         set({ accessToken: access, refreshToken: refresh });
       },
 
-      setUser: (user) => set({ user }),
+      setUser: (user: AuthUser) => set({ user }),
 
       setHydrated: () => set({ isHydrated: true }),
 
+      setLoading: (loading: boolean) => set({ isLoading: loading }),
+
       logout: () => {
-        if (typeof window !== "undefined" && (window as any).atlasElectron?.localAuth) {
-          (window as any).atlasElectron.localAuth.logout().catch(console.error);
-        }
-        // C-04: Clear all conversation data on logout so sensitive message content
-        // (email bodies, file contents, tool results) does not persist in localStorage
-        // after the user has signed out. Import lazily to avoid circular dependency.
+        // Clear React state FIRST so the UI reflects logged-out immediately.
+        // The IPC call is best-effort — if it fails, the local session key
+        // in SQLite remains, but the renderer is already cleared.
+        // On next app start, getCurrentUser() will validate the session token
+        // from SQLite and re-hydrate correctly.
         try {
           // eslint-disable-next-line @typescript-eslint/no-var-requires
           const { useChatStoreBase } = require("./useChatStore");
           useChatStoreBase.getState().clearAllConversations();
         } catch {
-          // Safe to ignore -- store may not be initialized in SSR or test environments
+          // Safe to ignore — store may not be initialized in SSR or test environments
         }
-        set({ accessToken: null, refreshToken: null, user: null });
+        set({ accessToken: null, refreshToken: null, user: null, isLoading: false });
+        // Fire IPC best-effort after state is cleared
+        if (typeof window !== "undefined" && (window as any).atlasElectron?.localAuth) {
+          (window as any).atlasElectron.localAuth.logout().catch((e: unknown) => {
+            console.error("[AuthStore] IPC logout failed (session may persist until next launch):", e);
+          });
+        }
       },
     }),
     {

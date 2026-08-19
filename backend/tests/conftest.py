@@ -14,7 +14,7 @@ os.environ.setdefault(
 )
 os.environ.setdefault("JWT_SECRET_KEY", "ci-jwt-secret-key-for-testing-only")
 os.environ.setdefault(
-    "DATABASE_URL", "postgresql+asyncpg://atlas_ci:atlas_ci@localhost:5432/atlas_ci"
+    "DATABASE_URL", "sqlite+aiosqlite:///./test_integration.db"
 )
 os.environ.setdefault("NEO4J_PASSWORD", "test")
 os.environ.setdefault("POSTGRES_PASSWORD", "atlas_ci")
@@ -32,13 +32,31 @@ async def setup_db():
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
-        await conn.execute(
-            sa.text("DROP TYPE IF EXISTS connectorprovider, connectorstatus, syncstatus CASCADE")
-        )
+        try:
+            await conn.execute(
+                sa.text("DROP TYPE IF EXISTS connectorprovider, connectorstatus, syncstatus CASCADE")
+            )
+        except Exception:
+            pass
         await conn.run_sync(Base.metadata.create_all)
     yield
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
+@pytest.fixture(autouse=True)
+def mock_external_services():
+    from unittest.mock import patch, MagicMock, AsyncMock
+    mock_redis = MagicMock()
+    mock_pipe = AsyncMock()
+    mock_pipe.execute.return_value = [1, 2, 1, 1]
+    mock_pipe.__aenter__.return_value = mock_pipe
+    mock_redis.pipeline = MagicMock(return_value=mock_pipe)
+
+    with patch("app.infrastructure.redis_client.get_redis", return_value=mock_redis), \
+         patch("app.infrastructure.neo4j_client.get_neo4j_driver"), \
+         patch("app.infrastructure.qdrant_client.get_qdrant_client"), \
+         patch("app.core.rate_limit.get_redis", return_value=mock_redis):
+        yield
 
 
 @pytest.fixture()
