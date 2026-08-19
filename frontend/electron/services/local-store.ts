@@ -99,7 +99,7 @@ async function persistToDisk(): Promise<void> {
   try {
     const data = db.export();
     const buffer = Buffer.from(data);
-    const tmpPath = dbPath + '.tmp';
+    const tmpPath = dbPath + '.async.tmp';
     await fs.promises.writeFile(tmpPath, buffer);
     await fs.promises.rename(tmpPath, dbPath);
   } catch (err) {
@@ -117,7 +117,7 @@ function persistToDiskSync(): void {
   try {
     const data = db.export();
     const buffer = Buffer.from(data);
-    const tmpPath = dbPath + '.tmp';
+    const tmpPath = dbPath + '.sync.tmp';
     fs.writeFileSync(tmpPath, buffer);
     fs.renameSync(tmpPath, dbPath);
   } catch (err) {

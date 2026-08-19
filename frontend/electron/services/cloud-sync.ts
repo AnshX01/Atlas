@@ -193,8 +193,14 @@ export class SyncManager {
 
     // 5-second timeout guard: a hung Supabase response must not block app startup.
     const timeoutMs = 5000;
+    let resolveTimeout: (val: any) => void;
+    const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) => {
+      resolveTimeout = resolve;
+    });
+
     const timeoutId = setTimeout(() => {
       console.warn("[SyncManager] pullSecret timed out after 5s.");
+      resolveTimeout({ data: null, error: new Error("pullSecret timeout") });
     }, timeoutMs);
 
     try {
@@ -206,10 +212,6 @@ export class SyncManager {
         .eq('user_id', hashedEmailId)
         .eq('secret_key', secretKey)
         .single();
-
-      const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) =>
-        setTimeout(() => resolve({ data: null, error: new Error("pullSecret timeout") }), timeoutMs)
-      );
 
       const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
         

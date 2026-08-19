@@ -46,6 +46,11 @@ let pendingOAuth: {
  * The OAuth callback is handled by the HTTP server in main.ts on port 19876.
  */
 export async function startGoogleOAuth(clientId: string, clientSecret: string): Promise<GoogleTokens> {
+  if (pendingOAuth) {
+    pendingOAuth.reject(new Error('A new OAuth flow was started'));
+    pendingOAuth = null;
+  }
+
   return new Promise((resolve, reject) => {
     const authUrl = new URL(GOOGLE_AUTH_URL);
     authUrl.searchParams.set('client_id', clientId);
@@ -57,14 +62,15 @@ export async function startGoogleOAuth(clientId: string, clientSecret: string): 
     authUrl.searchParams.set('state', 'connector_oauth');
 
     // Store the pending promise so the callback handler can resolve it
-    pendingOAuth = { clientId, clientSecret, resolve, reject };
+    const currentOAuth = { clientId, clientSecret, resolve, reject };
+    pendingOAuth = currentOAuth;
 
     // Open in system browser
     shell.openExternal(authUrl.toString());
 
     // Timeout after 3 minutes
     setTimeout(() => {
-      if (pendingOAuth) {
+      if (pendingOAuth === currentOAuth) {
         pendingOAuth = null;
         reject(new Error('OAuth timed out. Please try again.'));
       }
