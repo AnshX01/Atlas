@@ -65,8 +65,8 @@ interface AtlasElectronAPI {
   executeWorkflow: (prompt: string, conversationId?: string) => Promise<void>;
   approveAction: (executionId: string) => Promise<void>;
   rejectAction: (executionId: string) => Promise<void>;
-  abortWorkflow: () => Promise<void>;
-  onWorkflowStream: (cb: (token: string) => void) => () => void;
+  abortWorkflow: (payload?: { conversationId: string }) => Promise<void>;
+  onWorkflowStream: (cb: (payload: any) => void) => () => void;
   onWorkflowApprovalNeeded: (cb: (data: unknown) => void) => () => void;
   onWorkflowToolExecuting: (cb: (data: unknown) => void) => () => void;
   onWorkflowComplete: (cb: (data: unknown) => void) => () => void;

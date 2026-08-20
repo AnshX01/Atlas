@@ -142,7 +142,8 @@ export function useWorkflow(): UseWorkflowReturn {
 
     const api = window.atlasElectron!;
 
-    const unsubStream = api.onWorkflowStream((token: string) => {
+    const unsubStream = api.onWorkflowStream((payload: any) => {
+      const token = typeof payload === 'string' ? payload : (payload.content || '');
       streamingContentRef.current += token;
       setCurrentStreamingContent(streamingContentRef.current);
       

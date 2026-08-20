@@ -1069,7 +1069,8 @@ function ChatPageInner() {
         unsubscribersRef.current = [];
       };
 
-      unsubStream = window.atlasElectron!.onWorkflowStream((token: string) => {
+      unsubStream = window.atlasElectron!.onWorkflowStream((payload: any) => {
+        const token = typeof payload === 'string' ? payload : (payload.content || '');
         if (!mountedRef.current) return;
         setMessages((prev) =>
           prev.map((m) =>
@@ -1402,7 +1403,7 @@ function ChatPageInner() {
 
     // Signal the main process (best-effort acknowledgement)
     if (hasElectronIPC()) {
-      window.atlasElectron!.abortWorkflow().catch(console.error);
+      window.atlasElectron!.abortWorkflow({ conversationId: conversationIdRef.current || '' }).catch(console.error);
     }
 
     // Stop streaming — mark all messages as not streaming
