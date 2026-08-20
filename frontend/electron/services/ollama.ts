@@ -301,7 +301,7 @@ export async function generateEmbedding(
       model,
       prompt: text,
     }),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(120000),
   });
 
   if (!response.ok) {

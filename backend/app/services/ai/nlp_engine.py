@@ -59,7 +59,7 @@ Identify any implicit entities (e.g. pronouns like 'it', 'he', 'they', or ambigu
         try:
             # 30s overall timeout is reasonable for this small resolution call
             # Use a retry strategy for transient network errors.
-            retry_client = httpx.AsyncClient(timeout=30.0, limits=httpx.Limits(max_keepalive_connections=5))
+            retry_client = httpx.AsyncClient(timeout=60.0, limits=httpx.Limits(max_keepalive_connections=5))
             async with retry_client as client:
                 response = await client.post(f"{self.base_url}/api/chat", json=payload)
                 response.raise_for_status()
@@ -90,7 +90,7 @@ Identify any implicit entities (e.g. pronouns like 'it', 'he', 'they', or ambigu
         }
 
         # Set read timeout to 15s to detect hung streams quickly, but no overall timeout for long generation
-        timeout = httpx.Timeout(connect=10.0, read=15.0, write=10.0, pool=10.0)
+        timeout = httpx.Timeout(connect=10.0, read=120.0, write=10.0, pool=10.0)
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 async with client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
@@ -126,7 +126,7 @@ Identify any implicit entities (e.g. pronouns like 'it', 'he', 'they', or ambigu
         }
 
         # 60s read timeout for full response generation
-        timeout = httpx.Timeout(60.0, read=60.0)
+        timeout = httpx.Timeout(120.0, read=120.0)
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.post(f"{self.base_url}/api/chat", json=payload)

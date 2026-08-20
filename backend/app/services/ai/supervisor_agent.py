@@ -80,7 +80,7 @@ async def supervisor_node(state: AtlasState) -> AtlasState:
         model=settings.OPENAI_MODEL,
         temperature=0.0,
         api_key=settings.OPENAI_API_KEY,
-        timeout=30.0,
+        timeout=60.0,
         max_retries=2,
     )
 

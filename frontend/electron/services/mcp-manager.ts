@@ -414,7 +414,7 @@ export class MCPServerManager {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(id);
         reject(new Error(`MCP request timeout for ${name}/${method}`));
-      }, 30000);
+      }, 60000);
 
       this.pendingRequests.set(id, { serverName: name, resolve, reject, timeout });
       

@@ -159,8 +159,8 @@ ${documents.map((d, i) => `[${i}] ${d}`).join('\n')}
 Output ONLY a JSON array of numbers corresponding to the scores, e.g. [8, 2, 5]. Nothing else.`;
   
   try {
-    // Adding 30s timeout to prevent hanging if model fails
-    const response = await chat([{ role: 'user', content: prompt }], undefined, 30000);
+    // Adding 120s timeout to prevent hanging if model fails
+    const response = await chat([{ role: 'user', content: prompt }], undefined, 120000);
     const match = response.match(/\[[\s\S]*\]/);
     if (!match) throw new Error("No JSON array found in response");
     
