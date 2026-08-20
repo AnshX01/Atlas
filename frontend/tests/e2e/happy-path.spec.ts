@@ -7,7 +7,7 @@ let window: Page;
 test.beforeAll(async () => {
   // Launch Electron app
   const mainPath = path.join(__dirname, '../../'); 
-  electronApp = await electron.launch({ args: ['.'], cwd: mainPath });
+  electronApp = await electron.launch({ args: ['.'], cwd: mainPath, env: { ...process.env, NEXT_URL: 'http://localhost:3001' } });
   window = await electronApp.firstWindow();
 });
 
