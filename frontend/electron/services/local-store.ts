@@ -220,8 +220,8 @@ export async function initDB(): Promise<void> {
     // Add columns to existing tables if missing (ignore errors if they exist)
     const tables = ['conversations', 'messages', 'tool_executions', 'config'];
     for (const table of tables) {
-      try { db.run(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP`); } catch (e) { console.warn("Caught error:", e); }
-      try { db.run(`ALTER TABLE ${table} ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`); } catch (e) { console.warn("Caught error:", e); }
+      try { db.run(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT DEFAULT CURRENT_TIMESTAMP`); } catch (e) {}
+      try { db.run(`ALTER TABLE ${table} ADD COLUMN deleted INTEGER DEFAULT 0`); } catch (e) {}
     }
     
     db.run("COMMIT");
