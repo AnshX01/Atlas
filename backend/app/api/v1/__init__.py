@@ -120,7 +120,8 @@ async def omni_search(
             extra_state={"intent": "search"},
         )
         context_items = state.get("context", [])
-    except Exception:
+    except Exception as e:
+        logger.warning(\'AI pipeline failed, falling back to vector search: %s\', e)
         # Fallback: direct vector search without AI rewriting
         context_items = []
 
