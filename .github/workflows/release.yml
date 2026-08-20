@@ -52,6 +52,11 @@ jobs:
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
       - name: Sync Version from Tag
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
@@ -71,6 +76,21 @@ jobs:
       - name: Install Dependencies
         run: npm ci
         working-directory: frontend
+
+      - name: Build Python Backend
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+        shell: bash
+
+      - name: Publish Python Artifacts
+        if: matrix.os == 'ubuntu-latest'
+        uses: softprops/action-gh-release@v2.0.4
+        with:
+          files: |
+            backend/dist/*.whl
+            backend/dist/*.tar.gz
 
       - name: Inject Secrets
         working-directory: frontend
