@@ -67,7 +67,7 @@ function readStore(): TokenStoreData {
     // Back it up and return empty so the user is prompted to re-authenticate.
     if (raw.trim().startsWith("{")) {
       console.error("[Token Store] SECURITY: Plaintext token store detected. Clearing.");
-      try { fs.unlinkSync(storePath); } catch {}
+      try { fs.unlinkSync(storePath); } catch (e) { console.warn("Caught error:", e); }
       try {
         const { BrowserWindow } = require('electron');
         const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];

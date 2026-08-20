@@ -144,7 +144,7 @@ export class MCPServerManager {
     this.heartbeatInterval = setInterval(() => {
       for (const [name, server] of this.servers) {
         if (server.status === 'running' && (name === 'github' || name === 'slack')) {
-          this.sendRequest(name, 'tools/list').catch(() => {});
+          this.sendRequest(name, 'tools/list').catch((e) => console.warn("Caught promise error:", e));
         }
       }
     }, 60 * 1000); // 1 minute
@@ -350,7 +350,7 @@ export class MCPServerManager {
           } else {
             server.process.kill();
           }
-        } catch {}
+        } catch (e) { console.warn("Caught error:", e); }
         server.process = null;
       }
       return false;
@@ -487,7 +487,7 @@ export class MCPServerManager {
             const user = await res.json();
             args.owner = user.login;
           }
-        } catch {}
+        } catch (e) { console.warn("Caught error:", e); }
       }
     }
 

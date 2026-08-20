@@ -344,7 +344,7 @@ function humanizeDates(obj: unknown): unknown {
             minute: '2-digit',
           });
         }
-      } catch {}
+      } catch (e) { console.warn("Caught error:", e); }
     }
     return obj;
   }
@@ -379,7 +379,7 @@ export class Orchestrator {
       for (const [id, pending] of this.pendingApprovals) {
         if (now - pending.createdAt > APPROVAL_TTL_MS) {
           console.warn(`[Orchestrator] Auto-rejecting stale approval ${id} (TTL exceeded)`);
-          try { pending.resolve(false); } catch {}
+          try { pending.resolve(false); } catch (e) { console.warn("Caught error:", e); }
           this.pendingApprovals.delete(id);
         }
       }
@@ -458,7 +458,7 @@ export class Orchestrator {
     }
     // Auto-reject all remaining pending approvals
     for (const [id, pending] of this.pendingApprovals) {
-      try { pending.resolve(false); } catch {}
+      try { pending.resolve(false); } catch (e) { console.warn("Caught error:", e); }
       this.pendingApprovals.delete(id);
     }
   }
@@ -784,7 +784,7 @@ saveWorkflowCheckpoint(state.conversationId, state);
         if (emails && !emails.error && Array.isArray(emails) && emails.length > 0) {
           state.context.push({ type: "tool_result", server: "google_workspace", tool: "search_emails", result: emails });
         }
-      } catch {}
+      } catch (e) { console.warn("Caught error:", e); }
     }
 
     // Merge/close PR — fetch the PR details
@@ -799,7 +799,7 @@ saveWorkflowCheckpoint(state.conversationId, state);
         if (prs && !prs.error) {
           state.context.push({ type: "tool_result", server: "github", tool: "list_prs", result: prs });
         }
-      } catch {}
+      } catch (e) { console.warn("Caught error:", e); }
     }
 
     // Post to Slack — fetch channels for context
@@ -819,7 +819,7 @@ saveWorkflowCheckpoint(state.conversationId, state);
         if (channels && !channels.error) {
           state.context.push({ type: "tool_result", server: "slack", tool: "list_channels", result: channels });
         }
-      } catch {}
+      } catch (e) { console.warn("Caught error:", e); }
     }
   }
 
@@ -842,7 +842,7 @@ saveWorkflowCheckpoint(state.conversationId, state);
       if (toolDef && toolDef.inputSchema) {
          toolSchemaStr = JSON.stringify(toolDef.inputSchema, null, 2);
       }
-    } catch(e) {}
+    } catch (e) { console.warn("Caught error:", e); }
 
     const abortController = new AbortController();
     const existing = this.activeStreams.get(state.conversationId);
@@ -1262,17 +1262,17 @@ Rules:
     if (actionType === "create_event" || actionType === "schedule_event") {
       if (fields.startTime && !fields.startTime.includes("T")) {
         // Not a valid ISO datetime — try to fix
-        try { fields.startTime = new Date(fields.startTime).toISOString(); } catch {}
+        try { fields.startTime = new Date(fields.startTime).toISOString(); } catch (e) { console.warn("Caught error:", e); }
       }
       if (fields.endTime && !fields.endTime.includes("T")) {
-        try { fields.endTime = new Date(fields.endTime).toISOString(); } catch {}
+        try { fields.endTime = new Date(fields.endTime).toISOString(); } catch (e) { console.warn("Caught error:", e); }
       }
       // If attendees is a string, try to parse as JSON array
       if (typeof fields.attendees === "string" && fields.attendees.startsWith("[")) {
         try {
           const parsed = JSON.parse(fields.attendees);
           fields.attendees = Array.isArray(parsed) ? parsed.join(",") : fields.attendees;
-        } catch {}
+        } catch (e) { console.warn("Caught error:", e); }
       }
     }
   }

@@ -56,7 +56,7 @@ export const connectorsAPI = {
             if (hasValue) {
               configuredSet.add(id);
             }
-          } catch {}
+          } catch (e) { console.warn("Caught error:", e); }
         }
       }
     }

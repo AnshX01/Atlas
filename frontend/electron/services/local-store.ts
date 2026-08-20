@@ -151,7 +151,7 @@ export async function initDB(): Promise<void> {
     try {
       const backupPath = dbPath + `.backup-${Date.now()}`;
       fs.copyFileSync(dbPath, backupPath);
-    } catch (e) {}
+    } catch (e) { console.warn("Caught error:", e); }
     db = new SQL.Database();
   }
 
@@ -220,8 +220,8 @@ export async function initDB(): Promise<void> {
     // Add columns to existing tables if missing (ignore errors if they exist)
     const tables = ['conversations', 'messages', 'tool_executions', 'config'];
     for (const table of tables) {
-      try { db.run(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP`); } catch (e) {}
-      try { db.run(`ALTER TABLE ${table} ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+      try { db.run(`ALTER TABLE ${table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP`); } catch (e) { console.warn("Caught error:", e); }
+      try { db.run(`ALTER TABLE ${table} ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`); } catch (e) { console.warn("Caught error:", e); }
     }
     
     db.run("COMMIT");

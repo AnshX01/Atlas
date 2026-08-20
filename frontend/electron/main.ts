@@ -494,7 +494,7 @@ ipcMain.handle(
       mainWindow.webContents.send("chat-stream-end");
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown streaming error";
-      try { mainWindow?.webContents.send("chat-stream-end", { error: errorMessage }); } catch {}
+      try { mainWindow?.webContents.send("chat-stream-end", { error: errorMessage }); } catch (e) { console.warn("Caught error:", e); }
       throw error;
     }
   }

@@ -186,7 +186,7 @@ export class GmailConnector {
               snippet: detail.snippet || '',
             });
           }
-        } catch (e) {}
+        } catch (e) { console.warn("Caught error:", e); }
       }
     }
     

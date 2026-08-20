@@ -326,7 +326,7 @@ Rules:
              if (validated && options?.onStream) {
                options.onStream([validated]);
              }
-           } catch (e) {}
+           } catch (e) { console.warn("Caught error:", e); }
         }
         
         clearTimeout(timeout);
@@ -383,7 +383,7 @@ async function parseOllamaResponse(response: string): Promise<BriefingItemData[]
         const parsed = JSON.parse(trimmed);
         const validated = validateAndFormatItem(parsed, items.length);
         if (validated) items.push(validated);
-      } catch (e) {}
+      } catch (e) { console.warn("Caught error:", e); }
     }
   }
   if (items.length > 0) return items;

@@ -68,7 +68,7 @@ describe('MCPServerManager hardening', () => {
 
       // Fire-and-forget startServer — we only need it to spawn the process and attach handlers
       // DO NOT await — the initialization handshake will never complete with a mock
-      manager.startServer('github').catch(() => {});
+      manager.startServer('github').catch((e) => console.warn("Caught promise error:", e));
 
       // Wait for spawn to be called and handlers attached (synchronous after spawn)
       await new Promise(r => setTimeout(r, 50));
@@ -116,7 +116,7 @@ describe('MCPServerManager hardening', () => {
       const manager = new MCPServerManager();
 
       // Fire-and-forget
-      manager.startServer('github').catch(() => {});
+      manager.startServer('github').catch((e) => console.warn("Caught promise error:", e));
       await new Promise(r => setTimeout(r, 50));
       expect(latestMockProcess).not.toBeNull();
 
@@ -152,7 +152,7 @@ describe('MCPServerManager hardening', () => {
       const manager = new MCPServerManager();
 
       // Fire-and-forget
-      manager.startServer('github').catch(() => {});
+      manager.startServer('github').catch((e) => console.warn("Caught promise error:", e));
       await new Promise(r => setTimeout(r, 50));
       expect(latestMockProcess).not.toBeNull();
 
