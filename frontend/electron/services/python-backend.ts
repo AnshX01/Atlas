@@ -34,6 +34,7 @@ export class PythonBackendManager {
           APP_SECRET_KEY: 'local-dev-secret-key-atlas-12345',
           APP_MASTER_ENCRYPTION_KEY: 'bXktMzItYnl0ZS1tYXN0ZXIta2V5LWF0bGFzLTEyMzQ1Ng==',
           JWT_SECRET_KEY: 'jwt-local-dev-secret-key-12345',
+          NEO4J_PASSWORD: 'password',
         },
         windowsHide: true,
       });
