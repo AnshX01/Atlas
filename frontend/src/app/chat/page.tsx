@@ -945,33 +945,64 @@ function ChatPageInner() {
     if (stored) setUserAvatar(stored);
   }, []);
 
-  useEffect(() => {
+    useEffect(() => {
     const isNavigation = conversationId !== conversationIdRef.current;
     conversationIdRef.current = conversationId;
 
     if (conversationId) {
       isFirstMessageRef.current = false;
-      if (isNavigation) {
-        const stored = useChatStore.getState().messages[conversationId];
-        if (stored && stored.length > 0) {
-          setMessages(stored.map((m) => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            results: m.results,
-            actions: m.actions,
-            toolExecutions: m.toolExecutions,
-            draft: m.draft,
-            timestamp: new Date(m.timestamp),
-          })));
-        }
+      if (isNavigation || t) {
+        const loadMessages = async () => {
+          let loadedMessages: ChatMessage[] = [];
+          if (hasElectronIPC()) {
+            try {
+              const history = await window.atlasElectron!.getConversationHistory(conversationId, 100);
+              loadedMessages = history.map((m: any) => ({
+                id: m.id,
+                role: m.role,
+                content: m.content,
+                results: m.results || [],
+                actions: m.actions || [],
+                toolExecutions: m.toolExecutions || [],
+                draft: m.draft,
+                timestamp: new Date(m.timestamp || m.created_at || Date.now()),
+              }));
+              useChatStore.getState().clearMessages(conversationId);
+              loadedMessages.forEach(msg => {
+                useChatStore.getState().addMessage(conversationId, {
+                  ...msg,
+                  timestamp: msg.timestamp.toISOString(),
+                });
+              });
+            } catch (err) {
+              console.error("[Atlas] Failed to load history from SQLite", err);
+            }
+          }
+          if (loadedMessages.length === 0) {
+            const stored = useChatStore.getState().messages[conversationId];
+            if (stored && stored.length > 0) {
+              loadedMessages = stored.map((m) => ({
+                id: m.id,
+                role: m.role,
+                content: m.content,
+                results: m.results,
+                actions: m.actions,
+                toolExecutions: m.toolExecutions,
+                draft: m.draft,
+                timestamp: new Date(m.timestamp),
+              }));
+            }
+          }
+          if (mountedRef.current) {
+            setMessages(loadedMessages);
+          }
+        };
+        loadMessages();
       }
     } else {
-      // New chat — reset everything
       abortRef.current?.abort();
       unsubscribersRef.current.forEach((fn) => fn());
       unsubscribersRef.current = [];
-
 
       setMessages([]);
       setStatus("idle");
