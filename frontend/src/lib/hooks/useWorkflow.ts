@@ -214,7 +214,7 @@ export function useWorkflow(): UseWorkflowReturn {
       setIsStreaming(false);
 
       // Finalize the assistant message with the full content
-      const finalContent = data?.error ? `Error: ${data.error}` : (streamingContentRef.current || data?.response || data?.content || "");
+      const finalContent = data?.error ? (streamingContentRef.current ? `${streamingContentRef.current}\n\n**Error:** ${data.error}` : `Error: ${data.error}`) : (streamingContentRef.current || data?.response || data?.content || "");
       setMessages((prev) => {
         const updated = [...prev];
         const lastAssistant = [...updated].reverse().find((m) => m.role === "assistant");

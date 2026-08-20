@@ -1059,6 +1059,7 @@ function ChatPageInner() {
       let unsubTool: (() => void) | null = null;
       let unsubApproval: (() => void) | null = null;
       let unsubDraft: (() => void) | null = null;
+      let executionTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
       const cleanupAll = () => {
         unsubStream?.();
@@ -1066,6 +1067,7 @@ function ChatPageInner() {
         unsubTool?.();
         unsubApproval?.();
         unsubDraft?.();
+        if (executionTimeoutId) clearTimeout(executionTimeoutId);
         unsubscribersRef.current = [];
       };
 
@@ -1240,7 +1242,7 @@ function ChatPageInner() {
 
         await window.atlasElectron!.executeWorkflow(finalPrompt);
         // Set a timeout — if workflow-complete doesn't fire within 5 minutes, recover
-        setTimeout(() => {
+        executionTimeoutId = setTimeout(() => {
           if (!mountedRef.current) return;
           setStatus((currentStatus) => {
             if (currentStatus !== "idle") {

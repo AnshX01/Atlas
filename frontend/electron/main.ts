@@ -573,11 +573,11 @@ ipcMain.handle(
     arg: { prompt: string; conversationId?: string }
   ) => {
     if (!arg || typeof arg !== 'object') {
-      return { error: 'Invalid input: expected object with prompt' };
+      throw new Error('Invalid input: expected object with prompt');
     }
     const { prompt, conversationId } = arg;
     if (typeof prompt !== 'string' || prompt.length > 10000) {
-      return { error: 'Invalid input: prompt must be a string under 10000 chars' };
+      throw new Error('Invalid input: prompt must be a string under 10000 chars');
     }
     if (!orchestrator) {
       throw new Error("Orchestrator not initialized");
