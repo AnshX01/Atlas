@@ -12,6 +12,7 @@ import {
   net,
 } from "electron";
 import * as path from "path";
+import { PythonBackendManager } from "./services/python-backend";
 import { MCPServerManager } from "./services/mcp-manager";
 import { CronEngine } from "./services/background-cron";
 import {
@@ -69,6 +70,7 @@ app.on("before-quit", () => {
 
 // ── MCP Server Manager ─────────────────────────────────────────────────────────
 let mcpManager: MCPServerManager | null = null;
+let pythonBackend: any = null;
 
 // ── Orchestrator (LangGraph-style local state machine) ─────────────────────────
 let orchestrator: Orchestrator | null = null;
@@ -201,6 +203,9 @@ app.whenReady().then(async () => {
   }
 
   // ── Initialize MCP Server Manager ───────────────────────────────────
+  pythonBackend = new PythonBackendManager();
+  pythonBackend.start();
+
   mcpManager = new MCPServerManager();
   // Pre-warm configured servers in the background
   mcpManager.startAll().catch(console.error);
@@ -357,6 +362,11 @@ app.on("will-quit", () => {
   // Destroy orchestrator (clears approval TTL interval and rejects pending approvals)
   if (orchestrator) {
     orchestrator.destroy();
+  }
+
+  // Gracefully stop Python backend
+  if (pythonBackend) {
+    pythonBackend.stop();
   }
 
   // Gracefully stop all MCP server subprocesses
