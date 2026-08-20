@@ -26,22 +26,22 @@ class Settings(BaseSettings):
 
     # ── App ──────────────────────────────────────────────────────────────────
     APP_ENV: Literal["development", "staging", "production"] = "development"
-    APP_SECRET_KEY: str
-    APP_MASTER_ENCRYPTION_KEY: str  # Base64-encoded 32-byte AES-256 key
+    APP_SECRET_KEY: str = "secret"
+    APP_MASTER_ENCRYPTION_KEY: str = "YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE="  # Base64-encoded 32-byte AES-256 key
 
     # ── JWT ──────────────────────────────────────────────────────────────────
-    JWT_SECRET_KEY: str
+    JWT_SECRET_KEY: str = "secret"
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # ── PostgreSQL ────────────────────────────────────────────────────────────
-    DATABASE_URL: str  # e.g. postgresql+asyncpg://user:pass@host/db
+    DATABASE_URL: str = "sqlite+aiosqlite:///atlas.db"  # e.g. postgresql+asyncpg://user:pass@host/db
 
     # ── Neo4j ────────────────────────────────────────────────────────────────
     NEO4J_URI: str = "bolt://localhost:7687"
     NEO4J_USER: str = "neo4j"
-    NEO4J_PASSWORD: str
+    NEO4J_PASSWORD: str = "password"
 
     # ── Qdrant ───────────────────────────────────────────────────────────────
     QDRANT_HOST: str = "localhost"
