@@ -35,7 +35,11 @@ module.exports = {
     artifactName: "${productName}-Setup-${version}.${ext}",
   },
   linux: {
-    target: ["AppImage", "deb", "tar.gz"],
+    target: [
+      { target: "AppImage", arch: ["x64"] },
+      { target: "deb", arch: ["x64"] },
+      { target: "tar.gz", arch: ["x64"] },
+    ],
     icon: "public/icon.png",
     category: "Office",
     artifactName: "${productName}-${version}-linux-${arch}.${ext}",
@@ -45,10 +49,12 @@ module.exports = {
     allowToChangeInstallationDirectory: true,
     artifactName: "${productName}-Setup-${version}.${ext}",
   },
-  publish: {
-    provider: "github",
-    owner: "AnshX01",
-    repo: "Atlas",
-    releaseType: "draft",
-  },
+  publish: [
+    {
+      provider: "github",
+      owner: "AnshX01",
+      repo: "Atlas",
+      releaseType: "release",
+    },
+  ],
 };

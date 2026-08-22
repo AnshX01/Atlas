@@ -93,7 +93,7 @@ jobs:
             backend/dist/*.whl
             backend/dist/*.tar.gz
 
-      - name: Build and Publish Electron App
+      - name: Build Electron App
         uses: nick-invision/retry@v3.0.0
         with:
           timeout_minutes: 20
@@ -108,12 +108,28 @@ jobs:
             if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then OS_FLAG="--linux"; fi
             npm run build
             npm run electron-compile
-            npx electron-builder build $OS_FLAG --publish always
+            npx electron-builder build $OS_FLAG
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
           NEXT_PUBLIC_WS_URL: ${{ secrets.NEXT_PUBLIC_WS_URL }}
+
+      - name: Upload Binaries to GitHub Release
+        uses: softprops/action-gh-release@v2.0.4
+        with:
+          files: |
+            frontend/dist/*.exe
+            frontend/dist/*.dmg
+            frontend/dist/*.zip
+            frontend/dist/*.AppImage
+            frontend/dist/*.deb
+            frontend/dist/*.tar.gz
+            frontend/dist/*.blockmap
+            frontend/dist/latest*.yml
+            frontend/dist/latest*.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Post-build Summary
         working-directory: frontend
@@ -133,4 +149,5 @@ jobs:
         uses: softprops/action-gh-release@v2.0.4
         with:
           draft: false
+          prerelease: true
           generate_release_notes: true
