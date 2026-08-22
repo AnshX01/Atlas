@@ -49,12 +49,4 @@ module.exports = {
     allowToChangeInstallationDirectory: true,
     artifactName: "${productName}-Setup-${version}.${ext}",
   },
-  publish: [
-    {
-      provider: "github",
-      owner: "AnshX01",
-      repo: "Atlas",
-      releaseType: "release",
-    },
-  ],
 };

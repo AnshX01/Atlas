@@ -103,12 +103,12 @@ jobs:
           command: |
             cd frontend
             OS_FLAG=""
-            if [ "${{ matrix.os }}" = "macos-latest" ]; then OS_FLAG="--mac"; fi
-            if [ "${{ matrix.os }}" = "windows-latest" ]; then OS_FLAG="--win"; fi
-            if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then OS_FLAG="--linux"; fi
+            if [ "${{ matrix.os }}" = "macos-latest" ]; then OS_FLAG="--mac dmg zip"; fi
+            if [ "${{ matrix.os }}" = "windows-latest" ]; then OS_FLAG="--win nsis zip"; fi
+            if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then OS_FLAG="--linux appimage deb tar.gz"; fi
             npm run build
             npm run electron-compile
-            npx electron-builder build $OS_FLAG
+            npx electron-builder build $OS_FLAG --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
