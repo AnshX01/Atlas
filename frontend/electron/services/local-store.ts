@@ -285,9 +285,9 @@ export function createConversation(title: string, userId: string = "local"): Con
   return conv;
 }
 
-export function listConversations(limit: number = 50): Conversation[] {
+export function listConversations(limit: number = 300): Conversation[] {
   if (!db) return [];
-  const stmt = db.prepare("SELECT * FROM conversations ORDER BY created_at DESC LIMIT ?");
+  const stmt = db.prepare("SELECT * FROM conversations WHERE (deleted = 0 OR deleted IS NULL) ORDER BY created_at DESC LIMIT ?");
   try {
     stmt.bind([limit]);
     const results: Conversation[] = [];
@@ -298,6 +298,52 @@ export function listConversations(limit: number = 50): Conversation[] {
   } finally {
     stmt.free();
   }
+}
+
+export function deleteConversation(id: string): void {
+  if (!db) return;
+  const timestamp = new Date().toISOString();
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run("DELETE FROM messages WHERE conversation_id = ?", [id]);
+    db.run("DELETE FROM tool_executions WHERE conversation_id = ?", [id]);
+    db.run("DELETE FROM workflow_checkpoints WHERE conversation_id = ?", [id]);
+    db.run("DELETE FROM conversations WHERE id = ?", [id]);
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+    console.error("[Atlas Store] Failed to delete conversation from SQLite:", err);
+  }
+  persistToDisk();
+  messagesCache.clear();
+  conversationCache.clear();
+
+  try {
+    syncManager.queueDelta({
+      table: "conversations",
+      operation: "DELETE",
+      data: { id },
+      timestamp,
+    });
+  } catch {}
+}
+
+export function clearAllConversations(): void {
+  if (!db) return;
+  db.run("BEGIN IMMEDIATE");
+  try {
+    db.run("DELETE FROM messages");
+    db.run("DELETE FROM tool_executions");
+    db.run("DELETE FROM workflow_checkpoints");
+    db.run("DELETE FROM conversations");
+    db.run("COMMIT");
+  } catch (err) {
+    db.run("ROLLBACK");
+    console.error("[Atlas Store] Failed to clear all conversations from SQLite:", err);
+  }
+  persistToDisk();
+  messagesCache.clear();
+  conversationCache.clear();
 }
 
 
@@ -313,6 +359,13 @@ export function saveMessage(
 
   db.run("BEGIN IMMEDIATE");
   try {
+    // Ensure the parent conversation exists so hydration and listing don't create duplicates
+    const title = content.slice(0, 50).trim() || "New Conversation";
+    db.run(
+      "INSERT OR IGNORE INTO conversations (id, user_id, created_at, title) VALUES (?, 'local', ?, ?)",
+      [conversationId, timestamp, title]
+    );
+
     db.run(
       "INSERT INTO messages (id, conversation_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)",
       [id, conversationId, role, content, timestamp]
@@ -348,7 +401,7 @@ export function getConversationHistory(
   if (cached) return cached;
 
   const stmt = db.prepare(
-    "SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp ASC LIMIT ?"
+    "SELECT * FROM (SELECT * FROM messages WHERE conversation_id = ? ORDER BY timestamp DESC LIMIT ?) ORDER BY timestamp ASC"
   );
   try {
     stmt.bind([conversationId, limit]);

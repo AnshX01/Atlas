@@ -48,6 +48,9 @@ User: "Find emails from John about the quarterly report"
 User: "Merge PR #123 on the atlas repo"
 {"intent": "action", "confidence": 0.98, "params": {"action": "merge_pr", "target": "PR #123", "details": "atlas repo"}, "correctedQuery": "Merge PR #123 on the atlas repo"}
 
+User: "email pranav 'sent from atlas'"
+{"intent": "action", "confidence": 0.98, "params": {"action": "send_email", "target": "pranav", "details": "sent from atlas"}, "correctedQuery": "Email Pranav saying 'sent from atlas'"}
+
 User: "What can u help me with tmrw?"
 {"intent": "chat", "confidence": 0.9, "params": {}, "correctedQuery": "What can you help me with tomorrow?"}`;
 
@@ -221,10 +224,10 @@ function classifyWithKeywords(input: string): ClassificationResult {
  * Classify user input using Ollama for high-accuracy intent detection.
  * Collects streaming response tokens and parses the JSON result.
  */
-async function classifyWithOllama(input: string): Promise<ClassificationResult> {
+async function classifyWithOllama(input: string, abortSignal?: AbortSignal): Promise<ClassificationResult> {
   const messages = [
-    { role: "system", content: CLASSIFICATION_SYSTEM_PROMPT },
-    { role: "user", content: input },
+    { role: "system" as const, content: CLASSIFICATION_SYSTEM_PROMPT },
+    { role: "user" as const, content: input },
   ];
 
   let fullResponse = "";
@@ -276,7 +279,7 @@ const HEALTH_CHECK_INTERVAL_MS = 30_000; // Re-check every 30 seconds
  * Uses Ollama for intelligent context-aware classification.
  * Falls back to keyword-based if Ollama is unavailable.
  */
-export async function classifyIntent(input: string): Promise<ClassificationResult> {
+export async function classifyIntent(input: string, abortSignal?: AbortSignal): Promise<ClassificationResult> {
   if (!input.trim()) {
     return { intent: "unknown", confidence: 0, extractedParams: {} };
   }
@@ -303,7 +306,7 @@ export async function classifyIntent(input: string): Promise<ClassificationResul
       lastHealthCheck = now;
     }
     if (ollamaAvailableCache) {
-      return await classifyWithOllama(input);
+      return await classifyWithOllama(input, abortSignal);
     }
   } catch {
     // If Ollama call itself fails, mark as unavailable for next interval
@@ -329,7 +332,7 @@ export function resetClassifierCache(): void {
  */
 export async function resolveEntities(input: string, history: {role: string, content: string}[], abortSignal?: AbortSignal): Promise<string> {
   const ambiguousRegex = /\b(it|them|him|her|that|this|he|she)\b/i;
-  if (!ambiguousRegex.test(input) || history.length === 0) {
+  if (!ambiguousRegex.test(input) || !history || history.length <= 1) {
     return input;
   }
 
@@ -347,11 +350,16 @@ Output ONLY the rewritten sentence, with no quotes, no explanation, and no extra
 
   let fullResponse = "";
   try {
-    for await (const token of streamChat(messages, undefined, abortSignal)) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    const signal = abortSignal || controller.signal;
+
+    for await (const token of streamChat(messages, undefined, signal)) {
       fullResponse += token;
     }
+    clearTimeout(timeout);
     return fullResponse.trim() || input;
-  } catch (err) {
+  } catch {
     return input;
   }
 }
@@ -373,9 +381,14 @@ export async function splitMultiIntent(input: string, abortSignal?: AbortSignal)
 
   let fullResponse = "";
   try {
-    for await (const token of streamChat(messages)) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    const signal = abortSignal || controller.signal;
+
+    for await (const token of streamChat(messages, undefined, signal)) {
       fullResponse += token;
     }
+    clearTimeout(timeout);
     
     const jsonMatch = fullResponse.match(/\[[\s\S]*\]/);
     if (jsonMatch) {
@@ -385,7 +398,7 @@ export async function splitMultiIntent(input: string, abortSignal?: AbortSignal)
       }
     }
     return [input];
-  } catch (err) {
+  } catch {
     return [input];
   }
 }

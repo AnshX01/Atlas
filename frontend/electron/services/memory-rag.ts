@@ -205,7 +205,7 @@ export async function searchContext(query: string, topK: number = 3): Promise<st
 }
 
 function cosineSimilarity(vecA: number[], vecB: number[]): number {
-  if (vecA.length !== vecB.length) return 0; // dimension mismatch guard
+  if (!vecA || !vecB || vecA.length !== vecB.length || vecA.length === 0) return 0;
   let dotProduct = 0;
   let normA = 0;
   let normB = 0;
@@ -217,5 +217,8 @@ function cosineSimilarity(vecA: number[], vecB: number[]): number {
   }
   
   if (normA === 0 || normB === 0) return 0;
-  return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
+  const denominator = Math.sqrt(normA) * Math.sqrt(normB);
+  if (denominator === 0 || isNaN(denominator)) return 0;
+  const sim = dotProduct / denominator;
+  return isNaN(sim) ? 0 : sim;
 }

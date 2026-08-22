@@ -43,14 +43,13 @@ export function Toast({ message, type = "success", duration = 4000, onClose }: T
             role={type === "error" ? "alert" : "status"}
             aria-live={type === "error" ? "assertive" : "polite"}
             className={cn(
-              "flex items-center gap-3 px-4 py-3 rounded-xl backdrop-blur-sm",
-              type === "success" ? "bg-[var(--bg-secondary)]" : "bg-red-500/10 border border-red-500/20"
+              "flex items-center gap-3 px-4 py-3 rounded-xl backdrop-blur-sm bg-[var(--bg-secondary)] border border-[var(--border-default)] shadow-lg"
             )}
           >
             {type === "success" ? (
-              <CheckCircle2 size={16} className="text-green-400 flex-shrink-0" />
+              <CheckCircle2 size={16} className="text-[var(--text-primary)] flex-shrink-0" />
             ) : (
-              <XCircle size={16} className="text-red-400 flex-shrink-0" />
+              <XCircle size={16} className="text-[var(--text-muted)] flex-shrink-0" />
             )}
             <p className="text-sm text-[var(--text-primary)] flex-1">{message}</p>
             <button

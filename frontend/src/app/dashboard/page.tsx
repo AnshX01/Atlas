@@ -2,9 +2,12 @@
 
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { Plug, CheckSquare, Calendar, Activity, ArrowRight, Mail, GitPullRequest, FileText, LayoutDashboard, Settings, MessageSquare } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { Plug, Calendar, Activity, ArrowRight, Mail, GitPullRequest, FileText, LayoutDashboard, Settings, MessageSquare, AlertCircle } from "lucide-react";
 import {
+  GmailLogo,
   GoogleLogo,
+  GoogleTasksLogo,
   GitHubLogo,
   SlackLogo,
   NotionLogo,
@@ -60,16 +63,34 @@ function QuickActionCard({
   );
 }
 
-// ── Type Icons for Activity Items ─────────────────────────────────────────────
-const typeIcons: Record<string, React.ReactNode> = {
-  email: <Mail size={16} className="text-[var(--text-secondary)]" />,
-  pr: <GitPullRequest size={16} className="text-[var(--text-secondary)]" />,
-  issue: <GitPullRequest size={16} className="text-[var(--text-secondary)]" />,
-  calendar: <Calendar size={16} className="text-[var(--text-secondary)]" />,
-  document: <FileText size={16} className="text-[var(--text-secondary)]" />,
-  file: <FileText size={16} className="text-[var(--text-secondary)]" />,
-  task: <CheckSquare size={16} className="text-[var(--text-secondary)]" />,
-};
+function getActivityLogo(source?: string, type?: string) {
+  const s = (source || "").toLowerCase();
+  const t = (type || "").toLowerCase();
+  if (s.includes("gmail") || t === "email") return <GmailLogo size={16} />;
+  if (s.includes("github") || t === "pr" || t === "issue") return <GitHubLogo size={16} className="text-[#181717] dark:text-white" />;
+  if (s.includes("slack")) return <SlackLogo size={16} />;
+  if (s.includes("notion")) return <NotionLogo size={16} className="text-[#000000] dark:text-white" />;
+  if (s.includes("calendar")) return <GoogleLogo size={16} />;
+  if (s.includes("tasks") || t === "task") return <GoogleTasksLogo size={16} />;
+  if (s.includes("filesystem") || s.includes("local")) return <LocalFilesLogo size={16} className="text-amber-400" />;
+  if (s.includes("jira")) return <JiraLogo size={16} />;
+  if (s.includes("linear")) return <LinearLogo size={16} />;
+  if (t === "document" || t === "file") return <FileText size={16} className="text-[var(--text-secondary)]" />;
+  return <Activity size={16} className="text-[var(--text-secondary)]" />;
+}
+
+function getSourceDisplayName(source?: string, type?: string) {
+  const s = (source || "").toLowerCase();
+  const t = (type || "").toLowerCase();
+  if (s.includes("gmail") || s.includes("calendar") || s.includes("tasks") || s.includes("google") || t === "email") return "Google Workspace";
+  if (s.includes("github") || t === "pr" || t === "issue") return "GitHub";
+  if (s.includes("slack")) return "Slack";
+  if (s.includes("notion")) return "Notion";
+  if (s.includes("filesystem") || s.includes("local")) return "Local Files";
+  if (s.includes("jira")) return "Jira";
+  if (s.includes("linear")) return "Linear";
+  return source ? source.charAt(0).toUpperCase() + source.slice(1) : "Integration";
+}
 
 // ── Provider Display Names ────────────────────────────────────────────────────
 const providerDisplayNames: Record<string, string> = {
@@ -175,7 +196,7 @@ export default function DashboardPage() {
                   <span className="text-sm text-[var(--text-primary)] flex-1">
                     {providerDisplayNames[c.provider] ?? c.provider}
                   </span>
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-primary)]" />
                   <span className="text-xs text-[var(--text-muted)]">Active</span>
                 </div>
               ))}
@@ -251,33 +272,60 @@ export default function DashboardPage() {
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
-            {recentItems.map((item, index) => (
-              <AgentDesignSystemShell
-                key={item.id}
-                className="p-5 flex items-center gap-3 cursor-pointer group"
-                initial={{ opacity: 0, x: -8 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.45 + index * 0.06 }}
-                onClick={() => item.action_url ? window.open(item.action_url, '_blank') : router.push("/briefing")}
-                whileHover={{ y: -1 }}
-              >
-                <div className="flex items-center justify-center shrink-0">
-                  {typeIcons[item.type] ?? <Activity size={16} className="text-[var(--text-secondary)]" />}
-                </div>
-                <div className="flex-1 min-w-0 flex items-center justify-between gap-4">
-                  <p className="text-base font-semibold text-[var(--text-primary)] truncate">
+          <div className="flex flex-col gap-2.5">
+            {recentItems.map((item, index) => {
+              const timeAgo = item.timestamp
+                ? (() => {
+                    try {
+                      return formatDistanceToNow(new Date(item.timestamp), { addSuffix: true });
+                    } catch {
+                      return "";
+                    }
+                  })()
+                : "";
+
+              return (
+                <AgentDesignSystemShell
+                  key={item.id}
+                  className="p-4 cursor-pointer group hover:border-[var(--accent)]/40 transition-all text-left"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.45 + index * 0.05 }}
+                  onClick={() => item.action_url ? window.open(item.action_url, '_blank') : router.push("/briefing")}
+                  whileHover={{ y: -1 }}
+                  role="article"
+                >
+                  {/* Top: Source Icon, Source Name, Time Ago */}
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex items-center justify-center shrink-0">
+                        {getActivityLogo(item.source, item.type)}
+                      </div>
+                      <span className="text-xs font-semibold text-[var(--text-secondary)] truncate">
+                        {getSourceDisplayName(item.source, item.type)}
+                      </span>
+                    </div>
+                    {timeAgo && (
+                      <span className="text-[11px] text-[var(--text-muted)] shrink-0 font-medium">
+                        {timeAgo}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Title */}
+                  <p className="text-sm font-semibold text-[var(--text-primary)] leading-snug line-clamp-1 group-hover:text-[var(--accent)] transition-colors">
                     {item.title}
                   </p>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span className="text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
-                      {item.source === "gmail" ? "Google Workspace" : item.source === "github" ? "GitHub" : item.source === "calendar" ? "Google Workspace" : item.source === "tasks" ? "Google Workspace" : item.source === "slack" ? "Slack" : item.source === "notion" ? "Notion" : (item.source ? item.source.charAt(0).toUpperCase() + item.source.slice(1) : "Source")}
-                    </span>
-                    <ArrowRight size={14} className="text-[var(--text-muted)] group-hover:text-[var(--accent)] transition-colors" />
-                  </div>
-                </div>
-              </AgentDesignSystemShell>
-            ))}
+
+                  {/* Summary / Snippet */}
+                  {item.summary && (
+                    <p className="text-xs text-[var(--text-muted)] line-clamp-1 mt-0.5 leading-relaxed">
+                      {item.summary}
+                    </p>
+                  )}
+                </AgentDesignSystemShell>
+              );
+            })}
           </div>
         )}
       </motion.div>

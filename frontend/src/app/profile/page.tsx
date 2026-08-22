@@ -131,8 +131,10 @@ export default function ProfilePage() {
       setAvatar(base64);
       localStorage.setItem(AVATAR_STORAGE_KEY, base64);
       window.dispatchEvent(new Event('atlas-avatar-updated'));
-      // Sync to cloud
-      apiClient.put('/users/me/avatar', { image_data: base64 }).catch(console.error);
+      // Sync to cloud if authenticated with backend
+      if (useAuthStore.getState().accessToken) {
+        apiClient.put('/users/me/avatar', { image_data: base64 }).catch(console.error);
+      }
       setToast({ message: "Profile picture updated.", type: "success" });
     };
     reader.readAsDataURL(file);

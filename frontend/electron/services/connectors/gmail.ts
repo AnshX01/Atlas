@@ -132,7 +132,7 @@ export class GmailConnector {
   // ── Gmail Read ─────────────────────────────────────────────────────────────
 
   async listEmails(maxResults: number = 10, query: string = '', skipCache: boolean = false): Promise<any[]> {
-    const q = query || 'is:inbox newer_than:1d';
+    let q = query || 'is:unread';
     const cacheKey = `${maxResults}_${q}`;
 
     if (!skipCache) {
@@ -140,7 +140,14 @@ export class GmailConnector {
       if (cached) return cached;
     }
 
-    const list = await this.gmailApi(`/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent(q)}`);
+    let list = await this.gmailApi(`/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent(q)}`);
+    
+    // Fallback: if no messages found and the query had a restrictive time filter, try general inbox
+    if ((!list.messages || list.messages.length === 0) && q.includes('newer_than')) {
+      q = 'is:inbox';
+      list = await this.gmailApi(`/users/me/messages?maxResults=${maxResults}&q=${encodeURIComponent(q)}`);
+    }
+
     if (!list.messages || list.messages.length === 0) return [];
     
     const boundary = 'batch_gmail_boundary';
@@ -198,6 +205,13 @@ export class GmailConnector {
     return this.gmailApi(`/users/me/messages/${messageId}?format=full`);
   }
 
+  private encodeSubject(subject: string): string {
+    if (/[^\x00-\x7F]/.test(subject)) {
+      return `=?UTF-8?B?${Buffer.from(subject, 'utf-8').toString('base64')}?=`;
+    }
+    return subject;
+  }
+
   // ── Gmail Write ────────────────────────────────────────────────────────────
 
   async sendEmail(to: string, subject: string, body: string): Promise<any> {
@@ -206,8 +220,10 @@ export class GmailConnector {
       throw new Error(`Invalid recipient email address: "${to || '(empty)'}". Cannot send email without a valid 'to' address.`);
     }
 
+    const safeSubject = this.encodeSubject(subject || '(no subject)');
     const raw = Buffer.from(
-      `To: ${to}\r\nSubject: ${subject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
+      `To: ${to}\r\nSubject: ${safeSubject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`,
+      'utf-8'
     ).toString('base64url');
 
     const res = await this.authFetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
@@ -232,9 +248,10 @@ export class GmailConnector {
     const subject = headers.find((h: any) => h.name === 'Subject')?.value || '';
     const msgId = headers.find((h: any) => h.name === 'Message-ID')?.value || '';
 
-    const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
+    const replySubject = this.encodeSubject(subject.startsWith('Re:') ? subject : `Re: ${subject}`);
     const raw = Buffer.from(
-      `To: ${from}\r\nSubject: ${replySubject}\r\nIn-Reply-To: ${msgId}\r\nReferences: ${msgId}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`
+      `To: ${from}\r\nSubject: ${replySubject}\r\nIn-Reply-To: ${msgId}\r\nReferences: ${msgId}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}`,
+      'utf-8'
     ).toString('base64url');
 
     const res = await this.authFetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
@@ -259,9 +276,10 @@ export class GmailConnector {
     const headers = original.payload?.headers || [];
     const subject = headers.find((h: any) => h.name === 'Subject')?.value || '';
 
-    const fwdSubject = subject.startsWith('Fwd:') ? subject : `Fwd: ${subject}`;
+    const fwdSubject = this.encodeSubject(subject.startsWith('Fwd:') ? subject : `Fwd: ${subject}`);
     const raw = Buffer.from(
-      `To: ${to}\r\nSubject: ${fwdSubject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}\r\n\r\n--- Forwarded ---\r\n${original.snippet || ''}`
+      `To: ${to}\r\nSubject: ${fwdSubject}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${body}\r\n\r\n--- Forwarded ---\r\n${original.snippet || ''}`,
+      'utf-8'
     ).toString('base64url');
 
     const res = await this.authFetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
@@ -298,15 +316,22 @@ export class GmailConnector {
 
   // ── Calendar Write ─────────────────────────────────────────────────────────
 
-  async createCalendarEvent(title: string, startTime: string, endTime: string, description?: string, attendees?: string[]): Promise<any> {
+  async createCalendarEvent(title: string, startTime: string, endTime: string, description?: string, attendees?: string[] | string): Promise<any> {
     const event: any = {
       summary: title,
       start: { dateTime: startTime, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
       end: { dateTime: endTime, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone },
     };
     if (description) event.description = description;
-    if (attendees && attendees.length > 0) {
-      event.attendees = attendees.map((email: string) => ({ email }));
+    if (attendees) {
+      const attendeeList = Array.isArray(attendees) ? attendees : String(attendees).split(',');
+      const sanitized = attendeeList
+        .map((email: string) => email.trim())
+        .filter((email: string) => email.includes('@'))
+        .map((email: string) => ({ email }));
+      if (sanitized.length > 0) {
+        event.attendees = sanitized;
+      }
     }
 
     const res = await this.authFetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
@@ -330,33 +355,37 @@ export class GmailConnector {
 
   async listTasks(): Promise<any[]> {
     if (!this.accessToken) return [];
-    // First get task lists
-    const listsRes = await this.authFetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists');
-    if (!listsRes.ok) return [];
-    const listsData = await listsRes.json();
-    const taskLists = listsData.items || [];
-    
-    const allTasks: any[] = [];
-    // Get tasks from each list (max 2 lists to keep it fast)
-    for (const list of taskLists.slice(0, 2)) {
-      const tasksRes = await this.authFetch(
-        `https://tasks.googleapis.com/tasks/v1/lists/${list.id}/tasks?showCompleted=false&maxResults=10`
-      );
-      if (tasksRes.ok) {
-        const tasksData = await tasksRes.json();
-        for (const task of (tasksData.items || [])) {
-          allTasks.push({
-            id: task.id,
-            title: task.title || '(No title)',
-            notes: task.notes || '',
-            due: task.due || '',
-            status: task.status,
-            list: list.title,
-          });
+    try {
+      // First get task lists
+      const listsRes = await this.authFetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists');
+      const taskLists = listsRes.ok ? ((await listsRes.json()).items || []) : [];
+      
+      const allTasks: any[] = [];
+      const listsToQuery = taskLists.length > 0 ? taskLists.slice(0, 2) : [{ id: '@default', title: 'My Tasks' }];
+
+      // Get tasks from each list
+      for (const list of listsToQuery) {
+        const tasksRes = await this.authFetch(
+          `https://tasks.googleapis.com/tasks/v1/lists/${list.id}/tasks?showCompleted=false&maxResults=10`
+        );
+        if (tasksRes.ok) {
+          const tasksData = await tasksRes.json();
+          for (const task of (tasksData.items || [])) {
+            allTasks.push({
+              id: task.id,
+              title: task.title || '(No title)',
+              notes: task.notes || '',
+              due: task.due || '',
+              status: task.status,
+              list: list.title,
+            });
+          }
         }
       }
+      return allTasks;
+    } catch {
+      return [];
     }
-    return allTasks;
   }
 
   // ── Google Tasks Write ─────────────────────────────────────────────────────
@@ -392,10 +421,11 @@ export class GmailConnector {
   }
 
   async completeTask(listId: string, taskId: string): Promise<any> {
-    const res = await this.authFetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks/${taskId}`, {
+    const targetList = listId || '@default';
+    const res = await this.authFetch(`https://tasks.googleapis.com/tasks/v1/lists/${targetList}/tasks/${taskId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: 'completed' }),
+      body: JSON.stringify({ status: 'completed', completed: new Date().toISOString() }),
     });
     if (!res.ok) throw new Error(`Complete task failed: ${res.status}`);
     return res.json();

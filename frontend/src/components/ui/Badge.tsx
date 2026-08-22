@@ -13,21 +13,21 @@ interface BadgeProps {
 
 const variantStyles: Record<BadgeVariant, string> = {
   default: "bg-[var(--bg-tertiary)] text-[var(--text-secondary)]",
-  urgent:  "bg-red-500/15 text-red-400",
-  high:    "bg-orange-500/15 text-orange-400",
-  medium:  "bg-yellow-500/15 text-yellow-500",
-  low:     "bg-green-500/15 text-green-400",
-  blue:    "bg-blue-500/15 text-blue-400",
-  outline: "bg-transparent text-[var(--text-muted)]",
+  urgent:  "bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-subtle)] font-semibold",
+  high:    "bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-subtle)]",
+  medium:  "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]",
+  low:     "bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-[var(--border-subtle)]",
+  blue:    "bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]",
+  outline: "bg-transparent text-[var(--text-muted)] border border-[var(--border-subtle)]",
 };
 
 const dotColors: Record<BadgeVariant, string> = {
   default: "bg-[var(--text-muted)]",
-  urgent:  "bg-red-400",
-  high:    "bg-orange-400",
-  medium:  "bg-yellow-400",
-  low:     "bg-green-400",
-  blue:    "bg-blue-400",
+  urgent:  "bg-[var(--text-primary)]",
+  high:    "bg-[var(--text-primary)]",
+  medium:  "bg-[var(--text-secondary)]",
+  low:     "bg-[var(--text-muted)]",
+  blue:    "bg-[var(--text-secondary)]",
   outline: "bg-[var(--text-muted)]",
 };
 

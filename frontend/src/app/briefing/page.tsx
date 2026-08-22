@@ -44,16 +44,13 @@ function EmptyBriefing() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
     >
-      <div className="w-16 h-16 rounded-2xl bg-[var(--accent)]/10 flex items-center justify-center mb-4">
-        <CheckSquare size={28} className="text-[var(--accent)]" />
-      </div>
       <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-2">
-        {hasConnectors ? "Briefing Unavailable" : "Get Started with Atlas"}
+        {hasConnectors ? "All Caught Up" : "Get Started with Atlas"}
       </h2>
-      <p className="text-sm text-[var(--text-secondary)] max-w-xs leading-relaxed mb-6">
+      <p className="text-sm text-[var(--text-secondary)] max-w-sm leading-relaxed mb-6">
         {hasConnectors
-          ? "Use AI Chat to query your connected data. Briefing generation requires the backend services."
-          : "Connect your first integration to get started."}
+          ? "No urgent emails, upcoming meetings, or action items requiring your attention right now."
+          : "Connect Google Workspace, GitHub, or other services in Settings to generate your daily briefing."}
       </p>
       {hasConnectors ? (
         <Button variant="primary" id="go-to-chat-btn" onClick={() => router.push("/chat")}>

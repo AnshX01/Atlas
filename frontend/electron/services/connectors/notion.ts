@@ -58,12 +58,27 @@ export class NotionConnector {
   }
 
   async createPage(parentId: string, title: string, content: string): Promise<any> {
+    // Notion API blocks are limited to 2000 chars per text element. Chunk content if necessary.
+    const chunks: string[] = [];
+    const maxChunkSize = 2000;
+    const safeContent = content || '';
+    for (let i = 0; i < safeContent.length; i += maxChunkSize) {
+      chunks.push(safeContent.slice(i, i + maxChunkSize));
+    }
+    if (chunks.length === 0) chunks.push('');
+
+    const children = chunks.map(chunk => ({
+      object: 'block',
+      type: 'paragraph',
+      paragraph: { rich_text: [{ text: { content: chunk } }] },
+    }));
+
     return this.api('/pages', {
       method: 'POST',
       body: JSON.stringify({
         parent: { page_id: parentId },
         properties: { title: { title: [{ text: { content: title } }] } },
-        children: [{ object: 'block', type: 'paragraph', paragraph: { rich_text: [{ text: { content } }] } }],
+        children,
       }),
     });
   }

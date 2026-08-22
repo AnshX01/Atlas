@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as e:
         logger.warning("Neo4j not reachable at startup", error=str(e))
 
-    logger.info("Atlas Backend ready ✓", version="0.1.0")
+    logger.info("Atlas Backend ready", version="0.1.0")
 
     yield  # ← Application runs here
 

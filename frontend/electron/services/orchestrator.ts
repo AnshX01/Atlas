@@ -32,6 +32,7 @@ import {
   getAllWorkflowCheckpoints
 } from "./local-store";
 import { initRAGStore, searchContext, storeContext } from "./memory-rag";
+import { listConfigured } from "./token-store";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -48,6 +49,12 @@ export interface WorkflowState {
     params: Record<string, unknown>;
     result?: unknown;
     error?: string;
+  }>;
+  plannedTools?: Array<{
+    id?: string;
+    server: string;
+    tool: string;
+    params: Record<string, unknown>;
   }>;
   response: string;
   requiresApproval: boolean;
@@ -77,6 +84,9 @@ const DESTRUCTIVE_TOOLS = new Set([
   "send_email",
   "reply_email",
   "forward_email",
+  "create_task",
+  "complete_task",
+  "update_task",
   "merge_pr",
   "close_pr",
   "close_issue",
@@ -126,15 +136,35 @@ const READONLY_TOOLS = new Set([
 const TOOL_ROUTING: Record<string, { server: string; tool: string }[]> = {
   email: [
     { server: "google_workspace", tool: "search_emails" },
+    { server: "google_workspace", tool: "send_email" },
   ],
   emails: [
     { server: "google_workspace", tool: "search_emails" },
+  ],
+  mail: [
+    { server: "google_workspace", tool: "search_emails" },
+    { server: "google_workspace", tool: "send_email" },
+  ],
+  send: [
+    { server: "google_workspace", tool: "send_email" },
+    { server: "slack", tool: "send_message" },
+  ],
+  compose: [
+    { server: "google_workspace", tool: "send_email" },
+  ],
+  draft: [
+    { server: "google_workspace", tool: "send_email" },
+  ],
+  reply: [
+    { server: "google_workspace", tool: "reply_email" },
+    { server: "slack", tool: "send_message" },
   ],
   inbox: [
     { server: "google_workspace", tool: "search_emails" },
   ],
   gmail: [
     { server: "google_workspace", tool: "search_emails" },
+    { server: "google_workspace", tool: "send_email" },
   ],
   calendar: [
     { server: "google_workspace", tool: "list_calendar" },
@@ -150,6 +180,22 @@ const TOOL_ROUTING: Record<string, { server: string; tool: string }[]> = {
   ],
   event: [
     { server: "google_workspace", tool: "list_calendar" },
+  ],
+  task: [
+    { server: "google_workspace", tool: "list_tasks" },
+    { server: "google_workspace", tool: "create_task" },
+  ],
+  tasks: [
+    { server: "google_workspace", tool: "list_tasks" },
+    { server: "google_workspace", tool: "create_task" },
+  ],
+  todo: [
+    { server: "google_workspace", tool: "list_tasks" },
+    { server: "google_workspace", tool: "create_task" },
+  ],
+  todos: [
+    { server: "google_workspace", tool: "list_tasks" },
+    { server: "google_workspace", tool: "create_task" },
   ],
   tomorrow: [
     { server: "google_workspace", tool: "list_calendar" },
@@ -211,21 +257,9 @@ const TOOL_ROUTING: Record<string, { server: string; tool: string }[]> = {
     { server: "google_workspace", tool: "search_emails" },
     { server: "filesystem", tool: "search_files" },
   ],
-  task: [
-    { server: "google_workspace", tool: "list_tasks" },
-    { server: "google_workspace", tool: "list_calendar" },
-    { server: "notion", tool: "search_pages" },
-    { server: "slack", tool: "search_messages" },
-  ],
-  tasks: [
-    { server: "google_workspace", tool: "list_tasks" },
-    { server: "google_workspace", tool: "list_calendar" },
-    { server: "notion", tool: "search_pages" },
-    { server: "slack", tool: "search_messages" },
-  ],
   "to do": [
     { server: "google_workspace", tool: "list_tasks" },
-    { server: "google_workspace", tool: "list_calendar" },
+    { server: "google_workspace", tool: "create_task" },
     { server: "notion", tool: "search_pages" },
   ],
   assignment: [
@@ -238,22 +272,8 @@ const TOOL_ROUTING: Record<string, { server: string; tool: string }[]> = {
     { server: "filesystem", tool: "search_files" },
     { server: "filesystem", tool: "list_directory" },
   ],
-  // ── Write/Action keywords ──────────────────────────────────────────
-  send: [
-    { server: "google_workspace", tool: "send_email" },
-    { server: "slack", tool: "post_message" },
-  ],
-  mail: [
-    { server: "google_workspace", tool: "send_email" },
-  ],
-  reply: [
-    { server: "google_workspace", tool: "reply_email" },
-  ],
   forward: [
     { server: "google_workspace", tool: "forward_email" },
-  ],
-  compose: [
-    { server: "google_workspace", tool: "send_email" },
   ],
   "set up a meeting": [
     { server: "google_workspace", tool: "create_event" },
@@ -322,31 +342,47 @@ export const APPROVAL_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/;
 const ISO_DATE_LOOSE_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
+function sanitizeText(str: string): string {
+  return str
+    .replace(/[\u034F\u200B\u200C\u200D\uFEFF\u00AD\u00A0]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function formatFriendlyDate(d: Date): string {
+  const now = new Date();
+  const isToday = d.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday = d.toDateString() === yesterday.toDateString();
+
+  const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  if (isToday) return `Today at ${timeStr}`;
+  if (isYesterday) return `Yesterday at ${timeStr}`;
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined }) + ` at ${timeStr}`;
+}
+
 /**
- * Recursively walks an object/array and reformats ISO-8601 date strings
- * into human-readable form (e.g. 'Sat, Aug 8, 2026, 1:18 PM') so the LLM
- * outputs natural language dates rather than parroting raw ISO strings.
- * Only applied to LLM-facing context — NOT to UI-facing card data (UI uses date-fns).
+ * Recursively walks an object/array and reformats date strings (ISO-8601 and RFC-2822)
+ * into friendly readable form (e.g. 'Today at 7:16 AM' or 'Aug 22 at 7:16 AM')
+ * and strips invisible zero-width characters.
  */
 function humanizeDates(obj: unknown): unknown {
   if (typeof obj === 'string') {
-    if (ISO_DATE_LOOSE_REGEX.test(obj) || ISO_DATE_REGEX.test(obj)) {
+    const sanitized = sanitizeText(obj);
+    if (
+      ISO_DATE_LOOSE_REGEX.test(sanitized) ||
+      ISO_DATE_REGEX.test(sanitized) ||
+      /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun),\s+\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}/i.test(sanitized)
+    ) {
       try {
-        const d = new Date(obj);
+        const d = new Date(sanitized);
         if (!isNaN(d.getTime())) {
-          return d.toLocaleDateString('en-US', {
-            weekday: 'short',
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-          }) + ', ' + d.toLocaleTimeString('en-US', {
-            hour: 'numeric',
-            minute: '2-digit',
-          });
+          return formatFriendlyDate(d);
         }
       } catch (e) { console.warn("Caught error:", e); }
     }
-    return obj;
+    return sanitized;
   }
   if (Array.isArray(obj)) {
     return obj.map(humanizeDates);
@@ -491,152 +527,280 @@ export class Orchestrator {
     }
 
     if (!conversationId) {
-      const title = prompt.slice(0, 60) + (prompt.length > 60 ? "..." : "");
+      const title = prompt.slice(0, 50).trim() || "New Conversation";
       const conversation = createConversation(title);
       conversationId = conversation.id;
     }
 
     saveMessage(conversationId, "user", prompt);
 
-    const history = getConversationHistory(conversationId, 10);
-    const recent5 = history.slice(-5).map(m => ({ role: m.role, content: m.content }));
-    prompt = await resolveEntities(prompt, recent5);
+    try {
+      const history = getConversationHistory(conversationId, 10);
+      const recent5 = history.slice(-5).map(m => ({ role: m.role, content: m.content }));
+      prompt = await resolveEntities(prompt, recent5);
 
-    const subPrompts = await splitMultiIntent(prompt);
+      const subPrompts = await splitMultiIntent(prompt);
 
-    let combinedResponse = "";
-    let combinedResults: any[] = [];
-    const allToolCalls: any[] = [];
-    let lastIntent: Intent = "unknown";
-    let finalError: string | undefined;
-    let isCancelled = false;
+      let combinedResponse = "";
+      let combinedResults: any[] = [];
+      const allToolCalls: any[] = [];
+      let lastIntent: Intent = "unknown";
+      let finalError: string | undefined;
+      let isCancelled = false;
+      let cumulativeContext: any[] = [];
 
-    for (let i = 0; i < subPrompts.length; i++) {
-      const currentPrompt = subPrompts[i];
+      for (let i = 0; i < subPrompts.length; i++) {
+        const currentPrompt = subPrompts[i];
 
-      let enrichedPrompt = currentPrompt;
-      const prevUserMessages = history.filter(m => m.role === "user");
-      
-      const isSupplementaryInfo = /^(his|her|their|the|my)?\s*(email|address|name|number)\s*(is|:)/i.test(currentPrompt.trim());
-      const isStandaloneResponse = STANDALONE_RESPONSE_KEYWORDS.has(currentPrompt.trim().toLowerCase());
+        let enrichedPrompt = currentPrompt;
+        const prevUserMessages = history.filter(m => m.role === "user");
+        
+        const isSupplementaryInfo = /^(his|her|their|the|my)?\s*(email|address|name|number)\s*(is|:)/i.test(currentPrompt.trim());
+        const isStandaloneResponse = STANDALONE_RESPONSE_KEYWORDS.has(currentPrompt.trim().toLowerCase());
 
-      if (!isSupplementaryInfo && !isStandaloneResponse && currentPrompt.trim().split(/\s+/).length <= 5 && prevUserMessages.length > 1) {
-        const prevMsg = prevUserMessages[prevUserMessages.length - 2];
-        if (prevMsg) {
-          enrichedPrompt = `${prevMsg.content} — ${currentPrompt}`;
+        if (!isSupplementaryInfo && !isStandaloneResponse && currentPrompt.trim().split(/\s+/).length <= 5 && prevUserMessages.length > 1) {
+          const prevMsg = prevUserMessages[prevUserMessages.length - 2];
+          if (prevMsg) {
+            enrichedPrompt = `${prevMsg.content} — ${currentPrompt}`;
+          }
         }
-      }
 
-      const state: WorkflowState = {
-        input: enrichedPrompt,
-        userId: "local",
-        conversationId,
-        intent: "unknown",
-        context: [],
-        toolCalls: [],
-        response: "",
-        requiresApproval: false,
-        approved: false,
-      };
+        const state: WorkflowState = {
+          input: enrichedPrompt,
+          userId: "local",
+          conversationId,
+          intent: "unknown",
+          context: [...cumulativeContext],
+          toolCalls: [],
+          response: "",
+          requiresApproval: false,
+          approved: false,
+        };
 
-      try {
-        await this.routerNode(state);
+        try {
+          await this.routerNode(state);
 
-        switch (state.intent) {
-          case "search":
-            await this.searchNode(state, mainWindow);
-            break;
+          switch (state.intent) {
+            case "search":
+              await this.searchNode(state, mainWindow);
+              break;
 
-          case "action":
-            await this.prefetchActionContext(state, mainWindow);
-            await this.actionNode(state, mainWindow);
-            if (state.requiresApproval) {
-              await this.draftNode(state, mainWindow);
-saveWorkflowCheckpoint(state.conversationId, state);
-              const approved = await this.approvalNode(state, mainWindow);
-              if (approved) {
-                await this.executeNode(state, mainWindow);
+            case "action":
+              await this.prefetchActionContext(state, mainWindow);
+              await this.actionNode(state, mainWindow);
+              if (state.requiresApproval) {
+                await this.draftNode(state, mainWindow);
+  saveWorkflowCheckpoint(state.conversationId, state);
+                const approved = await this.approvalNode(state, mainWindow);
+                if (approved) {
+                  await this.executeNode(state, mainWindow);
+                } else {
+                  isCancelled = true;
+                  break;
+                }
               } else {
-                isCancelled = true;
-                break;
+                await this.executeNode(state, mainWindow);
               }
-            } else {
-              await this.executeNode(state, mainWindow);
-            }
+              break;
+
+            case "chat":
+            default:
+              break;
+          }
+
+          if (isCancelled) {
             break;
+          }
 
-          case "chat":
-          default:
+          if (i > 0 && state.response && combinedResponse) {
+            this.safeSend(mainWindow, "workflow-stream", "\n\n");
+          }
+          await this.responseNode(state, mainWindow);
+
+          if (state.response) {
+            combinedResponse += (combinedResponse ? "\n\n" : "") + state.response;
+            history.push({ id: randomUUID(), role: "assistant", content: state.response, timestamp: new Date().toISOString() });
+          }
+          allToolCalls.push(...state.toolCalls);
+          cumulativeContext.push(...state.context);
+          
+          const hasUsefulResults = state.context.some(
+            (c) => c.type === "tool_result" && c.result && 
+            (Array.isArray(c.result) ? c.result.length > 0 : !c.result.error)
+          );
+          if (hasUsefulResults) {
+            combinedResults.push(...this.formatToolResultsAsCards(state));
+          }
+          lastIntent = state.intent;
+
+        } catch (error: any) {
+          if (error.name === 'AbortError' || error.message?.includes('aborted')) {
+            console.log("[Orchestrator] Workflow aborted by user");
+            isCancelled = true;
             break;
-        }
+          }
+          
+          if (error instanceof MissingArgumentError) {
+            const clarificationMsg = `I need a bit more info before I can do that: ${error.message}`;
+            combinedResponse += (combinedResponse ? "\n\n" : "") + clarificationMsg;
+            isCancelled = true;
+            continue;
+          }
 
-        if (isCancelled) {
-          break;
-        }
+          const errorMsg = error instanceof Error ? error.message : "Unknown error";
+          finalError = errorMsg;
+          console.error("[Orchestrator] Workflow error:", errorMsg);
 
-        if (i > 0 && state.response && combinedResponse) {
-          this.safeSend(mainWindow, "workflow-stream", "\n\n");
-        }
-        await this.responseNode(state, mainWindow);
-
-        if (state.response) {
-          combinedResponse += (combinedResponse ? "\n\n" : "") + state.response;
-        }
-        allToolCalls.push(...state.toolCalls);
-        
-        const hasUsefulResults = state.context.some(
-          (c) => c.type === "tool_result" && c.result && 
-          (Array.isArray(c.result) ? c.result.length > 0 : !c.result.error)
-        );
-        if (hasUsefulResults) {
-          combinedResults.push(...this.formatToolResultsAsCards(state));
-        }
-        lastIntent = state.intent;
-
-      } catch (error: any) {
-        if (error.name === 'AbortError' || error.message?.includes('aborted')) {
-          console.log("[Orchestrator] Workflow aborted by user");
-          isCancelled = true;
-          break;
-        }
-        
-        if (error instanceof MissingArgumentError) {
-          const clarificationMsg = `I need a bit more info before I can do that: ${error.message}`;
-          combinedResponse += (combinedResponse ? "\n\n" : "") + clarificationMsg;
-          isCancelled = true;
+          const errorResponse = `I encountered an error while processing your request: ${errorMsg}`;
+          combinedResponse += (combinedResponse ? "\n\n" : "") + errorResponse;
           continue;
         }
+      }
 
-        const errorMsg = error instanceof Error ? error.message : "Unknown error";
-        finalError = errorMsg;
-        console.error("[Orchestrator] Workflow error:", errorMsg);
+      if (combinedResponse) {
+        saveMessage(conversationId, "assistant", combinedResponse);
+        storeContext(`User: ${prompt}\nAtlas: ${combinedResponse}`);
+      }
 
-        const errorResponse = `I encountered an error while processing your request: ${errorMsg}`;
-        combinedResponse += (combinedResponse ? "\n\n" : "") + errorResponse;
-        continue;
+      this.safeSend(mainWindow, "workflow-complete", {
+        conversationId,
+        response: combinedResponse,
+        intent: lastIntent,
+        toolCalls: allToolCalls,
+        results: combinedResults.slice(0, 5),
+        error: finalError,
+        cancelled: isCancelled && !combinedResponse,
+      });
+    } finally {
+      if (conversationId) {
+        this.activeStreams.delete(conversationId);
+      }
+    }
+  }
+
+
+  // ── Dynamic Tool Planner & Router (Like ChatGPT / Gemini / Claude) ─────────
+
+  private async planWithLLM(
+    state: WorkflowState,
+    configuredServers: string[]
+  ): Promise<{
+    decision: "tool" | "chat";
+    toolCall?: { server: string; tool: string; params: Record<string, unknown> };
+    isAction?: boolean;
+  } | null> {
+    if (configuredServers.length === 0) return { decision: "chat" };
+
+    // Collect available tools from configured servers
+    const availableTools: Array<{ server: string; name: string; description: string; inputSchema?: any }> = [];
+    for (const server of configuredServers) {
+      try {
+        const tools = await this.mcpManager.listTools(server);
+        for (const t of tools) {
+          availableTools.push({
+            server,
+            name: t.name,
+            description: t.description,
+            inputSchema: t.inputSchema,
+          });
+        }
+      } catch (err) {
+        console.warn(`[Orchestrator] Error listing tools for ${server}:`, err);
       }
     }
 
-    if (combinedResponse) {
-      saveMessage(conversationId, "assistant", combinedResponse);
-      storeContext(`User: ${prompt}\nAtlas: ${combinedResponse}`);
+    if (availableTools.length === 0) return { decision: "chat" };
+
+    const toolSummaries = availableTools
+      .map((t) => `- ${t.server}/${t.name}: ${t.description}`)
+      .join("\n");
+
+    const planningPrompt = `You are Atlas AI's dynamic tool calling engine.
+Available tools from user's connected services:
+${toolSummaries}
+
+User Request: "${state.input}"
+
+Decide if fulfilling this user request requires executing any of the tools above.
+- If YES: choose the single most relevant tool and parameters.
+  Respond with JSON ONLY:
+  {"decision": "tool", "server": "<server>", "tool": "<tool_name>", "params": { <tool_arguments> }}
+- If NO (the request is conversational, general knowledge, coding, writing, brainstorming, math, or explanation):
+  Respond with JSON ONLY:
+  {"decision": "chat"}
+
+Respond ONLY with valid JSON. No markdown fences, no explanation.`;
+
+    try {
+      const abortController = new AbortController();
+      const timeout = setTimeout(() => abortController.abort(), 3000);
+
+      let responseText = "";
+      for await (const token of streamChat(
+        [{ role: "user", content: planningPrompt }],
+        undefined,
+        abortController.signal
+      )) {
+        responseText += token;
+      }
+      clearTimeout(timeout);
+
+      const parsed = repairAndParseJson(responseText);
+      if (parsed && parsed.decision === "tool" && parsed.server && parsed.tool) {
+        const isAction = DESTRUCTIVE_TOOLS.has(parsed.tool);
+        return {
+          decision: "tool",
+          toolCall: {
+            server: parsed.server,
+            tool: parsed.tool,
+            params: parsed.params || {},
+          },
+          isAction,
+        };
+      }
+      if (parsed && parsed.decision === "chat") {
+        return { decision: "chat" };
+      }
+    } catch {
+      // Timeout or error — fall back to rule-based classification
     }
 
-    this.safeSend(mainWindow, "workflow-complete", {
-      conversationId,
-      response: combinedResponse,
-      intent: lastIntent,
-      toolCalls: allToolCalls,
-      results: combinedResults.slice(0, 5),
-      error: finalError,
-      cancelled: isCancelled && !combinedResponse,
-    });
+    return null;
   }
-
 
   // ── Node Implementations ───────────────────────────────────────────────────
 
   private async routerNode(state: WorkflowState): Promise<void> {
+    const configuredList = listConfigured();
+    const configuredServers = configuredList.map((p) => (p === "local_fs" ? "filesystem" : p));
+
+    // Try dynamic LLM tool planning first (like ChatGPT / Gemini / Claude)
+    const dynamicPlan = await this.planWithLLM(state, configuredServers);
+
+    if (dynamicPlan) {
+      if (dynamicPlan.decision === "tool" && dynamicPlan.toolCall) {
+        state.intent = dynamicPlan.isAction ? "action" : "search";
+        const toolObj = {
+          id: randomUUID(),
+          server: dynamicPlan.toolCall.server,
+          tool: dynamicPlan.toolCall.tool,
+          params: dynamicPlan.toolCall.params,
+        };
+        state.plannedTools = [toolObj];
+        state.context.push({
+          type: "classification",
+          intent: state.intent,
+          confidence: 0.95,
+          params: dynamicPlan.toolCall.params,
+        });
+        return;
+      } else if (dynamicPlan.decision === "chat") {
+        state.intent = "chat";
+        return;
+      }
+    }
+
+    // Fallback to keyword-based intent classification
     const result = await classifyIntent(state.input);
     state.intent = result.intent;
 
@@ -769,57 +933,162 @@ saveWorkflowCheckpoint(state.conversationId, state);
     mainWindow: BrowserWindow
   ): Promise<void> {
     const lower = state.input.toLowerCase();
+    const configuredList = listConfigured();
+    const isGoogleConnected = configuredList.includes("google_workspace");
+    const isNotionConnected = configuredList.includes("notion");
+    const isGitHubConnected = configuredList.includes("github");
+    const isSlackConnected = configuredList.includes("slack");
 
-    // Reply/respond/forward email — fetch the relevant email first
-    if (lower.includes("reply") || lower.includes("respond") || lower.includes("forward")) {
-      // Issue #1: Reuse buildGmailQuery to target the person mentioned in the user's input
-      const emailQuery = this.buildGmailQuery(state.input, {});
-      try {
-        const prefetchId = randomUUID();
-        this.safeSend(mainWindow, "workflow-tool-executing", { id: prefetchId, server: "google_workspace", tool: "search_emails" });
-        const emails = await this.mcpManager.callTool("google_workspace", "search_emails", { query: emailQuery, maxResults: 3 });
-        
-        const toolCall = { id: prefetchId, server: "google_workspace", tool: "search_emails", params: { query: emailQuery, maxResults: 3 }, result: emails };
-        state.toolCalls.push(toolCall as any);
-        if (emails && !emails.error && Array.isArray(emails) && emails.length > 0) {
-          state.context.push({ type: "tool_result", server: "google_workspace", tool: "search_emails", result: emails });
+    // 1. Semantic Memory RAG search for relevant past context
+    try {
+      const memories = await searchContext(state.input, 2);
+      if (memories && memories.length > 0) {
+        state.context.push({ type: "memory_result", memories });
+      }
+    } catch (e) { console.warn("Caught error:", e); }
+
+    // 2. Email actions (send_email, reply_email, forward_email)
+    if (lower.includes("reply") || lower.includes("respond") || lower.includes("forward") || lower.startsWith("email") || lower.startsWith("send email") || lower.startsWith("mail") || lower.includes("email ") || lower.includes("mail to")) {
+      if (isGoogleConnected) {
+        let emailQuery = this.buildGmailQuery(state.input, {});
+        if (emailQuery.startsWith("from:")) {
+          const contactName = emailQuery.replace("from:", "").replace(/is:unread/g, "").trim();
+          if (contactName) {
+            emailQuery = `${contactName}`;
+          }
         }
-      } catch (e) { console.warn("Caught error:", e); }
+        try {
+          const prefetchId = randomUUID();
+          this.safeSend(mainWindow, "workflow-tool-executing", { id: prefetchId, server: "google_workspace", tool: "search_emails" });
+          const emails = await this.mcpManager.callTool("google_workspace", "search_emails", { query: emailQuery, maxResults: 5 });
+          
+          const toolCall = { id: prefetchId, server: "google_workspace", tool: "search_emails", params: { query: emailQuery, maxResults: 5 }, result: emails };
+          state.toolCalls.push(toolCall as any);
+          if (emails && !emails.error && Array.isArray(emails) && emails.length > 0) {
+            state.context.push({ type: "tool_result", server: "google_workspace", tool: "search_emails", result: emails });
+          }
+        } catch (e) { console.warn("Caught error:", e); }
+
+        // If email mentions meeting, calendar, or schedule, fetch calendar context too
+        if (lower.includes("meeting") || lower.includes("calendar") || lower.includes("schedule") || lower.includes("tomorrow") || lower.includes("today")) {
+          try {
+            const events = await this.mcpManager.callTool("google_workspace", "list_events", { timeMin: new Date().toISOString() });
+            if (events && !events.error) {
+              state.context.push({ type: "tool_result", server: "google_workspace", tool: "list_events", result: events });
+            }
+          } catch (e) { console.warn("Caught error:", e); }
+        }
+
+        // If email mentions tasks/todos, fetch tasks context
+        if (lower.includes("task") || lower.includes("todo") || lower.includes("deliverable") || lower.includes("action item")) {
+          try {
+            const tasks = await this.mcpManager.callTool("google_workspace", "list_tasks", {});
+            if (tasks && !tasks.error) {
+              state.context.push({ type: "tool_result", server: "google_workspace", tool: "list_tasks", result: tasks });
+            }
+          } catch (e) { console.warn("Caught error:", e); }
+        }
+      }
     }
 
-    // Merge/close PR — fetch the PR details
-    if (lower.includes("merge") || (lower.includes("close") && lower.includes("pr"))) {
-      try {
-        const prefetchId = randomUUID();
-        this.safeSend(mainWindow, "workflow-tool-executing", { id: prefetchId, server: "github", tool: "list_prs" });
-        const prs = await this.mcpManager.callTool("github", "list_prs", { state: "open" });
-        
-        const toolCall = { id: prefetchId, server: "github", tool: "list_prs", params: { state: "open" }, result: prs };
-        state.toolCalls.push(toolCall as any);
-        if (prs && !prs.error) {
-          state.context.push({ type: "tool_result", server: "github", tool: "list_prs", result: prs });
-        }
-      } catch (e) { console.warn("Caught error:", e); }
+    // 3. Calendar event creation / scheduling
+    if (lower.includes("calendar") || lower.includes("meeting") || lower.includes("schedule") || lower.includes("event") || lower.includes("invite")) {
+      if (isGoogleConnected) {
+        try {
+          const emailQuery = this.buildGmailQuery(state.input, {});
+          const emails = await this.mcpManager.callTool("google_workspace", "search_emails", { query: emailQuery, maxResults: 3 });
+          if (emails && !emails.error && Array.isArray(emails) && emails.length > 0) {
+            state.context.push({ type: "tool_result", server: "google_workspace", tool: "search_emails", result: emails });
+          }
+        } catch (e) { console.warn("Caught error:", e); }
+      }
     }
 
-    // Post to Slack — fetch channels for context
-    // Issue #9: Tightened condition — 'post' and 'message' alone cause false positives
-    // (e.g. 'create a post about X', 'send message' for email). Require 'slack' OR
-    // a channel reference (#channel), OR 'post'/'message' as first word (imperative).
+    // 4. Task actions (create_task, update_task, complete_task)
+    if (lower.includes("task") || lower.includes("todo") || lower.includes("remind") || lower.includes("to-do")) {
+      if (isGoogleConnected) {
+        try {
+          const tasks = await this.mcpManager.callTool("google_workspace", "list_tasks", {});
+          if (tasks && !tasks.error) {
+            state.context.push({ type: "tool_result", server: "google_workspace", tool: "list_tasks", result: tasks });
+          }
+        } catch (e) { console.warn("Caught error:", e); }
+
+        const nameMatch = state.input.match(/(?:from|with|to|by)\s+([A-Za-z]+)/i);
+        if (nameMatch && nameMatch[1]) {
+          try {
+            const emails = await this.mcpManager.callTool("google_workspace", "search_emails", { query: nameMatch[1], maxResults: 3 });
+            if (emails && !emails.error && Array.isArray(emails) && emails.length > 0) {
+              state.context.push({ type: "tool_result", server: "google_workspace", tool: "search_emails", result: emails });
+            }
+          } catch (e) { console.warn("Caught error:", e); }
+        }
+      }
+    }
+
+    // 5. Notion actions (create_page, update_page)
+    if (lower.includes("notion") || lower.includes("page") || lower.includes("doc") || lower.includes("notes") || lower.includes("summary")) {
+      if (isNotionConnected) {
+        try {
+          const pages = await this.mcpManager.callTool("notion", "search_pages", { query: "" });
+          if (pages && !pages.error) {
+            state.context.push({ type: "tool_result", server: "notion", tool: "search_pages", result: pages });
+          }
+        } catch (e) { console.warn("Caught error:", e); }
+      }
+
+      if (isGoogleConnected) {
+        if (lower.includes("meeting") || lower.includes("calendar")) {
+          try {
+            const events = await this.mcpManager.callTool("google_workspace", "list_events", { timeMin: new Date(Date.now() - 86400000).toISOString() });
+            if (events && !events.error) {
+              state.context.push({ type: "tool_result", server: "google_workspace", tool: "list_events", result: events });
+            }
+          } catch (e) { console.warn("Caught error:", e); }
+        }
+        if (lower.includes("email") || lower.includes("mail")) {
+          try {
+            const emails = await this.mcpManager.callTool("google_workspace", "search_emails", { query: "is:unread", maxResults: 5 });
+            if (emails && !emails.error && Array.isArray(emails) && emails.length > 0) {
+              state.context.push({ type: "tool_result", server: "google_workspace", tool: "search_emails", result: emails });
+            }
+          } catch (e) { console.warn("Caught error:", e); }
+        }
+      }
+    }
+
+    // 6. GitHub actions (PRs, issues)
+    if (/\b(pr|prs|pull request|pull requests|pull-request|pull-requests|github)\b/i.test(lower) || /\b(merge|branch|issue|issues)\b/i.test(lower)) {
+      if (isGitHubConnected) {
+        try {
+          const prefetchId = randomUUID();
+          this.safeSend(mainWindow, "workflow-tool-executing", { id: prefetchId, server: "github", tool: "list_prs" });
+          const prs = await this.mcpManager.callTool("github", "list_prs", { state: "open" });
+          const toolCall = { id: prefetchId, server: "github", tool: "list_prs", params: { state: "open" }, result: prs };
+          state.toolCalls.push(toolCall as any);
+          if (prs && !prs.error) {
+            state.context.push({ type: "tool_result", server: "github", tool: "list_prs", result: prs });
+          }
+        } catch (e) { console.warn("Caught error:", e); }
+      }
+    }
+
+    // 7. Slack actions
     const hasSlackSignal = lower.includes("slack") || /#[\w-]+/.test(lower);
     const startsWithSlackVerb = /^(post|message)\b/.test(lower);
     if ((hasSlackSignal || startsWithSlackVerb) && !lower.includes("email") && !lower.includes("mail")) {
-      try {
-        const prefetchId = randomUUID();
-        this.safeSend(mainWindow, "workflow-tool-executing", { id: prefetchId, server: "slack", tool: "list_channels" });
-        const channels = await this.mcpManager.callTool("slack", "list_channels", {});
-        
-        const toolCall = { id: prefetchId, server: "slack", tool: "list_channels", params: {}, result: channels };
-        state.toolCalls.push(toolCall as any);
-        if (channels && !channels.error) {
-          state.context.push({ type: "tool_result", server: "slack", tool: "list_channels", result: channels });
-        }
-      } catch (e) { console.warn("Caught error:", e); }
+      if (isSlackConnected) {
+        try {
+          const prefetchId = randomUUID();
+          this.safeSend(mainWindow, "workflow-tool-executing", { id: prefetchId, server: "slack", tool: "list_channels" });
+          const channels = await this.mcpManager.callTool("slack", "list_channels", {});
+          const toolCall = { id: prefetchId, server: "slack", tool: "list_channels", params: {}, result: channels };
+          state.toolCalls.push(toolCall as any);
+          if (channels && !channels.error) {
+            state.context.push({ type: "tool_result", server: "slack", tool: "list_channels", result: channels });
+          }
+        } catch (e) { console.warn("Caught error:", e); }
+      }
     }
   }
 
@@ -851,51 +1120,17 @@ saveWorkflowCheckpoint(state.conversationId, state);
 
     let fields: Record<string, string> = {};
     try {
-      // Anthropic Workflow: Evaluator-Optimizer
-      let evaluationPass = false;
-      let attempts = 0;
-      let evalContext = "";
-
-      while (!evaluationPass && attempts < 3) {
-        this.safeSend(mainWindow, "workflow-stream", {
-          conversationId: state.conversationId,
-          role: "assistant",
-          content: attempts === 0 ? "\n*Drafting action...*" : "\n*Self-correcting draft...*"
-        });
-
-        try {
-          fields = await this.generateDraft(actionType, state.input, state.context, toolSchemaStr, evalContext, abortController.signal);
-          
-          // Evaluate draft
-          const evalResult = await this.evaluateDraft(actionType, fields, state.input, toolSchemaStr, abortController.signal);
-          if (evalResult.valid) {
-            evaluationPass = true;
-          } else {
-            evalContext += `\nError in previous draft: ${evalResult.feedback}. Please fix this.`;
-            attempts++;
-          }
-        } catch (error) {
-          if (error instanceof MissingArgumentError) {
-            throw error;
-          }
-          evalContext += `\nError in previous draft generation: ${error instanceof Error ? error.message : String(error)}. Please output ONLY valid JSON.`;
-          attempts++;
-        }
+      try {
+        const timeoutController = new AbortController();
+        const timeout = setTimeout(() => timeoutController.abort(), 6000);
+        fields = await this.generateDraft(actionType, state.input, state.context, toolSchemaStr, undefined, timeoutController.signal);
+        clearTimeout(timeout);
+      } catch (err) {
+        console.warn("[Orchestrator] LLM draft generation timed out or failed, using heuristic fallback:", err);
       }
       
-      // If we exhausted attempts and still don't have fields (because of parse errors), use fallback
-      if (Object.keys(fields).length === 0) {
-         fields = this.getFallbackDraftFields(actionType, state.input);
-      }
-      
-      // Check for placeholders in required fields
-      for (const [key, value] of Object.entries(fields)) {
-        if (typeof value === "string") {
-          const valTrimmed = value.trim();
-          if (valTrimmed === "" || (valTrimmed.startsWith("[") && valTrimmed.endsWith("]"))) {
-            throw new MissingArgumentError(`Please provide a valid ${key}.`);
-          }
-        }
+      if (!fields || Object.keys(fields).length === 0) {
+        fields = this.getFallbackDraftFields(actionType, state.input);
       }
     } finally {
       this.activeStreams.delete(state.conversationId);
@@ -904,36 +1139,43 @@ saveWorkflowCheckpoint(state.conversationId, state);
     // Post-process: fix fields using real pre-fetched data
     this.fixDraftFieldsWithContext(actionType, fields, state.context);
 
-    // Issue #1: Validate email recipient — if still not a valid email after fixDraftFieldsWithContext,
-    // try harder to find one in context, or blank it and flag for user editing
-    if (actionType === "reply_email" || actionType === "send_email" || actionType === "forward_email") {
-      if (!fields.to || !fields.to.includes('@')) {
-        // Try harder: scan all tool_result context for any email address
-        const allContextStr = JSON.stringify(state.context);
-        const emailsInContext = allContextStr.match(/[\w.+-]+@[\w-]+\.[\w.-]+/g);
-        if (emailsInContext && emailsInContext.length > 0) {
-          // Use the first email found that isn't a system/noreply address
-          const validEmail = emailsInContext.find(e => !e.includes('noreply') && !e.includes('no-reply') && !e.includes('mailer-daemon'));
-          if (validEmail) {
-            fields.to = validEmail;
-          } else {
-            fields.to = '';
-            fields._recipientNotFound = 'true';
-          }
-        } else {
-          // No email found anywhere — blank it and flag for UI
-          fields.to = '';
-          fields._recipientNotFound = 'true';
-        }
-      }
-    }
-
     state.draft = {
       executionId,
       actionType,
       fields,
       description: `Draft for "${actionType}" on ${pendingTool.server}`,
     };
+
+    // Generate natural conversational intro message for the assistant
+    let introMessage = "";
+    switch (actionType) {
+      case "send_email":
+      case "reply_email":
+      case "forward_email":
+        introMessage = `I've prepared a draft email to **${fields.to || "your recipient"}**. Please review the details below and confirm when you'd like me to send it.`;
+        break;
+      case "post_message":
+      case "send_message":
+        introMessage = `I've prepared a draft message for **${fields.channel || "Slack"}**. Please review and confirm to send it.`;
+        break;
+      case "create_task":
+      case "update_task":
+        introMessage = `I've prepared this task for you. Please review and confirm to add it to your tasks.`;
+        break;
+      case "create_page":
+      case "update_page":
+        introMessage = `I've prepared a draft Notion page for you. Please review and confirm to create it.`;
+        break;
+      case "create_event":
+      case "schedule_event":
+        introMessage = `I've prepared a calendar event draft. Please review and confirm to schedule it.`;
+        break;
+      default:
+        introMessage = `I've prepared this draft for your review. Please confirm below when you're ready to proceed.`;
+        break;
+    }
+
+    state.response = introMessage;
 
     // Emit draft-ready event to renderer
     this.safeSend(mainWindow, "workflow-draft-ready", {
@@ -944,10 +1186,10 @@ saveWorkflowCheckpoint(state.conversationId, state);
       description: state.draft.description,
       server: pendingTool.server,
       tool: pendingTool.tool,
+      introMessage,
     });
 
-    // DraftCard in the UI shows all the info — no need to stream text
-    state.response = "";
+    this.safeSend(mainWindow, "workflow-stream", introMessage);
   }
 
   /**
@@ -1123,6 +1365,17 @@ Rules:
         };
         break;
 
+      case "create_task":
+        basePrompt = {
+          system: `You interpret task creation requests. Output ONLY a JSON object: {"title": "task title", "notes": "optional notes", "due": "YYYY-MM-DD"}.
+Rules:
+- Generate a clear, actionable task title
+- If a due date is mentioned, format it as YYYY-MM-DD based on today (${today})
+- No explanation, ONLY the JSON object`,
+          user: `User request: "${userInput}"\nToday: ${today}\nFetched data: ${contextStr}`,
+        };
+        break;
+
       case "create_page":
       case "update_page":
         basePrompt = {
@@ -1155,7 +1408,7 @@ Rules:
     actionType: string,
     userInput: string
   ): Record<string, string> {
-    // Issue #10: Attempt basic regex extraction so fallback fields are less empty
+    // Attempt enhanced regex extraction so fallback fields are accurately pre-populated
     const emailMatch = userInput.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
     const channelMatch = userInput.match(/#([\w-]+)/);
     const repoMatch = userInput.match(/(\w+\/\w+)/) || userInput.match(/(?:repo|repository)\s+(\S+)/i);
@@ -1163,8 +1416,18 @@ Rules:
     switch (actionType) {
       case "reply_email":
       case "send_email":
-      case "forward_email":
-        return { to: emailMatch ? emailMatch[0] : "", subject: "", body: userInput };
+      case "forward_email": {
+        const toMatch = userInput.match(/(?:to|email|mail)\s+([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})/i) || emailMatch;
+        const nameMatch = userInput.match(/(?:to|email|mail)\s+([A-Z][a-z]+|[a-z]+)\b/i);
+        const bodyMatch = userInput.match(/(?:that|saying|with body|message:?)\s+(.+)$/i) || userInput.match(/(?:subject\s+[^and]+(?:and\s+)?(?:body\s+)?)(.+)$/i);
+        const subjectMatch = userInput.match(/subject:?\s*["']?([^"'\n,]+)["']?/i);
+
+        return {
+          to: toMatch ? toMatch[1] || toMatch[0] : (nameMatch ? nameMatch[1] : ""),
+          subject: subjectMatch ? subjectMatch[1].trim() : "Message via Atlas",
+          body: bodyMatch ? bodyMatch[1].trim() : userInput,
+        };
+      }
       case "merge_pr":
       case "close_pr": {
         const prNumMatch = userInput.match(/#(\d+)/);
@@ -1226,28 +1489,56 @@ Rules:
   ): void {
     const toolResults = context.filter((c) => c.type === "tool_result");
 
-    // For email actions: ensure 'to' is a valid email address
-    if (actionType === "reply_email" || actionType === "send_email" || actionType === "forward_email") {
+    // For email actions: ensure 'to' is accurately matched
+    if (actionType === "send_email" || actionType === "forward_email") {
       const emailResult = toolResults.find((c) => c.tool === "search_emails");
       if (emailResult?.result && Array.isArray(emailResult.result) && emailResult.result.length > 0) {
-        const email = emailResult.result[0];
-        // Extract actual email address from the 'from' field
-        const fromField = email.from || "";
+        if (fields.to && !fields.to.includes("@")) {
+          const nameLower = fields.to.toLowerCase().trim();
+          const match = emailResult.result.find((e: any) =>
+            (e.from && e.from.toLowerCase().includes(nameLower)) ||
+            (e.to && e.to.toLowerCase().includes(nameLower)) ||
+            (e.snippet && e.snippet.toLowerCase().includes(nameLower))
+          );
+          if (match) {
+            const fromField = match.from || match.to || "";
+            const emailMatch = fromField.match(/<([^>]+)>/) || fromField.match(/([^\s<]+@[^\s>]+)/);
+            if (emailMatch) {
+              fields.to = emailMatch[1];
+            }
+          }
+          // If no matching contact was found in emails, do NOT replace fields.to with random newsletter!
+        }
+      }
+      // Never attach messageId/threadId to a new send_email draft
+      delete fields.messageId;
+      delete fields.threadId;
+    } else if (actionType === "reply_email") {
+      const emailResult = toolResults.find((c) => c.tool === "search_emails");
+      if (emailResult?.result && Array.isArray(emailResult.result) && emailResult.result.length > 0) {
+        let targetEmail = emailResult.result[0];
+        if (fields.to && !fields.to.includes("@")) {
+          const nameLower = fields.to.toLowerCase().trim();
+          const match = emailResult.result.find((e: any) =>
+            (e.from && e.from.toLowerCase().includes(nameLower)) ||
+            (e.to && e.to.toLowerCase().includes(nameLower))
+          );
+          if (match) targetEmail = match;
+        }
+
+        const fromField = targetEmail.from || "";
         const emailMatch = fromField.match(/<([^>]+)>/) || fromField.match(/([^\s<]+@[^\s>]+)/);
         const actualEmail = emailMatch ? emailMatch[1] : fromField;
 
-        // If 'to' doesn't look like an email, replace it with the extracted one
-        if (fields.to && !fields.to.includes("@")) {
+        if (!fields.to || !fields.to.includes("@")) {
           fields.to = actualEmail;
         }
-        // If subject is empty or generic, use the original email's subject
         if (!fields.subject || fields.subject === "Re: " || fields.subject.length < 3) {
-          const originalSubject = email.subject || "";
+          const originalSubject = targetEmail.subject || "";
           fields.subject = originalSubject.startsWith("Re:") ? originalSubject : `Re: ${originalSubject}`;
         }
-        // Store messageId and threadId for reply functionality
-        if (email.id) fields.messageId = email.id;
-        if (email.threadId) fields.threadId = email.threadId;
+        if (targetEmail.id) fields.messageId = targetEmail.id;
+        if (targetEmail.threadId) fields.threadId = targetEmail.threadId;
       }
     }
 
@@ -1326,6 +1617,15 @@ Rules:
         tool.params = { ...tool.params, ...state.draft.fields };
       }
 
+      // Type-safe numeric parameter normalization for tools (e.g. GitHub PR numbers, maxResults)
+      if (tool.params) {
+        for (const key of ["pull_number", "issue_number", "maxResults", "limit", "pageSize"]) {
+          if (typeof tool.params[key] === "string" && !isNaN(Number(tool.params[key]))) {
+            tool.params[key] = Number(tool.params[key]);
+          }
+        }
+      }
+
       this.safeSend(mainWindow, "workflow-tool-executing", {
         id: tool.id,
         server: tool.server,
@@ -1391,9 +1691,39 @@ Rules:
     state: WorkflowState,
     mainWindow: BrowserWindow
   ): Promise<void> {
-    // If action was drafted, response was already sent during draftNode
+    // If action was drafted and executed, produce clear confirmation response
     if (state.intent === "action" && state.draft) {
-      // DraftCard in UI shows execution status — no need to stream additional text
+      if (state.error) {
+        state.response = `Sorry, I encountered an issue executing this action: ${state.error}`;
+      } else {
+        const actionType = state.draft.actionType;
+        const fields = state.draft.fields || {};
+        switch (actionType) {
+          case "send_email":
+          case "reply_email":
+          case "forward_email":
+            state.response = `Your email to **${fields.to || "the recipient"}** has been sent successfully.`;
+            break;
+          case "post_message":
+          case "send_message":
+            state.response = `Your message has been posted to **${fields.channel || "Slack"}**.`;
+            break;
+          case "create_task":
+            state.response = `Task **"${fields.title || "New Task"}"** has been added to your tasks.`;
+            break;
+          case "create_page":
+            state.response = `Notion page **"${fields.title || "New Page"}"** has been created.`;
+            break;
+          case "create_event":
+          case "schedule_event":
+            state.response = `Calendar event **"${fields.title || "New Event"}"** has been scheduled.`;
+            break;
+          default:
+            state.response = `Action completed successfully.`;
+            break;
+        }
+      }
+      this.safeSend(mainWindow, "workflow-stream", state.response);
       return;
     }
 
@@ -1470,6 +1800,16 @@ Rules:
     state: WorkflowState,
     intentType: "search" | "action"
   ): Array<{ id?: string; server: string; tool: string; params: Record<string, unknown>; result?: unknown }> {
+    // If dynamic LLM tool planner already selected the tool, prioritize it
+    if (state.plannedTools && state.plannedTools.length > 0) {
+      const filtered = state.plannedTools.filter((t) => {
+        if (intentType === "search" && !READONLY_TOOLS.has(t.tool)) return false;
+        if (intentType === "action" && READONLY_TOOLS.has(t.tool)) return false;
+        return true;
+      });
+      if (filtered.length > 0) return filtered;
+    }
+
     const input = state.input.toLowerCase();
     const classificationParams =
       state.context.find((c) => c.type === "classification")?.params || {};
@@ -1489,6 +1829,16 @@ Rules:
     // Separate single-word and multi-word keys for efficient matching
     const matchedKeywords: string[] = [];
 
+    // Filter tools strictly by configured/connected services
+    const configuredProviders = new Set<string>();
+    try {
+      const list = listConfigured();
+      list.forEach((p) => configuredProviders.add(p));
+      if (configuredProviders.has("local_fs")) configuredProviders.add("filesystem");
+    } catch (err) {
+      console.warn("[Orchestrator] Error reading configured providers:", err);
+    }
+
     for (const [keyword, routes] of Object.entries(TOOL_ROUTING)) {
       // Fast path: single-word keywords checked via Set lookup
       const isMultiWord = keyword.includes(' ');
@@ -1501,6 +1851,11 @@ Rules:
             continue;
           }
           if (intentType === "action" && READONLY_TOOLS.has(route.tool)) {
+            continue;
+          }
+
+          // If we know which providers are configured, skip servers that are NOT configured
+          if (configuredProviders.size > 0 && !configuredProviders.has(route.server)) {
             continue;
           }
 
@@ -1659,7 +2014,21 @@ Rules:
 
       messages.push({
         role: "system",
-        content: `You are Atlas. Answer the user's question using ONLY the data below. Do NOT invent or add any information not present in the data. If the data is empty or has errors, say you couldn't find results. Write in plain text only — no markdown, no asterisks, no bullet points with *, no **bold**. Use plain sentences and line breaks.\n\nDATA:\n${contextStr}`,
+        content: `You are Atlas, a personal executive AI assistant. Answer the user's request accurately using ONLY the data below. Do NOT invent or add information not present in the data.
+
+Formatting Guidelines:
+- For Emails: Always format each email consistently:
+  • **Subject:** [Subject]
+    **From:** [Sender name or email]
+    **Date:** [Date/time]
+    **Summary:** [1-2 sentences summarizing the core message concisely. Ignore tracking noise.]
+- For Tasks: Format as clean bullet points with task title and due date.
+- For Calendar / Meetings: Format with event title, date, time, and attendees.
+- For GitHub PRs / Issues: Format with repository, PR title, author, and status.
+
+Strict Rules:
+- NEVER include introductory pleasantries or filler (e.g. 'Sure!', 'Here are your emails:', 'I would be happy to help'). Start directly with the formatted content or answer.
+- If the data is empty or has errors, explain what happened and suggest checking Settings > Integrations.\n\nDATA:\n${contextStr}`,
       });
       messages.push({ role: "user", content: state.input });
 
@@ -1669,7 +2038,7 @@ Rules:
       const reason = fallback?.reason || "No data was retrieved.";
       messages.push({
         role: "system",
-        content: `You are Atlas. The user asked a question but no data could be fetched. ${reason} Tell them you couldn't find results and suggest checking Settings > Integrations. Do NOT make up any data. Write in plain text only — no markdown formatting.`,
+        content: `You are Atlas, a personal AI assistant. The user asked a question but no data could be retrieved. ${reason} Politely inform the user and suggest checking Settings > Integrations if the relevant integration is not connected. Do NOT make up any data.`,
       });
       messages.push({ role: "user", content: state.input });
 
@@ -1677,7 +2046,7 @@ Rules:
       // Chat or action — include some history for context
       messages.push({
         role: "system",
-        content: `You are Atlas, a personal AI assistant. Be concise and helpful. NEVER invent information. If you don't know something, say so. Write in plain text only — no markdown, no asterisks, no **bold**, no bullet points. Use plain sentences.`,
+        content: `You are Atlas, a personal AI assistant. Be direct, concise, and helpful. Use clean markdown formatting (bullet points, bold titles) where appropriate to make information readable. NEVER invent information. If you don't know something or cannot access a tool, explain clearly.`,
       });
 
       // Include conversation history so the agent has full context
@@ -2067,22 +2436,24 @@ Rules:
 
     // Person-based queries — "from pranav", "latest from pranav", "email from john"
     const fromMatch = lower.match(/(?:from|by)\s+(\w+)/);
-    if (fromMatch) return `from:${fromMatch[1]} newer_than:30d`;
+    if (fromMatch) return `from:${fromMatch[1]}`;
+
+    if (lower.includes("all email") || lower.includes("all mail") || lower.includes("read email")) {
+      return "is:inbox";
+    }
 
     // Time-based queries
-    if (lower.includes("today")) return "newer_than:1d";
-    if (lower.includes("yesterday")) return "newer_than:2d older_than:1d";
-    if (lower.includes("this week")) return "newer_than:7d";
-    if (lower.includes("this month")) return "newer_than:30d";
-    if (lower.includes("unread")) return "is:unread";
-    if (lower.includes("inbox")) return "is:inbox newer_than:1d";
+    if (lower.includes("today")) return "is:unread newer_than:1d";
+    if (lower.includes("yesterday")) return "is:unread newer_than:2d older_than:1d";
+    if (lower.includes("this week")) return "is:unread newer_than:7d";
+    if (lower.includes("this month")) return "is:unread newer_than:30d";
 
     // Subject/topic queries
     const aboutMatch = lower.match(/(?:about|regarding|re:?)\s+(.+?)(?:\s*$|\s+(?:from|today|this))/);
-    if (aboutMatch) return aboutMatch[1];
+    if (aboutMatch) return `${aboutMatch[1]} is:unread`;
 
-    // Default: recent inbox
-    return "is:inbox newer_than:1d";
+    // Default: unread emails
+    return "is:unread";
   }
 
   private getSourceDisplayName(server: string): string {
@@ -2112,19 +2483,45 @@ Rules:
     const toolErrors = state.context.filter((c) => c.type === "tool_error");
 
     if (toolResults.length > 0) {
-      const resultSummary = toolResults
-        .map(
-          (c) =>
-            `• ${c.server}/${c.tool}: ${JSON.stringify(humanizeDates(c.result)).slice(0, 200)}`
-        )
-        .join("\n");
-      return `Here's what I found:\n\n${resultSummary}`;
+      const formattedSections: string[] = [];
+
+      for (const c of toolResults) {
+        const data = humanizeDates(c.result);
+        if (Array.isArray(data)) {
+          if (data.length === 0) {
+            formattedSections.push(`• **${this.getSourceDisplayName(c.server)}**: No items found.`);
+          } else {
+            const itemsList = data.slice(0, 5).map((item: any) => {
+              if (item.subject || item.from) {
+                return `  - **${item.subject || "No Subject"}** from *${item.from || "Unknown"}* (${item.date || "Recent"})`;
+              }
+              if (item.title || item.summary) {
+                return `  - **${item.title || item.summary}** ${item.due ? `(Due: ${item.due})` : ""}`;
+              }
+              if (item.name) {
+                return `  - **${item.name}**`;
+              }
+              return `  - ${typeof item === "string" ? item : JSON.stringify(item)}`;
+            }).join("\n");
+            formattedSections.push(`• **${this.getSourceDisplayName(c.server)}**:\n${itemsList}`);
+          }
+        } else if (data && typeof data === "object") {
+          const item = data as any;
+          if (item.title || item.subject) {
+            formattedSections.push(`• **${item.title || item.subject}** (${this.getSourceDisplayName(c.server)})`);
+          } else {
+            formattedSections.push(`• **${this.getSourceDisplayName(c.server)}**: ${item.message || "Completed successfully"}`);
+          }
+        }
+      }
+
+      return `Here's what I found:\n\n${formattedSections.join("\n\n")}`;
     }
 
     if (toolErrors.length > 0) {
       return `I wasn't able to complete your request. The following tools encountered errors:\n${toolErrors
         .map((c) => `• ${c.server}/${c.tool}: ${c.error}`)
-        .join("\n")}\n\nPlease check that the relevant MCP servers are running.`;
+        .join("\n")}\n\nPlease check that the relevant integrations are configured and authorized.`;
     }
 
     if (state.intent === "chat") {
@@ -2136,7 +2533,7 @@ Rules:
 
   // ── Public Approval API ────────────────────────────────────────────────────
 
-  approve(executionId: string): boolean {
+  approve(executionId: string, editedFields?: Record<string, string>): boolean {
     const pending = this.pendingApprovals.get(executionId);
     if (!pending) {
       console.warn(`[Orchestrator] No pending approval found for: ${executionId}`);
@@ -2148,6 +2545,9 @@ Rules:
       this.pendingApprovals.delete(executionId);
       pending.resolve(false);
       return false;
+    }
+    if (editedFields && pending.state.draft) {
+      pending.state.draft.fields = { ...pending.state.draft.fields, ...editedFields };
     }
     this.pendingApprovals.delete(executionId);
     pending.resolve(true);

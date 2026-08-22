@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -100,10 +100,12 @@ export function Sidebar() {
 
   useEffect(() => {
     setIsMounted(true);
+    useChatStore.getState().hydrateFromSQLite();
     const stored = localStorage.getItem('atlas-profile-avatar');
     if (stored) setAvatar(stored);
     const handleFocus = () => {
       setAvatar(localStorage.getItem('atlas-profile-avatar'));
+      useChatStore.getState().hydrateFromSQLite();
     };
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
@@ -156,7 +158,27 @@ export function Sidebar() {
     }
   }, [syncState]);
 
-  const recentConversations = isMounted ? conversations.slice(0, 10) : [];
+  const recentConversations = useMemo(() => {
+    if (!isMounted) return [];
+    const seenIds = new Set<string>();
+    const seenTitlesWithTime: Array<{ title: string; time: number }> = [];
+    const deduped: typeof conversations = [];
+
+    for (const c of conversations) {
+      if (!c || !c.id || seenIds.has(c.id)) continue;
+      
+      const cTime = new Date(c.createdAt).getTime();
+      const isTitleDuplicate = seenTitlesWithTime.some(
+        (st) => st.title === c.title && Math.abs(st.time - cTime) < 30000
+      );
+      if (isTitleDuplicate) continue;
+
+      seenIds.add(c.id);
+      seenTitlesWithTime.push({ title: c.title, time: cTime });
+      deduped.push(c);
+    }
+    return deduped;
+  }, [conversations, isMounted]);
 
   const connectorItems = connectors.map((c) => ({
     id: c.id,
@@ -181,16 +203,13 @@ export function Sidebar() {
       role="navigation"
       aria-label="Main navigation"
     >
-      {/* Logo */}
+      {/* Brand Header */}
       <div className="px-4 mb-6">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-white flex items-center justify-center">
-            <img src="/logo.png" alt="Atlas" className="w-6 h-6" />
-          </div>
-          <span className="text-sm font-bold text-[var(--text-primary)] tracking-tight">
+        <div className="flex items-center justify-between">
+          <span className="text-xl font-bold text-[var(--text-primary)] tracking-tight">
             Atlas
           </span>
-          <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-medium">
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 font-medium">
             BETA
           </span>
         </div>
@@ -296,8 +315,12 @@ export function Sidebar() {
 
         {/* Conversation List — scrollable */}
         {recentConversations.length > 0 && (
-          <div className="mt-1.5 flex-1 min-h-0 overflow-y-auto scrollbar-thin" role="list" aria-label="Recent conversations">
-            {recentConversations.map((conv) => {
+          <div
+            className="mt-1.5 flex-1 min-h-0 overflow-y-auto space-y-0.5 pr-1 scrollbar-thin scrollbar-thumb-[var(--bg-tertiary)] hover:scrollbar-thumb-[var(--text-muted)]/30"
+            role="list"
+            aria-label="Recent conversations"
+          >
+            {recentConversations.map((conv: any) => {
               const isActive = activeConversationId === conv.id && pathname.startsWith("/chat");
               return (
                 <Link
@@ -326,7 +349,7 @@ export function Sidebar() {
                         handleNewChat();
                       }
                     }}
-                    className="flex-shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-[var(--text-muted)] hover:text-red-400"
+                    className="flex-shrink-0 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                     aria-label="Delete conversation"
                   >
                     <Trash2 size={11} />
@@ -373,7 +396,7 @@ export function Sidebar() {
           onClick={() => {
             useAuthStore.getState().logout();
           }}
-          className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-[var(--text-secondary)] hover:bg-red-500/10 hover:text-red-400 transition-colors cursor-pointer w-full"
+          className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer w-full"
         >
           <LogOut size={16} />
           <span>Logout</span>

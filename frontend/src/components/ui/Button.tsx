@@ -30,8 +30,8 @@ const variantStyles: Record<ButtonVariant, string> = {
     hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]
   `,
   danger: `
-    bg-red-500/10 text-red-500 font-medium
-    hover:bg-red-500/20
+    bg-[var(--bg-tertiary)] text-[var(--text-secondary)] font-medium border border-[var(--border-subtle)]
+    hover:text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]
   `,
 };
 

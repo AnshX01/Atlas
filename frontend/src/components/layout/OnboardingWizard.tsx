@@ -9,9 +9,10 @@ import { Spinner } from "@/components/ui/Spinner";
 export function OnboardingWizard({ children }: { children: React.ReactNode }) {
   const [isOllamaHealthy, setIsOllamaHealthy] = useState<boolean | null>(null);
   const [isOllamaInstalled, setIsOllamaInstalled] = useState<boolean | null>(null);
-  const [isChecking, setIsChecking] = useState(true);
+  const [isChecking, setIsChecking] = useState(false);
   const [isActionPending, setIsActionPending] = useState(false);
-  const [checkingStatus, setCheckingStatus] = useState<string>('');
+  const [checkingStatus, setCheckingStatus] = useState<string>("");
+  const [showBanner, setShowBanner] = useState(false);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -27,87 +28,69 @@ export function OnboardingWizard({ children }: { children: React.ReactNode }) {
     try {
       if (window.atlasElectron && window.atlasElectron.checkOllamaHealth) {
         const healthStatus = await window.atlasElectron.checkOllamaHealth();
-        if (healthStatus.available && window.atlasElectron.verifyOllamaInference) {
-          healthy = await window.atlasElectron.verifyOllamaInference();
-        }
+        healthy = Boolean(healthStatus?.available);
       } else {
-        const res = await fetch("http://127.0.0.1:11434/", { method: "GET" });
-        if (res.ok) {
-          try {
-            const tagsRes = await fetch("http://127.0.0.1:11434/api/tags");
-            const tagsData = await tagsRes.json();
-            if (tagsData.models && tagsData.models.length > 0) {
-              const modelNames = tagsData.models.map((m: any) => m.name);
-              const chatModel = modelNames.includes("llama3:8b") 
-                ? "llama3:8b" 
-                : (modelNames.find((m: string) => !m.includes('embed')) || modelNames[0]);
-
-              const chatRes = await fetch("http://127.0.0.1:11434/api/chat", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  model: chatModel,
-                  messages: [{ role: "user", content: "ping" }],
-                  stream: false
-                })
-              });
-              healthy = chatRes.ok;
-            }
-          } catch {
-            healthy = false;
-          }
+        try {
+          const res = await fetch("http://127.0.0.1:11434/", {
+            method: "GET",
+            signal: AbortSignal.timeout(3000),
+          });
+          healthy = res.ok;
+        } catch {
+          healthy = false;
         }
       }
     } catch {
       healthy = false;
     }
-    
+
     setIsOllamaHealthy(healthy);
 
     if (!healthy && window.atlasElectron && window.atlasElectron.checkOllamaInstalled) {
-      installed = await window.atlasElectron.checkOllamaInstalled();
-      setIsOllamaInstalled(installed);
+      try {
+        installed = await window.atlasElectron.checkOllamaInstalled();
+        setIsOllamaInstalled(installed);
+      } catch {
+        setIsOllamaInstalled(false);
+      }
     }
 
     try {
-      // Check integrations for future use or side-effects, 
-      // but only strictly gate on Ollama for this step.
       await connectorsAPI.listConnectors();
     } catch {
       // ignore
     }
-    
+
     setIsChecking(false);
+    setShowBanner(!healthy);
   };
 
   useEffect(() => {
-    checkSystem();
+    // Run the Ollama check in the background after the app loads
+    const timer = setTimeout(() => {
+      checkSystem();
+    }, 1000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleStartOllama = async () => {
     setIsActionPending(true);
-    setCheckingStatus('Starting...');
+    setCheckingStatus("Starting Ollama...");
     try {
-      // Check if Ollama is already running before attempting to spawn it.
       const preCheck = await window.atlasElectron?.checkOllamaHealth();
       if (preCheck?.available) {
-        // Ollama is already up — skip the daemon start and go straight to
-        // inference verification, which may still need the model warm-up.
-        setCheckingStatus('Loading model into memory...');
-        if (window.atlasElectron?.verifyOllamaInference) {
-          const inferenceOk = await window.atlasElectron.verifyOllamaInference();
-          if (inferenceOk) {
-            setIsOllamaHealthy(true);
-            setIsActionPending(false);
-            setCheckingStatus('');
-            return;
-          }
-        }
-      } else if (window.atlasElectron?.startOllama) {
+        setIsOllamaHealthy(true);
+        setShowBanner(false);
+        setIsActionPending(false);
+        setCheckingStatus("");
+        return;
+      }
+
+      if (window.atlasElectron?.startOllama) {
         await window.atlasElectron.startOllama();
       }
 
-      // Poll: 40 attempts × 3s = 120s total coverage (accounts for cold model load).
       let attempts = 0;
       let isCheckingStatus = false;
       const interval = setInterval(async () => {
@@ -115,53 +98,44 @@ export function OnboardingWizard({ children }: { children: React.ReactNode }) {
         isCheckingStatus = true;
         attempts++;
 
-        // Update status message as time passes.
-        if (attempts > 5 && attempts <= 15) {
-          setCheckingStatus('Loading model into memory...');
-        } else if (attempts > 15) {
-          setCheckingStatus('Warming up model... (30–60s)');
-        }
-
         try {
           const healthStatus = await window.atlasElectron?.checkOllamaHealth();
-          if (healthStatus?.available && window.atlasElectron?.verifyOllamaInference) {
-            const inferenceOk = await window.atlasElectron.verifyOllamaInference();
-            if (inferenceOk) {
-              clearInterval(interval);
-              setIsOllamaHealthy(true);
-              setIsActionPending(false);
-              setCheckingStatus('');
-            }
+          if (healthStatus?.available) {
+            clearInterval(interval);
+            setIsOllamaHealthy(true);
+            setShowBanner(false);
+            setIsActionPending(false);
+            setCheckingStatus("");
           }
         } catch {
-          // ignore transient errors during polling
+          // ignore
         } finally {
           isCheckingStatus = false;
         }
 
-        if (attempts > 40) {
+        if (attempts > 20) {
           clearInterval(interval);
           setIsActionPending(false);
-          setCheckingStatus('');
+          setCheckingStatus("");
           checkSystem();
         }
-      }, 3000);
+      }, 1500);
       pollIntervalRef.current = interval;
     } catch (err) {
       console.error(err);
       setIsActionPending(false);
-      setCheckingStatus('');
+      setCheckingStatus("");
     }
   };
 
   const handleInstallOllama = async () => {
     setIsActionPending(true);
+    setCheckingStatus("Installing Ollama...");
     try {
       if (window.atlasElectron && window.atlasElectron.installOllama) {
         await window.atlasElectron.installOllama();
       }
-      
-      // Poll for installation status then health
+
       let attempts = 0;
       let isCheckingStatus = false;
       const interval = setInterval(async () => {
@@ -172,15 +146,13 @@ export function OnboardingWizard({ children }: { children: React.ReactNode }) {
           const installed = await window.atlasElectron?.checkOllamaInstalled();
           if (installed) {
             setIsOllamaInstalled(true);
-            // Optionally auto-start after install, or just check health
             const healthStatus = await window.atlasElectron?.checkOllamaHealth();
-            if (healthStatus?.available && window.atlasElectron?.verifyOllamaInference) {
-              const inferenceOk = await window.atlasElectron.verifyOllamaInference();
-              if (inferenceOk) {
-                clearInterval(interval);
-                setIsOllamaHealthy(true);
-                setIsActionPending(false);
-              }
+            if (healthStatus?.available) {
+              clearInterval(interval);
+              setIsOllamaHealthy(true);
+              setShowBanner(false);
+              setIsActionPending(false);
+              setCheckingStatus("");
             }
           }
         } catch {
@@ -191,97 +163,99 @@ export function OnboardingWizard({ children }: { children: React.ReactNode }) {
         if (attempts > 60) {
           clearInterval(interval);
           setIsActionPending(false);
+          setCheckingStatus("");
           checkSystem();
         }
-      }, 3000);
+      }, 2000);
       pollIntervalRef.current = interval;
     } catch (err) {
       console.error(err);
       setIsActionPending(false);
+      setCheckingStatus("");
     }
   };
 
-  if (isChecking) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[#09090b] text-white">
-        <Spinner size="lg" className="border-white/20 border-t-white/50" />
-      </div>
-    );
-  }
+  return (
+    <>
+      {children}
 
-  if (isOllamaHealthy === false) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-[#09090b] relative overflow-hidden">
-        {/* Background glow for aesthetic */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-red-500/10 rounded-full blur-[120px] pointer-events-none" />
-        
-        <AnimatePresence>
-          <motion.div 
-            initial={{ opacity: 0, y: 30, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
+      <AnimatePresence>
+        {showBanner && !isOllamaHealthy && (
+          <motion.div
+            initial={{ opacity: 0, y: 80 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 80 }}
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
-            className="glass-panel max-w-md w-full p-8 text-center flex flex-col items-center gap-6 relative z-10"
+            className="fixed bottom-4 right-4 z-50 max-w-sm w-full"
           >
-            <motion.div 
-              initial={{ scale: 0.8 }}
-              animate={{ scale: 1 }}
-              transition={{ delay: 0.2, type: "spring", stiffness: 500 }}
-              className="w-16 h-16 rounded-full bg-red-500/10 flex items-center justify-center"
+            <div
+              className="rounded-2xl p-4 shadow-2xl"
+              style={{
+                background: "rgba(17, 17, 19, 0.95)",
+                backdropFilter: "blur(20px)",
+                border: "1px solid rgba(239, 68, 68, 0.2)",
+              }}
             >
-              <ServerOff className="w-8 h-8 text-red-400" />
-            </motion.div>
-            
-            <div className="space-y-3">
-              <h1 className="text-2xl font-bold text-white tracking-tight">
-                {isOllamaInstalled ? "Ollama is not running" : "Ollama is missing"}
-              </h1>
-              <p className="text-white/60 leading-relaxed text-sm">
-                Atlas requires Ollama for local LLM inference. 
-                {isOllamaInstalled ? 
-                  " Please start your local Ollama daemon." : 
-                  " Ollama needs to be installed on your system to continue."}
-              </p>
-            </div>
-            
-            <div className="flex flex-col gap-3 w-full mt-2">
-              {isOllamaInstalled ? (
-                <motion.button 
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handleStartOllama}
-                  disabled={isActionPending}
-                  className="flex items-center justify-center gap-2 bg-white text-black px-6 py-3 rounded-xl font-medium hover:bg-white/90 transition-colors disabled:opacity-50"
-                >
-                  {isActionPending ? <Spinner size="sm" className="border-black/20 border-t-black" /> : <Play className="w-4 h-4" />}
-                  {isActionPending ? (checkingStatus || 'Starting...') : 'Start Ollama'}
-                </motion.button>
-              ) : (
-                <motion.button 
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handleInstallOllama}
-                  disabled={isActionPending}
-                  className="flex items-center justify-center gap-2 bg-white text-black px-6 py-3 rounded-xl font-medium hover:bg-white/90 transition-colors disabled:opacity-50"
-                >
-                  {isActionPending ? <Spinner size="sm" className="border-black/20 border-t-black" /> : <Download className="w-4 h-4" />}
-                  {isActionPending ? "Installing..." : "Install Ollama"}
-                </motion.button>
-              )}
-
-              <button 
-                onClick={checkSystem}
-                disabled={isActionPending}
-                className="flex items-center justify-center gap-2 text-white/50 hover:text-white text-sm py-2 disabled:opacity-50"
-              >
-                {isChecking ? <Spinner size="xs" /> : <RefreshCw className="w-3 h-3" />}
-                {isChecking ? "Verifying model... (may take 30s)" : "Retry Connection"}
-              </button>
+              <div className="flex items-start gap-3">
+                <div className="w-8 h-8 rounded-lg bg-red-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                  <ServerOff className="w-4 h-4 text-red-400" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white mb-0.5">
+                    {isOllamaInstalled === false ? "Ollama not installed" : "Ollama not running"}
+                  </p>
+                  <p className="text-xs text-white/50 leading-relaxed">
+                    AI features require Ollama. The app works, but AI Chat won&apos;t respond.
+                  </p>
+                  <div className="flex gap-2 mt-3 flex-wrap">
+                    {isOllamaInstalled === false ? (
+                      <button
+                        onClick={handleInstallOllama}
+                        disabled={isActionPending}
+                        className="flex items-center gap-1.5 bg-white text-black px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-white/90 transition-colors disabled:opacity-50"
+                      >
+                        {isActionPending ? (
+                          <Spinner size="xs" className="border-black/20 border-t-black" />
+                        ) : (
+                          <Download className="w-3 h-3" />
+                        )}
+                        {isActionPending ? "Installing..." : "Install"}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={handleStartOllama}
+                        disabled={isActionPending}
+                        className="flex items-center gap-1.5 bg-white text-black px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-white/90 transition-colors disabled:opacity-50"
+                      >
+                        {isActionPending ? (
+                          <Spinner size="xs" className="border-black/20 border-t-black" />
+                        ) : (
+                          <Play className="w-3 h-3" />
+                        )}
+                        {isActionPending ? checkingStatus || "Starting..." : "Start Ollama"}
+                      </button>
+                    )}
+                    <button
+                      onClick={checkSystem}
+                      disabled={isActionPending || isChecking}
+                      className="flex items-center gap-1.5 text-white/40 hover:text-white/70 px-2 py-1.5 rounded-lg text-xs transition-colors disabled:opacity-50"
+                    >
+                      {isChecking ? <Spinner size="xs" /> : <RefreshCw className="w-3 h-3" />}
+                      Retry
+                    </button>
+                    <button
+                      onClick={() => setShowBanner(false)}
+                      className="ml-auto text-white/30 hover:text-white/60 px-2 py-1.5 rounded-lg text-xs transition-colors"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
           </motion.div>
-        </AnimatePresence>
-      </div>
-    );
-  }
-
-  return <>{children}</>;
+        )}
+      </AnimatePresence>
+    </>
+  );
 }

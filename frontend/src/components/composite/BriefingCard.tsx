@@ -118,9 +118,8 @@ export function BriefingCard({ item, index, onDone }: BriefingCardProps) {
       className="p-5"
       initial={{ opacity: 0, scale: 0.98, y: 15 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={{ delay: index * 0.05, type: "spring", stiffness: 400, damping: 30 }}
+      transition={{ delay: index * 0.05, duration: 0.25 }}
       exit={{ opacity: 0, y: -10, scale: 0.98 }}
-      layout
       role="article"
       aria-label={`${item.type} from ${item.source}: ${item.title}`}
     >
@@ -171,7 +170,7 @@ export function BriefingCard({ item, index, onDone }: BriefingCardProps) {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              transition={{ type: "spring", stiffness: 400, damping: 30 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
               className="mb-4 overflow-hidden"
             >
             <div className="p-4 rounded-xl bg-[var(--bg-tertiary)]/50 space-y-3 backdrop-blur-sm">
@@ -191,9 +190,6 @@ export function BriefingCard({ item, index, onDone }: BriefingCardProps) {
                         </span>
                       </div>
                     )}
-                    <div className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-line pt-3 mt-3">
-                      {item.summary.split("\n").slice(0, 8).join("\n") || item.title}
-                    </div>
                   </div>
                 )}
 
@@ -211,9 +207,6 @@ export function BriefingCard({ item, index, onDone }: BriefingCardProps) {
                     {!!item.metadata?.issue_number && (
                       <div className="text-sm text-[var(--text-muted)]">Issue #{String(item.metadata.issue_number)}</div>
                     )}
-                    <div className="text-sm text-[var(--text-secondary)] leading-relaxed whitespace-pre-line pt-3 mt-3">
-                      {item.summary}
-                    </div>
                   </div>
                 )}
 
@@ -225,15 +218,34 @@ export function BriefingCard({ item, index, onDone }: BriefingCardProps) {
                         <span className="text-[var(--text-secondary)]">{(item.metadata.attendees as string[]).slice(0, 5).join(", ")}</span>
                       </div>
                     )}
-                    <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                      {item.summary}
-                    </div>
                   </div>
                 )}
 
-                {!["email", "pr", "issue", "calendar"].includes(item.type) && (
-                  <div className="text-sm text-[var(--text-secondary)] leading-relaxed">
-                    {item.summary}
+                {item.type === "task" && (
+                  <div className="space-y-2">
+                    {!!item.metadata?.list && (
+                      <div className="text-sm">
+                        <span className="text-[var(--text-muted)]">List: </span>
+                        <span className="text-[var(--text-secondary)] font-medium">{String(item.metadata.list)}</span>
+                      </div>
+                    )}
+                    {!!item.metadata?.notes && (
+                      <div className="text-sm">
+                        <span className="text-[var(--text-muted)]">Notes: </span>
+                        <span className="text-[var(--text-secondary)]">{String(item.metadata.notes)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!["email", "pr", "issue", "calendar", "task"].includes(item.type) && Object.keys(item.metadata || {}).length > 0 && (
+                  <div className="text-sm text-[var(--text-secondary)] leading-relaxed space-y-1">
+                    {Object.entries(item.metadata).map(([k, v]) => (
+                      <div key={k}>
+                        <span className="text-[var(--text-muted)] capitalize">{k.replace(/_/g, " ")}: </span>
+                        <span className="text-[var(--text-secondary)]">{String(v)}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

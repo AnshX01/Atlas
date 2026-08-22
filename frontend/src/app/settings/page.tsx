@@ -217,8 +217,8 @@ function PasswordField({
 
 function StatusDot({ configured }: { configured: boolean }) {
   return configured ? (
-    <span className="flex items-center gap-1.5 text-xs text-green-400 font-medium">
-      <CheckCircle2 size={12} className="text-green-400" />
+    <span className="flex items-center gap-1.5 text-xs text-[var(--text-primary)] font-medium">
+      <CheckCircle2 size={12} className="text-[var(--text-primary)]" />
       Connected
     </span>
   ) : (
@@ -299,7 +299,7 @@ function ConnectorCard({
           {status.configured && (
             <button
               onClick={onDisconnect}
-              className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+              className="px-2.5 py-1.5 rounded-lg text-[11px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
             >
               Disconnect
             </button>
@@ -384,10 +384,10 @@ function ConnectorCard({
               {status.testResult && (
                 <p
                   className={cn(
-                    "text-xs mt-2",
+                    "text-xs mt-2 font-medium",
                     status.testResult === "success"
-                      ? "text-green-400"
-                      : "text-red-400"
+                      ? "text-[var(--text-primary)]"
+                      : "text-[var(--text-muted)]"
                   )}
                 >
                   {status.testMessage}

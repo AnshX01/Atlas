@@ -113,10 +113,10 @@ export function ToolExecutionCard({ execution }: ToolExecutionCardProps) {
           <Spinner size="md" />
         )}
         {isDone && (
-          <CheckCircle2 size={18} className="text-green-400" />
+          <CheckCircle2 size={18} className="text-[var(--text-primary)]" />
         )}
         {isError && (
-          <AlertCircle size={18} className="text-red-400" />
+          <AlertCircle size={18} className="text-[var(--text-muted)]" />
         )}
       </div>
     </AgentDesignSystemShell>

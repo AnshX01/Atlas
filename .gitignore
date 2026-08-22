@@ -75,7 +75,26 @@ postgres_data/
 neo4j_data/
 qdrant_data/
 redis_data/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
 
+# ── Test Artifacts & Coverage ────────────────────────────────
+test-results/
+playwright-report/
+blob-report/
+frontend/coverage/
+coverage/
+
+# ── Temporary & Scratch Files ────────────────────────────────
+*.tmp
+*.async.tmp
+*.sync.tmp
+frontend/overlay.html
+frontend/tests/crawl_errors.js
+frontend/tests/dump_error.js
+frontend/tests/dump_html.js
 
 .kiro/
 docs/
@@ -90,4 +109,3 @@ Atlas_logo_line.png
 atlas.ps1
 .env.example
 Makefile
-frontend/coverage/

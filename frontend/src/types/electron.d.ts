@@ -63,7 +63,7 @@ interface AtlasElectronAPI {
   mcpListTools: (server: string) => Promise<Array<{ name: string; description: string }>>;
 
   executeWorkflow: (prompt: string, conversationId?: string) => Promise<void>;
-  approveAction: (executionId: string) => Promise<void>;
+  approveAction: (executionId: string, editedFields?: Record<string, string>) => Promise<void>;
   rejectAction: (executionId: string) => Promise<void>;
   abortWorkflow: (payload?: { conversationId: string }) => Promise<void>;
   onWorkflowStream: (cb: (payload: any) => void) => () => void;
@@ -73,6 +73,8 @@ interface AtlasElectronAPI {
   onWorkflowDraftReady: (cb: (data: unknown) => void) => () => void;
   listConversations: () => Promise<unknown[]>;
   getConversationHistory: (id: string, limit?: number) => Promise<unknown[]>;
+  deleteConversation: (id: string) => Promise<boolean>;
+  clearAllConversations: () => Promise<boolean>;
   localAuth: AtlasLocalAuthAPI;
   tokenStore: AtlasTokenStoreAPI;
   startGoogleOAuth: (clientId: string, clientSecret: string) => Promise<{ success: boolean; tokens?: any; error?: string }>;

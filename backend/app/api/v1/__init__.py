@@ -694,6 +694,28 @@ async def get_conversation_messages(
     return [MessageResponse(id=r[0], role=r[1], content=r[2], timestamp=r[3]) for r in rows]
 
 
+@conversations_router.delete("/{conversation_id}", summary="Delete conversation")
+async def delete_conversation(
+    conversation_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    from app.infrastructure.database import get_session_factory
+    from sqlalchemy import text
+
+    factory = get_session_factory()
+    async with factory() as session:
+        await session.execute(
+            text("DELETE FROM conversation_messages WHERE conversation_id = :cid"),
+            {"cid": conversation_id},
+        )
+        await session.execute(
+            text("DELETE FROM user_conversations WHERE id = :cid AND user_id = :uid"),
+            {"cid": conversation_id, "uid": str(current_user.id)},
+        )
+        await session.commit()
+    return {"status": "deleted", "id": conversation_id}
+
+
 # ── Re-export Routers ────────────────────────────────────────────────────────
 from app.api.v1.users import users_router  # noqa: E402
 from app.api.v1.gmail import gmail_router  # noqa: E402

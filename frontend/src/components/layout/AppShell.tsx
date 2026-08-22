@@ -14,6 +14,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { connectorsAPI } from "@/lib/api/connectors";
 import { briefingAPI } from "@/lib/api/briefing";
 
+import { useChatStore } from "@/lib/store/useChatStore";
+
 function HydrationSpinner() {
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-[var(--bg-primary)]">
@@ -27,8 +29,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, isHydrated } = useAuthStore();
   const [isMounted, setIsMounted] = useState(false);
-  const clickTimestamps = useRef<number[]>([]);
-  const [rageLocked, setRageLocked] = useState(false);
 
   useWebSocket();
 
@@ -36,7 +36,47 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setIsMounted(true);
-    
+
+    // Hydrate conversations from SQLite on app boot
+    useChatStore.getState().hydrateFromSQLite();
+
+    // Persistent workflow stream & event listeners across all pages
+    if (typeof window !== "undefined" && window.atlasElectron) {
+      const electron = window.atlasElectron;
+
+      const unsubStream = electron.onWorkflowStream?.((payload: any) => {
+        const token = typeof payload === "string" ? payload : (payload?.content || "");
+        useChatStore.getState().appendStreamingToken(token);
+      });
+
+      const unsubTool = electron.onWorkflowToolExecuting?.((data: any) => {
+        useChatStore.getState().addWorkflowToolExecution(data);
+      });
+
+      const unsubApproval = electron.onWorkflowApprovalNeeded?.((data: any) => {
+        useChatStore.getState().addWorkflowAction(data);
+      });
+
+      const unsubDraft = electron.onWorkflowDraftReady?.((data: any) => {
+        useChatStore.getState().setWorkflowDraft(data);
+      });
+
+      const unsubComplete = electron.onWorkflowComplete?.((data: any) => {
+        useChatStore.getState().completeWorkflow(data);
+        queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      });
+
+      return () => {
+        unsubStream?.();
+        unsubTool?.();
+        unsubApproval?.();
+        unsubDraft?.();
+        unsubComplete?.();
+      };
+    }
+  }, [queryClient]);
+
+  useEffect(() => {
     // Prefetch dashboard data to make it load instantly
     if (user && isHydrated) {
       queryClient.prefetchQuery({
@@ -61,43 +101,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [user, isHydrated, queryClient]);
 
-  const rageLockedRef = useRef(false);
-
-  useEffect(() => {
-    rageLockedRef.current = rageLocked;
-  }, [rageLocked]);
-
-  useEffect(() => {
-    let rageTimeout: NodeJS.Timeout | null = null;
-    const handleGlobalClick = (e: MouseEvent) => {
-      const now = Date.now();
-      clickTimestamps.current = clickTimestamps.current.filter((t) => now - t < 1000);
-      clickTimestamps.current.push(now);
-
-      if (clickTimestamps.current.length >= 5) {
-        if (!rageLockedRef.current) {
-          setRageLocked(true);
-          if (rageTimeout) clearTimeout(rageTimeout);
-          rageTimeout = setTimeout(() => {
-            setRageLocked(false);
-            clickTimestamps.current = [];
-          }, 2000);
-        }
-        e.stopPropagation();
-        e.preventDefault();
-      } else if (rageLockedRef.current) {
-        e.stopPropagation();
-        e.preventDefault();
-      }
-    };
-
-    document.addEventListener("click", handleGlobalClick, true);
-    return () => {
-      document.removeEventListener("click", handleGlobalClick, true);
-      if (rageTimeout) clearTimeout(rageTimeout);
-    };
-  }, []);
-
   useEffect(() => {
     if (!isMounted || !isHydrated) return;
 
@@ -117,14 +120,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Show spinner until both mounted AND Zustand has rehydrated from localStorage
   // This prevents the flash-to-login race condition
   if (!isMounted || !isHydrated) {
-    return <HydrationSpinner />;
+    return (
+      <>
+        <div style={{ display: "none" }}>{children}</div>
+        <HydrationSpinner />
+      </>
+    );
   }
 
   const isLoginPage = pathname === "/login" || pathname === "/login/";
 
   // Wait for redirect to finish if unauthorized, preventing flash of dashboard UI
   if (!user && !isLoginPage) {
-    return <HydrationSpinner />;
+    return (
+      <>
+        <div style={{ display: "none" }}>{children}</div>
+        <HydrationSpinner />
+      </>
+    );
   }
 
   if (isLoginPage) {
@@ -155,13 +168,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         
         <div className={isChat ? "flex-1 overflow-hidden z-10" : "p-8 overflow-y-auto flex-1 z-10"}>
-          {rageLocked && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/5 backdrop-blur-sm pointer-events-none animate-fade-in">
-              <div className="bg-[var(--bg-secondary)] px-4 py-2 rounded-full text-sm font-medium text-orange-500">
-                Slow down! Clicks are debounced.
-              </div>
-            </div>
-          )}
           <PageTransition>
             {children}
           </PageTransition>

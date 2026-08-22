@@ -164,10 +164,7 @@ function formatServerName(server: string): string {
 const ToolExecutionCard = memo(function ToolExecutionCard({ tool, onRetry }: { tool: ToolExecution; onRetry?: (toolId: string) => void }) {
   return (
     <AgentDesignSystemShell
-      className={cn(
-        "flex items-center justify-between gap-2 px-3 py-2 w-full max-w-2xl",
-        tool.status === "failed" ? "bg-red-500/5" : "bg-[var(--bg-secondary)]"
-      )}
+      className="flex items-center justify-between gap-2 px-3 py-2 w-full max-w-2xl bg-[var(--bg-secondary)]"
       initial={{ opacity: 0, height: 0, scale: 0.95 }}
       animate={{ opacity: 1, height: "auto", scale: 1 }}
       transition={{ type: "spring", stiffness: 500, damping: 30 }}
@@ -176,18 +173,18 @@ const ToolExecutionCard = memo(function ToolExecutionCard({ tool, onRetry }: { t
         {tool.status === "executing" ? (
           <Spinner size="xs" className="border-[var(--text-muted)] border-t-[var(--text-muted)]" />
         ) : tool.status === "failed" ? (
-          <X size={12} className="text-red-400" />
+          <X size={12} className="text-[var(--text-muted)]" />
         ) : (
           <Check size={12} className="text-[var(--text-muted)]" />
         )}
-        <span className={cn("text-[12px]", tool.status === "failed" ? "text-red-400/90" : "text-[var(--text-muted)]")}>
+        <span className="text-[12px] text-[var(--text-muted)]">
           {formatServerName(tool.server)} {tool.status === "failed" ? "Failed" : ""}
         </span>
       </div>
       {tool.status === "failed" && onRetry && (
         <button
           onClick={() => onRetry(tool.id)}
-          className="text-[11px] font-medium px-2 py-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+          className="text-[11px] font-medium px-2 py-1 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-colors"
         >
           Retry
         </button>
@@ -292,16 +289,19 @@ const ReferencesAccordion = memo(function ReferencesAccordion({
 }) {
   const [isOpen, setIsOpen] = useState(false);
 
-  const hasTools = tools && tools.length > 0;
-  const hasResults = results && results.length > 0;
+  const hasTools = Boolean(tools && tools.length > 0);
+  const hasResults = Boolean(results && results.length > 0);
 
-  if (!hasTools && !hasResults) return null;
+  if (!hasTools && !hasResults) {
+    return null;
+  }
 
-  const expanded = Boolean(isStreaming || isOpen);
+  // Once streaming completes, collapse references unless explicitly opened by user
+  const expanded = Boolean(isOpen);
   const ChevronIcon = expanded ? ChevronDown : ChevronRight;
 
   return (
-    <div className="flex flex-col gap-2 my-1 w-full max-w-2xl">
+    <div className="flex flex-col gap-2 my-1 w-full max-w-2xl px-4">
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
@@ -321,7 +321,7 @@ const ReferencesAccordion = memo(function ReferencesAccordion({
             transition={{ duration: 0.2 }}
             className="flex flex-col gap-2 overflow-hidden w-full"
           >
-            {hasTools && (
+            {tools && tools.length > 0 && (
               <div className="flex flex-col gap-1.5 w-full">
                 {tools.map((tool) => (
                   <ToolExecutionCard key={tool.id} tool={tool} onRetry={onRetryTool} />
@@ -329,7 +329,7 @@ const ReferencesAccordion = memo(function ReferencesAccordion({
               </div>
             )}
 
-            {hasResults && (
+            {results && results.length > 0 && (
               <div className="flex flex-col gap-2 w-full">
                 {results.map((result) => (
                   <ResultCard key={result.id} result={result} />
@@ -360,21 +360,14 @@ const ActionCard = memo(function ActionCard({
   onReject,
 }: {
   action: ActionSuggestion;
-  onApprove: (id: string) => void;
-  onReject: (id: string) => void;
+  onApprove: (id: string, executionId?: string) => void;
+  onReject: (id: string, executionId?: string) => void;
 }) {
   const isResolved = action.status !== "pending";
 
   return (
     <AgentDesignSystemShell
-      className={cn(
-        "p-2.5 bg-[var(--bg-tertiary)] transition-all duration-200",
-        action.status === "approved"
-          ? "bg-green-500/5"
-          : action.status === "rejected"
-            ? "bg-red-500/5 opacity-60"
-            : ""
-      )}
+      className="p-2.5 bg-[var(--bg-tertiary)] transition-all duration-200"
       initial={{ opacity: 0, scale: 0.97 }}
       animate={{ opacity: 1, scale: 1 }}
     >
@@ -394,16 +387,16 @@ const ActionCard = memo(function ActionCard({
         {!isResolved ? (
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <button
-              onClick={() => onApprove(action.id)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors"
+              onClick={() => onApprove(action.id, action.executionId)}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-90 transition-opacity"
               aria-label={`Approve ${getActionLabel(action.type)}`}
             >
               <Check size={12} />
               Approve
             </button>
             <button
-              onClick={() => onReject(action.id)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+              onClick={() => onReject(action.id, action.executionId)}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] transition-colors"
               aria-label={`Reject ${getActionLabel(action.type)}`}
             >
               <X size={12} />
@@ -412,10 +405,7 @@ const ActionCard = memo(function ActionCard({
           </div>
         ) : (
           <span
-            className={cn(
-              "text-[11px] font-medium px-2 py-1 rounded-lg",
-              action.status === "approved" ? "text-green-400 bg-green-500/10" : "text-red-400 bg-red-500/10"
-            )}
+            className="text-[11px] font-medium px-2 py-1 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]"
           >
             {action.status === "approved" ? "Approved" : "Rejected"}
           </span>
@@ -431,23 +421,35 @@ const DraftCard = memo(function DraftCard({
   onReject,
 }: {
   draft: DraftData;
-  onApprove: (executionId: string) => void;
+  onApprove: (executionId: string, editedFields?: Record<string, string>) => void;
   onReject: (executionId: string) => void;
 }) {
   const [isLocked, setIsLocked] = useState(false);
+  const [fields, setFields] = useState<Record<string, string>>(() => ({ ...draft.fields }));
+
   const isPending = draft.status === "pending";
   const isExecuting = draft.status === "executing";
   const isDone = draft.status === "done" || draft.status === "approved";
   const isRejected = draft.status === "rejected";
   const isFailed = draft.status === "failed";
 
-  // Separate the "body" / "message" / "content" field from meta fields
-  const bodyKey = Object.keys(draft.fields).find((k) =>
+  const handleFieldChange = (key: string, value: string) => {
+    setFields((prev) => ({ ...prev, [key]: value }));
+  };
+
+  // Separate body/message from meta fields
+  const bodyKey = Object.keys(fields).find((k) =>
     ["body", "message", "content", "description"].includes(k.toLowerCase())
-  );
-  const bodyContent = bodyKey ? draft.fields[bodyKey] : null;
-  const metaFields = Object.entries(draft.fields).filter(
-    ([k]) => k !== bodyKey && draft.fields[k]
+  ) || "body";
+
+  const EXCLUDED_META_KEYS = new Set([
+    "body", "message", "content", "description",
+    "messageid", "threadid", "executionid", "id", "owner",
+    "_recipientnotfound", "_requiresapproval", "timestamp"
+  ]);
+
+  const metaKeys = Object.keys(fields).filter(
+    (k) => !EXCLUDED_META_KEYS.has(k.toLowerCase()) && !k.startsWith("_")
   );
 
   return (
@@ -457,64 +459,90 @@ const DraftCard = memo(function DraftCard({
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ type: "spring", stiffness: 400, damping: 30 }}
     >
-      <div className="relative bg-[var(--bg-secondary)] overflow-hidden">
+      <div className="relative bg-[var(--bg-secondary)] rounded-2xl border border-[var(--border-subtle)] overflow-hidden shadow-lg">
         {/* Header */}
-        <div className="flex items-center gap-2 px-4 py-3">
-          <span className="text-[var(--text-secondary)]">{getActionIcon(draft.actionType)}</span>
-          <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
-            {getDraftTypeLabel(draft.actionType)}
-          </span>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-tertiary)]/30">
+          <div className="flex items-center gap-2">
+            <span className="text-[var(--accent)]">{getActionIcon(draft.actionType)}</span>
+            <span className="text-xs font-semibold text-[var(--text-primary)] uppercase tracking-wide">
+              {getDraftTypeLabel(draft.actionType)}
+            </span>
+          </div>
+          {isPending && (
+            <span className="text-[10px] text-[var(--accent)] font-medium bg-[var(--accent)]/10 px-2 py-0.5 rounded-full">
+              Editable Draft
+            </span>
+          )}
         </div>
 
         {/* Meta fields */}
-        {metaFields.length > 0 && (
-          <div className="px-4 py-2.5 space-y-1.5">
-            {metaFields.map(([key, value]) => (
-              <div key={key} className="flex items-center gap-2">
-                <span className="text-[10px] font-medium text-[var(--text-muted)] uppercase tracking-wider w-14 flex-shrink-0">
-                  {key}
+        <div className="px-4 py-3 space-y-2.5">
+          {metaKeys.map((key) => (
+            <div key={key} className="flex items-center gap-2">
+              <label className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider w-16 flex-shrink-0">
+                {key}:
+              </label>
+              {isPending ? (
+                <input
+                  type="text"
+                  value={fields[key] || ""}
+                  onChange={(e) => handleFieldChange(key, e.target.value)}
+                  placeholder={`Enter ${key}...`}
+                  className="flex-1 bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] focus:border-[var(--accent)] text-xs text-[var(--text-primary)] px-2.5 py-1.5 rounded-lg outline-none transition-colors"
+                />
+              ) : (
+                <span className="text-xs text-[var(--text-primary)] font-medium truncate">
+                  {fields[key] || "—"}
                 </span>
-                <span className="text-[12px] text-[var(--text-primary)] truncate">
-                  {value}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
+              )}
+            </div>
+          ))}
 
-        {/* Body content */}
-        {bodyContent && (
-          <div className="px-4 py-3">
-            <p className="text-[12px] text-[var(--text-secondary)] leading-relaxed whitespace-pre-wrap line-clamp-6">
-              {bodyContent}
-            </p>
+          {/* Body content */}
+          <div className="flex flex-col gap-1.5 pt-1">
+            <label className="text-[11px] font-semibold text-[var(--text-muted)] uppercase tracking-wider">
+              {bodyKey}:
+            </label>
+            {isPending ? (
+              <textarea
+                value={fields[bodyKey] || ""}
+                onChange={(e) => handleFieldChange(bodyKey, e.target.value)}
+                placeholder="Message body..."
+                rows={4}
+                className="w-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] focus:border-[var(--accent)] text-xs text-[var(--text-primary)] p-2.5 rounded-lg outline-none resize-none transition-colors leading-relaxed"
+              />
+            ) : (
+              <div className="bg-[var(--bg-tertiary)]/50 p-2.5 rounded-lg text-xs text-[var(--text-secondary)] whitespace-pre-wrap leading-relaxed">
+                {fields[bodyKey] || "—"}
+              </div>
+            )}
           </div>
-        )}
+        </div>
 
         {/* Action buttons */}
-        <div className="px-4 py-3">
+        <div className="px-4 py-3 border-t border-[var(--border-subtle)] bg-[var(--bg-primary)]/40">
           {isPending && (
             <div className="flex items-center gap-2">
               <button
-                onClick={(e) => {
+                onClick={() => {
                   if (draft.status !== "pending" || isLocked) return;
                   setIsLocked(true);
-                  onApprove(draft.executionId);
+                  onApprove(draft.executionId, fields);
                 }}
                 disabled={draft.status !== "pending" || isLocked}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-green-500/10 text-green-400 hover:bg-green-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-semibold bg-[var(--text-primary)] text-[var(--bg-primary)] hover:opacity-90 shadow-sm transition-all active:scale-[0.98] disabled:opacity-50"
               >
                 <Check size={14} />
-                Send
+                Send / Confirm
               </button>
               <button
-                onClick={(e) => {
+                onClick={() => {
                   if (draft.status !== "pending" || isLocked) return;
                   setIsLocked(true);
                   onReject(draft.executionId);
                 }}
                 disabled={draft.status !== "pending" || isLocked}
-                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-medium bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]/80 border border-[var(--border-subtle)] transition-colors disabled:opacity-50"
               >
                 <X size={14} />
                 Cancel
@@ -525,34 +553,34 @@ const DraftCard = memo(function DraftCard({
           {isExecuting && (
             <div className="flex items-center justify-center gap-2 py-2">
               <Spinner size="sm" />
-              <span className="text-xs text-[var(--text-secondary)]">Executing…</span>
+              <span className="text-xs text-[var(--text-secondary)]">Sending…</span>
             </div>
           )}
 
           {isDone && (
             <div className="flex items-center justify-center gap-2 py-2">
-              <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center">
-                <Check size={12} className="text-green-400" />
+              <div className="w-5 h-5 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] flex items-center justify-center">
+                <Check size={12} className="text-[var(--text-primary)]" />
               </div>
-              <span className="text-xs text-green-400 font-medium">Sent successfully</span>
+              <span className="text-xs text-[var(--text-primary)] font-medium">Sent successfully</span>
             </div>
           )}
 
           {isRejected && (
             <div className="flex items-center justify-center gap-2 py-2">
-              <div className="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center">
-                <X size={12} className="text-red-400" />
+              <div className="w-5 h-5 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] flex items-center justify-center">
+                <X size={12} className="text-[var(--text-muted)]" />
               </div>
-              <span className="text-xs text-red-400 font-medium">Cancelled</span>
+              <span className="text-xs text-[var(--text-muted)] font-medium">Cancelled</span>
             </div>
           )}
 
           {isFailed && (
             <div className="flex items-center justify-center gap-2 py-2">
-              <div className="w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center">
-                <X size={12} className="text-red-400" />
+              <div className="w-5 h-5 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] flex items-center justify-center">
+                <X size={12} className="text-[var(--text-muted)]" />
               </div>
-              <span className="text-xs text-red-400 font-medium">
+              <span className="text-xs text-[var(--text-secondary)] font-medium">
                 Failed{draft.errorMessage ? `: ${draft.errorMessage}` : ""}
               </span>
             </div>
@@ -561,7 +589,7 @@ const DraftCard = memo(function DraftCard({
       </div>
     </AgentDesignSystemShell>
   );
-}, (prev, next) => JSON.stringify(prev.draft) === JSON.stringify(next.draft));
+});
 
 
 function DraftCardSkeleton() {
@@ -696,16 +724,18 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
         </div>
 
         {/* References Accordion */}
-        <ReferencesAccordion
-          tools={message.toolExecutions}
-          results={message.results}
-          isStreaming={message.streaming}
-          onRetryTool={onRetryTool}
-        />
+        {!isUser && (
+          <ReferencesAccordion
+            tools={message.toolExecutions}
+            results={message.results}
+            isStreaming={message.streaming}
+            onRetryTool={onRetryTool}
+          />
+        )}
 
         {/* Action Cards */}
-        {message.actions && message.actions.length > 0 && (
-          <div className="flex flex-col gap-1">
+        {!isUser && message.actions && message.actions.length > 0 && (
+          <div className="flex flex-col gap-1 px-4">
             {message.actions.map((action) => (
               <ActionCard
                 key={action.id}
@@ -718,14 +748,18 @@ const ChatMessageBubble = memo(function ChatMessageBubble({
         )}
 
         {/* Draft Card or Skeleton */}
-        {message.draft ? (
-          <DraftCard
-            draft={message.draft}
-            onApprove={onApproveDraft}
-            onReject={onRejectDraft}
-          />
+        {!isUser && message.draft ? (
+          <div className="px-4">
+            <DraftCard
+              draft={message.draft}
+              onApprove={onApproveDraft}
+              onReject={onRejectDraft}
+            />
+          </div>
         ) : (!isUser && message.streaming && message.content.trim().startsWith('{')) ? (
-          <DraftCardSkeleton />
+          <div className="px-4">
+            <DraftCardSkeleton />
+          </div>
         ) : null}
       </div>
     </motion.div>
@@ -773,7 +807,7 @@ function ChatInput({
   }, [text, disabled, onSend, attachments]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
     }
@@ -813,7 +847,7 @@ function ChatInput({
       {isStreaming ? (
         <button
           onClick={onStop}
-          className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all duration-150 mb-1"
+          className="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-[var(--bg-tertiary)] text-[var(--text-primary)] hover:bg-[var(--bg-secondary)] border border-[var(--border-subtle)] transition-all duration-150 mb-1"
           aria-label="Stop generating"
         >
           <span className="w-3 h-3 rounded-sm bg-current" />
@@ -945,7 +979,7 @@ function ChatPageInner() {
     if (stored) setUserAvatar(stored);
   }, []);
 
-    useEffect(() => {
+  useEffect(() => {
     const isNavigation = conversationId !== conversationIdRef.current;
     conversationIdRef.current = conversationId;
 
@@ -967,34 +1001,46 @@ function ChatPageInner() {
                 draft: m.draft,
                 timestamp: new Date(m.timestamp || m.created_at || Date.now()),
               }));
-              useChatStore.getState().clearMessages(conversationId);
-              loadedMessages.forEach(msg => {
-                useChatStore.getState().addMessage(conversationId, {
-                  ...msg,
-                  timestamp: msg.timestamp.toISOString(),
-                });
-              });
             } catch (err) {
               console.error("[Atlas] Failed to load history from SQLite", err);
             }
           }
-          if (loadedMessages.length === 0) {
-            const stored = useChatStore.getState().messages[conversationId];
-            if (stored && stored.length > 0) {
-              loadedMessages = stored.map((m) => ({
-                id: m.id,
-                role: m.role,
-                content: m.content,
-                results: m.results,
-                actions: m.actions,
-                toolExecutions: m.toolExecutions,
-                draft: m.draft,
-                timestamp: new Date(m.timestamp),
-              }));
+
+          // Merge with any in-flight / streaming messages from useChatStore
+          const store = useChatStore.getState();
+          const storeMsgs = store.messages[conversationId] || [];
+          const loadedIds = new Set(loadedMessages.map((m) => m.id));
+
+          for (const sm of storeMsgs) {
+            if (!loadedIds.has(sm.id)) {
+              loadedMessages.push({
+                id: sm.id,
+                role: sm.role,
+                content: sm.content,
+                results: sm.results,
+                actions: sm.actions,
+                toolExecutions: sm.toolExecutions,
+                draft: sm.draft,
+                timestamp: new Date(sm.timestamp),
+                streaming: sm.streaming,
+              });
             }
           }
+
+          // Sync into useChatStore without clearing
+          loadedMessages.forEach((msg) => {
+            store.addMessage(conversationId, {
+              ...msg,
+              timestamp: msg.timestamp.toISOString(),
+            });
+          });
+
           if (mountedRef.current) {
             setMessages(loadedMessages);
+            setIsAutoScrollPaused(false);
+            if (store.streamingConversationId === conversationId && store.status === "streaming") {
+              setStatus("streaming");
+            }
           }
         };
         loadMessages();
@@ -1005,6 +1051,7 @@ function ChatPageInner() {
       unsubscribersRef.current = [];
 
       setMessages([]);
+      setIsAutoScrollPaused(false);
       setStatus("idle");
       isFirstMessageRef.current = true;
     }
@@ -1060,14 +1107,18 @@ function ChatPageInner() {
     setStatus("streaming");
 
     if (hasElectronIPC()) {
-      let convId = conversationIdRef.current;
-      if (isFirstMessageRef.current) {
+      let convId = conversationIdRef.current || useChatStore.getState().activeConversationId;
+      const isNewChat = !convId || (messages.length === 0 && !conversationId);
+      if (isNewChat) {
         isFirstMessageRef.current = false;
-        const title = text.slice(0, 50);
+        const title = text.slice(0, 50).trim() || "New Conversation";
         convId = useChatStore.getState().addConversation(title);
         conversationIdRef.current = convId;
         useChatStore.getState().setActiveConversation(convId);
         router.replace(`/chat?id=${convId}`, { scroll: false });
+      } else {
+        conversationIdRef.current = convId;
+        isFirstMessageRef.current = false;
       }
 
       if (convId) {
@@ -1078,6 +1129,14 @@ function ChatPageInner() {
           timestamp: userMsg.timestamp.toISOString(),
         };
         useChatStore.getState().addMessage(convId, userStoreMsg);
+        useChatStore.getState().addMessage(convId, {
+          id: assistantId,
+          role: "assistant",
+          content: "",
+          timestamp: assistantMsg.timestamp.toISOString(),
+          streaming: true,
+        });
+        useChatStore.getState().startWorkflowStreaming(convId, assistantId);
       }
 
       // ── Electron IPC path ──
@@ -1156,11 +1215,13 @@ function ChatPageInner() {
           fields: data.fields ?? {},
           status: "pending",
         };
+        const introText = data.introMessage || `I've prepared a draft for your review. Please confirm below when you're ready to proceed.`;
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantId ? { ...m, draft } : m
+            m.id === assistantId ? { ...m, draft, streaming: false, content: introText } : m
           )
         );
+        setStatus("idle");
       });
 
       unsubEnd = window.atlasElectron!.onWorkflowComplete((data: any) => {
@@ -1184,7 +1245,7 @@ function ChatPageInner() {
               updatedDraft = { ...updatedDraft, status: "done" as const };
             }
 
-            let finalContent = m.content || data?.response || "";
+            let finalContent = data?.response || m.content || "";
             if (data?.error) {
               const errMsg = `\n\n> **System Notice:** The workflow encountered an error: ${data.error}`;
               finalContent += errMsg;
@@ -1272,7 +1333,7 @@ function ChatPageInner() {
            finalPrompt += "\n\nAttachments:\n" + JSON.stringify(parsedAttachments);
         }
 
-        await window.atlasElectron!.executeWorkflow(finalPrompt);
+        await window.atlasElectron!.executeWorkflow(finalPrompt, convId || undefined);
         // Set a timeout — if workflow-complete doesn't fire within 5 minutes, recover
         executionTimeoutId = setTimeout(() => {
           if (!mountedRef.current) return;
@@ -1304,14 +1365,18 @@ function ChatPageInner() {
         cleanupAll();
       }
     } else {
-      let convId = conversationIdRef.current;
-      if (isFirstMessageRef.current) {
+      let convId = conversationIdRef.current || useChatStore.getState().activeConversationId;
+      const isNewChat = !convId || (messages.length === 0 && !conversationId);
+      if (isNewChat) {
         isFirstMessageRef.current = false;
-        const title = text.slice(0, 50);
+        const title = text.slice(0, 50).trim() || "New Conversation";
         convId = useChatStore.getState().addConversation(title);
         conversationIdRef.current = convId;
         useChatStore.getState().setActiveConversation(convId);
         router.replace(`/chat?id=${convId}`, { scroll: false });
+      } else {
+        conversationIdRef.current = convId;
+        isFirstMessageRef.current = false;
       }
 
       if (convId) {
@@ -1439,6 +1504,8 @@ function ChatPageInner() {
       window.atlasElectron!.abortWorkflow({ conversationId: conversationIdRef.current || '' }).catch(console.error);
     }
 
+    useChatStore.getState().stopWorkflowStreaming?.();
+
     // Stop streaming — mark all messages as not streaming
     setMessages((prev) =>
       prev.map((m) => m.streaming ? { ...m, streaming: false, content: m.content || "Response stopped." } : m)
@@ -1448,41 +1515,47 @@ function ChatPageInner() {
 
   // ── Action handlers ────────────────────────────────────────────────────
 
-  const handleApproveAction = useCallback((actionId: string) => {
+  const handleApproveAction = useCallback((actionId: string, executionId?: string) => {
+    const idToUse = executionId || actionId;
     setMessages((prev) =>
       prev.map((m) => ({
         ...m,
-        actions: m.actions?.map((a) => (a.id === actionId ? { ...a, status: "approved" as const } : a)),
+        actions: m.actions?.map((a) => (a.id === actionId || a.executionId === idToUse ? { ...a, status: "approved" as const } : a)),
       }))
     );
     if (hasElectronIPC()) {
-      window.atlasElectron!.approveAction(actionId).catch(console.error);
+      window.atlasElectron!.approveAction(idToUse).catch(console.error);
     }
   }, []);
 
-  const handleRejectAction = useCallback((actionId: string) => {
+  const handleRejectAction = useCallback((actionId: string, executionId?: string) => {
+    const idToUse = executionId || actionId;
     setMessages((prev) =>
       prev.map((m) => ({
         ...m,
-        actions: m.actions?.map((a) => (a.id === actionId ? { ...a, status: "rejected" as const } : a)),
+        actions: m.actions?.map((a) => (a.id === actionId || a.executionId === idToUse ? { ...a, status: "rejected" as const } : a)),
       }))
     );
     if (hasElectronIPC()) {
-      window.atlasElectron!.rejectAction(actionId).catch(console.error);
+      window.atlasElectron!.rejectAction(idToUse).catch(console.error);
     }
   }, []);
 
-  const handleApproveDraft = useCallback((executionId: string) => {
+  const handleApproveDraft = useCallback((executionId: string, editedFields?: Record<string, string>) => {
     setMessages((prev) =>
       prev.map((m) => ({
         ...m,
         draft: m.draft?.executionId === executionId
-          ? { ...m.draft, status: "executing" as const }
+          ? {
+              ...m.draft,
+              status: "executing" as const,
+              fields: editedFields ? { ...m.draft.fields, ...editedFields } : m.draft.fields,
+            }
           : m.draft,
       }))
     );
     if (hasElectronIPC()) {
-      window.atlasElectron!.approveAction(executionId).catch(console.error);
+      window.atlasElectron!.approveAction(executionId, editedFields).catch(console.error);
     }
   }, []);
 
@@ -1501,8 +1574,13 @@ function ChatPageInner() {
   }, []);
 
   const handleRetryTool = useCallback((toolId: string) => {
-    sendMessage("Retry that tool");
-  }, [sendMessage]);
+    const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+    if (lastUserMsg && lastUserMsg.content) {
+      sendMessage(lastUserMsg.content);
+    } else {
+      sendMessage("Retry fetching data");
+    }
+  }, [messages, sendMessage]);
 
   // ── Render ─────────────────────────────────────────────────────────────
 
@@ -1541,7 +1619,7 @@ function ChatPageInner() {
       ) : (
         <>
           <div className="flex-1 w-full overflow-y-auto scroll-smooth scrollbar-hide flex flex-col" onScroll={handleScroll}>
-            <div ref={contentRef} className="w-full flex-1 transition-all duration-500 pt-6 pb-6 px-4">
+            <div ref={contentRef} className="w-full flex-1 transition-all duration-500 pt-6 pb-20 px-4">
               <div className="w-full max-w-4xl mx-auto flex flex-col gap-5">
                 <AnimatePresence mode="popLayout">
                   {messages.map((msg) => (

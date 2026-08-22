@@ -132,7 +132,7 @@ export class MCPServerManager {
           if (/[&|;<>^"%]/.test(p)) {
             throw new Error(`SECURITY: Invalid characters in filesystem path to prevent command injection: ${p}`);
           }
-          return p.trim();
+          return path.normalize(p.trim()).replace(/\\/g, '/');
         });
         
         // @modelcontextprotocol/server-filesystem takes directory paths as CLI arguments
@@ -600,6 +600,31 @@ export class MCPServerManager {
           }
         },
         { name: 'list_calendar', description: 'List today\'s calendar events' },
+        { name: 'list_tasks', description: 'List the user\'s Google tasks and to-dos' },
+        {
+          name: 'create_task',
+          description: 'Create a new Google Task item',
+          inputSchema: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Title of the task" },
+              notes: { type: "string", description: "Optional notes or details for the task" },
+              due: { type: "string", description: "Optional due date (YYYY-MM-DD)" }
+            },
+            required: ["title"]
+          }
+        },
+        {
+          name: 'complete_task',
+          description: 'Mark a task as completed',
+          inputSchema: {
+            type: "object",
+            properties: {
+              taskId: { type: "string", description: "The ID of the task to complete" }
+            },
+            required: ["taskId"]
+          }
+        },
         {
           name: 'create_event',
           description: 'Create a calendar event. Ensure the times are valid ISO 8601 strings.',

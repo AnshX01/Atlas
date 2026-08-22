@@ -170,8 +170,8 @@ contextBridge.exposeInMainWorld("atlasElectron", {
     ipcRenderer.invoke("workflow-execute", { prompt, conversationId }),
 
   /** Approve a pending destructive action */
-  approveAction: (executionId: string): Promise<void> =>
-    ipcRenderer.invoke("workflow-approve", { executionId }),
+  approveAction: (executionId: string, editedFields?: Record<string, string>): Promise<void> =>
+    ipcRenderer.invoke("workflow-approve", { executionId, editedFields }),
 
   /** Reject a pending destructive action */
   rejectAction: (executionId: string): Promise<void> =>
@@ -241,8 +241,6 @@ contextBridge.exposeInMainWorld("atlasElectron", {
     return () => ipcRenderer.removeListener("workflow-complete", handler);
   },
 
-  // ── Conversation APIs ───────────────────────────────────────────────────────
-
   /** List all conversations, most recent first */
   listConversations: (): Promise<any[]> =>
     ipcRenderer.invoke("conversations-list"),
@@ -250,6 +248,14 @@ contextBridge.exposeInMainWorld("atlasElectron", {
   /** Get message history for a conversation */
   getConversationHistory: (id: string, limit?: number): Promise<any[]> =>
     ipcRenderer.invoke("conversation-history", { id, limit }),
+
+  /** Delete a conversation by id from SQLite */
+  deleteConversation: (id: string): Promise<boolean> =>
+    ipcRenderer.invoke("conversation-delete", { id }),
+
+  /** Clear all conversations from SQLite */
+  clearAllConversations: (): Promise<boolean> =>
+    ipcRenderer.invoke("conversations-clear-all"),
 
   // ── Local Auth APIs ───────────────────────────────────────────────────────────
 
@@ -368,7 +374,7 @@ export type AtlasElectronAPI = {
   mcpListTools: (server: string) => Promise<Array<{ name: string; description: string }>>;
   // Orchestrator Workflow APIs
   executeWorkflow: (prompt: string, conversationId?: string) => Promise<void>;
-  approveAction: (executionId: string) => Promise<void>;
+  approveAction: (executionId: string, editedFields?: Record<string, string>) => Promise<void>;
   rejectAction: (executionId: string) => Promise<void>;
   abortWorkflow: (payload?: { conversationId: string }) => Promise<void>;
   onWorkflowStream: (callback: (payload: any) => void) => () => void;
@@ -379,6 +385,8 @@ export type AtlasElectronAPI = {
   // Conversation APIs
   listConversations: () => Promise<any[]>;
   getConversationHistory: (id: string, limit?: number) => Promise<any[]>;
+  deleteConversation: (id: string) => Promise<boolean>;
+  clearAllConversations: () => Promise<boolean>;
   // Local Auth APIs
   localAuth: {
     register: (email: string, password: string, fullName: string) => Promise<{

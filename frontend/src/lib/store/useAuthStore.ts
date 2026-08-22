@@ -1,4 +1,4 @@
-import { create } from "zustand";
+﻿import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export interface AuthUser {
@@ -48,7 +48,7 @@ export const useAuthStoreBase = create<AuthState>()(
 
       logout: () => {
         // Clear React state FIRST so the UI reflects logged-out immediately.
-        // The IPC call is best-effort — if it fails, the local session key
+        // The IPC call is best-effort â€” if it fails, the local session key
         // in SQLite remains, but the renderer is already cleared.
         // On next app start, getCurrentUser() will validate the session token
         // from SQLite and re-hydrate correctly.
@@ -57,7 +57,7 @@ export const useAuthStoreBase = create<AuthState>()(
           const { useChatStoreBase } = require("./useChatStore");
           useChatStoreBase.getState().clearAllConversations();
         } catch {
-          // Safe to ignore — store may not be initialized in SSR or test environments
+          // Safe to ignore â€” store may not be initialized in SSR or test environments
         }
         set({ accessToken: null, refreshToken: null, user: null, isLoading: false });
         // Fire IPC best-effort after state is cleared
@@ -92,12 +92,19 @@ export const useAuthStoreBase = create<AuthState>()(
         }
         return persistedState as AuthState;
       },
-      onRehydrateStorage: () => {
+            onRehydrateStorage: () => {
         return (_state: any, error: any) => {
           if (error) {
             console.error("[AuthStore] Rehydration error:", error);
           }
           let cancelled = false;
+          // Hard deadline: always call setHydrated within 5s even if IPC hangs
+          const hardDeadline = setTimeout(() => {
+            if (cancelled) return;
+            console.warn("[AuthStore] Hard deadline triggered — forcing hydrated state");
+            useAuthStoreBase.getState().setHydrated();
+          }, 5000);
+
           setTimeout(async () => {
             if (cancelled) return;
             const store = useAuthStoreBase.getState();
@@ -105,7 +112,11 @@ export const useAuthStoreBase = create<AuthState>()(
             // We must re-hydrate the session from SQLite localAuth if available
             if (typeof window !== "undefined" && (window as any).atlasElectron?.localAuth) {
               try {
-                const localUser = await (window as any).atlasElectron.localAuth.getCurrentUser();
+                // Add per-call timeout so slow IPC doesn't hang forever
+                const localUser = await Promise.race([
+                  (window as any).atlasElectron.localAuth.getCurrentUser(),
+                  new Promise<null>((_, reject) => setTimeout(() => reject(new Error("IPC timeout")), 4000)),
+                ]) as any;
                 if (cancelled) return; // guard against late arrival after logout
                 if (localUser) {
                   store.setUser({ ...localUser, is_active: true, avatar_url: null });
@@ -117,11 +128,17 @@ export const useAuthStoreBase = create<AuthState>()(
                 console.warn("[AuthStore] Failed to rehydrate from Electron:", e);
               }
             }
-            if (!cancelled) store.setHydrated();
+            if (!cancelled) {
+              clearTimeout(hardDeadline);
+              store.setHydrated();
+            }
           }, 0);
           // NOTE: Zustand ignores the return value of this inner subscriber.
           // The cancelled flag is a best-effort guard against stale closures.
-          return () => { cancelled = true; };
+          return () => {
+            cancelled = true;
+            clearTimeout(hardDeadline);
+          };
         };
       },
     }
@@ -129,3 +146,5 @@ export const useAuthStoreBase = create<AuthState>()(
 );
 
 export const useAuthStore = createSelectors(useAuthStoreBase);
+
+

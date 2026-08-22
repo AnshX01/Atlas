@@ -32,6 +32,8 @@ import {
   closeDB,
   listConversations,
   getConversationHistory,
+  deleteConversation,
+  clearAllConversations,
 } from "./services/local-store";
 import { parseFile } from "./services/file-parser";
 import {
@@ -122,25 +124,38 @@ function createWindow(): BrowserWindow {
   });
 
   win.on('maximize', () => {
-    win.webContents.send('window-maximized');
+    safeSend(win, 'window-maximized');
   });
 
   win.on('unmaximize', () => {
-    win.webContents.send('window-unmaximized');
+    safeSend(win, 'window-unmaximized');
   });
 
   return win;
 }
 
+function safeSend(win: BrowserWindow | null, channel: string, ...args: any[]): void {
+  try {
+    if (win && !win.isDestroyed() && win.webContents && !win.webContents.isDestroyed()) {
+      win.webContents.send(channel, ...args);
+    }
+  } catch (e) {
+    console.warn(`[Main] IPC send error on ${channel}:`, e);
+  }
+}
+
 // ── App lifecycle ──────────────────────────────────────────────────────────────
 app.whenReady().then(async () => {
   try {
-    // Enforce aggressive CSP blocking eval() and inline scripts
+    // CSP: relaxed in dev (Next.js HMR needs eval + inline), strict in prod
+    const csp = isDev
+      ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; connect-src 'self' ws://localhost:* http://localhost:* https://*; font-src 'self' data:;"
+      : "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws://localhost:* http://localhost:* https://*;";
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
       callback({
         responseHeaders: {
           ...details.responseHeaders,
-          'Content-Security-Policy': ["default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' ws://localhost:* http://localhost:* https://*;"]
+          'Content-Security-Policy': [csp]
         }
       });
     });
@@ -167,32 +182,20 @@ app.whenReady().then(async () => {
   // Force dark mode to sync title bar
   nativeTheme.themeSource = 'dark';
 
-  const iconPath = path.join(__dirname, "../public/icon.png");
-  tray = new Tray(iconPath);
-  tray.setToolTip("Atlas");
-  
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: "Show Atlas",
-      click: () => {
-        mainWindow?.show();
-        mainWindow?.focus();
-      },
-    },
-    { type: "separator" },
-    {
-      label: "Quit",
-      click: () => {
-        isQuitting = true;
-        app.quit();
-      },
-    },
-  ]);
-  tray.setContextMenu(contextMenu);
-  tray.on('click', () => {
-    mainWindow?.show();
-    mainWindow?.focus();
-  });
+  try {
+    const iconPath = path.join(__dirname, "../public/icon.png");
+    tray = new Tray(iconPath);
+    tray.setToolTip("Atlas");
+    const contextMenu = Menu.buildFromTemplate([
+      { label: "Show Atlas", click: () => { mainWindow?.show(); mainWindow?.focus(); } },
+      { type: "separator" },
+      { label: "Quit", click: () => { isQuitting = true; app.quit(); } },
+    ]);
+    tray.setContextMenu(contextMenu);
+    tray.on('click', () => { mainWindow?.show(); mainWindow?.focus(); });
+  } catch (trayErr) {
+    console.warn("[Atlas] Could not create system tray icon:", trayErr);
+  }
 
   // ── Ollama health check on startup ──────────────────────────────────
   const ollamaRunning = await checkOllamaHealth();
@@ -247,7 +250,7 @@ app.whenReady().then(async () => {
           await handleOAuthCallback(code);
           res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Connected successfully</h2><p style="color:#aaa">You can safely close this tab or it will close automatically.</p></div><script>setTimeout(()=>window.close(), 2000);</script></body></html>`);
           if (mainWindow) {
-            mainWindow.webContents.send("connector-oauth-success", { provider: "google_workspace" });
+            safeSend(mainWindow, "connector-oauth-success", { provider: "google_workspace" });
             mainWindow.show();
             mainWindow.focus();
           }
@@ -267,7 +270,7 @@ app.whenReady().then(async () => {
       if (accessToken && refreshToken) {
         res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Signed in successfully</h2><p style="color:#aaa">You can safely close this tab or it will close automatically.</p></div><script>setTimeout(()=>window.close(), 2000);</script></body></html>`);
         if (mainWindow) {
-          mainWindow.webContents.send("oauth-callback", { access_token: accessToken, refresh_token: refreshToken });
+          safeSend(mainWindow, "oauth-callback", { access_token: accessToken, refresh_token: refreshToken });
           mainWindow.show();
           mainWindow.focus();
         }
@@ -282,7 +285,7 @@ app.whenReady().then(async () => {
         console.error("[Atlas OAuth] Failed:", errorMsg);
         res.end(`<html><head><meta charset="utf-8"></head><body style="background:#09090b;color:white;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2>Sign in failed</h2><p style="color:#aaa">${safeErrorMsg}</p><p style="color:#666;font-size:12px;margin-top:16px">Close this tab and try again in Atlas.</p></div></body></html>`);
         if (mainWindow) {
-          mainWindow.webContents.send("oauth-callback", { error: errorMsg });
+          safeSend(mainWindow, "oauth-callback", { error: errorMsg });
           mainWindow.show();
           mainWindow.focus();
         }
@@ -489,12 +492,12 @@ ipcMain.handle(
 
     try {
       for await (const token of streamChat(messages, model)) {
-        mainWindow.webContents.send("chat-stream", token);
+        safeSend(mainWindow, "chat-stream", token);
       }
-      mainWindow.webContents.send("chat-stream-end");
+      safeSend(mainWindow, "chat-stream-end");
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown streaming error";
-      try { mainWindow?.webContents.send("chat-stream-end", { error: errorMessage }); } catch (e) { console.warn("Caught error:", e); }
+      safeSend(mainWindow, "chat-stream-end", { error: errorMessage });
       throw error;
     }
   }
@@ -599,7 +602,7 @@ ipcMain.handle(
     // Run asynchronously — events stream back via webContents.send
     orchestrator.execute(prompt, mainWindow, conversationId).catch((err) => {
       console.error("[Atlas] Orchestrator execution error:", err);
-      mainWindow?.webContents.send("workflow-complete", {
+      safeSend(mainWindow, "workflow-complete", {
         error: err instanceof Error ? err.message : "Unknown error",
       });
     });
@@ -611,18 +614,18 @@ ipcMain.handle(
 
 ipcMain.handle(
   "workflow-approve",
-  async (_event, arg: { executionId: string }) => {
+  async (_event, arg: { executionId: string; editedFields?: Record<string, string> }) => {
     if (!arg || typeof arg !== 'object') {
       return { error: 'Invalid input: expected object with executionId' };
     }
-    const { executionId } = arg;
+    const { executionId, editedFields } = arg;
     if (typeof executionId !== 'string' || executionId.length > 10000) {
       return { error: 'Invalid input: executionId must be a string' };
     }
     if (!orchestrator) {
       throw new Error("Orchestrator not initialized");
     }
-    const success = orchestrator.approve(executionId);
+    const success = orchestrator.approve(executionId, editedFields);
     if (!success) {
       throw new Error(`No pending approval found for execution: ${executionId}`);
     }
@@ -687,6 +690,23 @@ ipcMain.handle(
     return getConversationHistory(id, limit);
   }
 );
+
+ipcMain.handle(
+  "conversation-delete",
+  async (_event, arg: { id: string } | string) => {
+    const id = typeof arg === "string" ? arg : arg?.id;
+    if (!id || typeof id !== "string") {
+      return { error: "Invalid input: expected id string" };
+    }
+    deleteConversation(id);
+    return true;
+  }
+);
+
+ipcMain.handle("conversations-clear-all", async () => {
+  clearAllConversations();
+  return true;
+});
 
 // ── Local Auth IPC Handlers ───────────────────────────────────────────────────
 
@@ -859,9 +879,7 @@ app.whenReady().then(() => {
       const current = net.isOnline();
       if (current !== lastNetStatus) {
         lastNetStatus = current;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("net:status", current);
-        }
+        safeSend(mainWindow, "net:status", current);
       }
     }, 3000);
     if (interval.unref) interval.unref();

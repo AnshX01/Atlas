@@ -74,13 +74,15 @@ export default function LoginPage() {
       setSyncProgress(75);
 
       // 3. Download avatar
-      setSyncText("Finalizing profile sync...");
-      await apiClient.get('/users/me/avatar').then(({ data }) => {
-        if (data.image_data) {
-          localStorage.setItem('atlas-profile-avatar', data.image_data);
-          window.dispatchEvent(new Event('atlas-avatar-updated'));
-        }
-      }).catch(console.error);
+      if (useAuthStore.getState().accessToken) {
+        setSyncText("Finalizing profile sync...");
+        await apiClient.get('/users/me/avatar').then(({ data }) => {
+          if (data.image_data) {
+            localStorage.setItem('atlas-profile-avatar', data.image_data);
+            window.dispatchEvent(new Event('atlas-avatar-updated'));
+          }
+        }).catch(console.error);
+      }
       setSyncProgress(100);
 
       // Smooth transition UX
@@ -179,9 +181,48 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
 
+    const electron = (window as any).atlasElectron;
+
+    // 1. If Google credentials are saved in the app, use direct Google OAuth (bypasses Supabase)
+    if (electron?.tokenStore && electron?.startGoogleOAuth) {
+      try {
+        const creds = await electron.tokenStore.get("google_workspace");
+        if (creds?.client_id && creds?.client_secret) {
+          const result = await electron.startGoogleOAuth(creds.client_id, creds.client_secret);
+          if (result.success && result.tokens?.access_token) {
+            try {
+              const res = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+                headers: { Authorization: `Bearer ${result.tokens.access_token}` },
+              });
+              if (res.ok) {
+                const profile = await res.json();
+                const email = profile.email;
+                const fullName = profile.name || profile.given_name || "Google User";
+                const sub = profile.sub || profile.id;
+
+                if (email && sub && electron.localAuth?.loginWithGoogle) {
+                  const user = await electron.localAuth.loginWithGoogle(email, fullName, sub);
+                  setUser({ ...user, is_active: true, avatar_url: profile.picture || null } as any);
+                  router.push("/dashboard");
+                  return;
+                }
+              }
+            } catch (profileErr) {
+              console.warn("[Google Login] UserInfo fetch failed:", profileErr);
+            }
+          } else if (!result.success && result.error) {
+            setError(`Google sign-in failed: ${result.error}`);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("[Google Login] Direct OAuth check skipped:", e);
+      }
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "https://your-project.supabase.co";
     let oauthUrl = `${supabaseUrl}/auth/v1/authorize?provider=google`;
-    const electron = (window as any).atlasElectron;
 
     if (electron) {
       try {
@@ -258,7 +299,7 @@ export default function LoginPage() {
         if (loading) setLoading(false);
       }, 120000);
     } else {
-      // Browser mode — redirect-based flow, user won't return here
+      // Browser mode â€” redirect-based flow, user won't return here
       setLoading(false);
     }
   }, [setTokens, handleLoginSuccess, loading]);
@@ -373,7 +414,7 @@ export default function LoginPage() {
             ))}
           </div>
 
-          {/* Error message — persistent until cleared */}
+          {/* Error message â€” persistent until cleared */}
           <AnimatePresence mode="wait">
             {error && (
               <motion.div
@@ -546,7 +587,7 @@ export default function LoginPage() {
       {/* Offline auth toast */}
       {offlineToast && (
         <Toast
-          message="Working offline — using local account (cross-device sync unavailable)"
+          message="Working offline â€” using local account (cross-device sync unavailable)"
           type="success"
           duration={5000}
           onClose={() => setOfflineToast(false)}
@@ -555,3 +596,4 @@ export default function LoginPage() {
     </div>
   );
 }
+

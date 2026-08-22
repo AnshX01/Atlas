@@ -84,9 +84,13 @@ apiClient.interceptors.response.use(
 
     // ── Handle 401: attempt token refresh ───────────────────────────
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
+      const isElectron = typeof window !== "undefined" && Boolean((window as any).atlasElectron);
+
       // Don't try to refresh if the refresh endpoint itself failed
       if (originalRequest.url?.includes("/auth/refresh")) {
-        useAuthStore.getState().logout();
+        if (!isElectron) {
+          useAuthStore.getState().logout();
+        }
         return Promise.reject(error);
       }
 
@@ -107,7 +111,10 @@ apiClient.interceptors.response.use(
       if (!refreshToken) {
         isRefreshing = false;
         processQueue(error, null);
-        useAuthStore.getState().logout();
+        // Only log out in web-only mode if the user was supposedly logged in via backend
+        if (!isElectron && useAuthStore.getState().accessToken) {
+          useAuthStore.getState().logout();
+        }
         return Promise.reject(error);
       }
 
@@ -130,7 +137,9 @@ apiClient.interceptors.response.use(
       } catch (refreshError) {
         isRefreshing = false;
         processQueue(refreshError, null);
-        useAuthStore.getState().logout();
+        if (!isElectron) {
+          useAuthStore.getState().logout();
+        }
         return Promise.reject(refreshError);
       }
     }
