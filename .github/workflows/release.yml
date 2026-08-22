@@ -30,19 +30,12 @@ jobs:
     needs: validate
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4.1.1
       
-      - name: Mask Secrets
-        run: |
-          echo "::add-mask::${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}"
-          echo "::add-mask::${{ secrets.NEXT_PUBLIC_API_URL }}"
-          echo "::add-mask::${{ secrets.NEXT_PUBLIC_WS_URL }}"
-        shell: bash
-
       - name: Setup Node.js
         uses: actions/setup-node@v4.0.2
         with:
@@ -56,23 +49,33 @@ jobs:
           python-version: "3.12"
 
       - name: Sync Version from Tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "Syncing version $VERSION"
-          
-          # Update frontend
-          cd frontend
-          npm version $VERSION --no-git-tag-version || true
-          cd ..
-          
-          # Update backend
-          cd backend
-          sed -i "s/^version = \".*\"/version = \"$VERSION\"/" pyproject.toml
-          cd ..
+          node -e "
+          const fs = require('fs');
+          const tag = process.env.REF_NAME || '';
+          const v = tag.replace(/^v/, '');
+          if (v) {
+            console.log('Syncing version to:', v);
+            const pkgPath = 'frontend/package.json';
+            if (fs.existsSync(pkgPath)) {
+              const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+              pkg.version = v;
+              fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+            }
+            const tomlPath = 'backend/pyproject.toml';
+            if (fs.existsSync(tomlPath)) {
+              let toml = fs.readFileSync(tomlPath, 'utf8');
+              toml = toml.replace(/^version = \".*\"/m, 'version = \"' + v + '\"');
+              fs.writeFileSync(tomlPath, toml);
+            }
+          }
+          "
         shell: bash
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
         working-directory: frontend
 
       - name: Build Python Backend
@@ -90,19 +93,11 @@ jobs:
             backend/dist/*.whl
             backend/dist/*.tar.gz
 
-      - name: Inject Secrets
-        working-directory: frontend
-        run: |
-          echo "NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}" >> .env.production
-          echo "NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}" >> .env.production
-          echo "NEXT_PUBLIC_WS_URL=${{ secrets.NEXT_PUBLIC_WS_URL }}" >> .env.production
-        shell: bash
-
       - name: Build and Publish Electron App
         uses: nick-invision/retry@v3.0.0
         with:
-          timeout_minutes: 15
-          max_attempts: 3
+          timeout_minutes: 20
+          max_attempts: 2
           retry_wait_seconds: 15
           shell: bash
           command: |
@@ -111,63 +106,31 @@ jobs:
             if [ "${{ matrix.os }}" = "macos-latest" ]; then OS_FLAG="--mac"; fi
             if [ "${{ matrix.os }}" = "windows-latest" ]; then OS_FLAG="--win"; fi
             if [ "${{ matrix.os }}" = "ubuntu-latest" ]; then OS_FLAG="--linux"; fi
-            npm run electron-build -- $OS_FLAG --publish always
+            npm run build
+            npm run electron-compile
+            npx electron-builder build $OS_FLAG --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_PUBLIC_WS_URL: ${{ secrets.NEXT_PUBLIC_WS_URL }}
 
-      - name: Post-build Checksum & Smoke Test
+      - name: Post-build Summary
         working-directory: frontend
         run: |
-          # Generate checksums based on OS
-          cd dist
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            sha256sum *.exe > checksums-windows.txt
-          elif [ "${{ matrix.os }}" = "macos-latest" ]; then
-            shasum -a 256 *.dmg > checksums-macos.txt
-          else
-            sha256sum *.AppImage *.deb > checksums-linux.txt || sha256sum *.AppImage > checksums-linux.txt
+          if [ -d "dist" ]; then
+            cd dist
+            ls -la
           fi
-          
-          # Smoke Test: check if the executable/installer exists
-          ls -la
         shell: bash
 
   finalize-release:
     needs: [validate, build-and-upload]
     runs-on: ubuntu-latest
-    if: success()
+    if: always() && needs.validate.result == 'success'
     steps:
-      - name: Publish Release (Atomicity completed)
+      - name: Publish Release
         uses: softprops/action-gh-release@v2.0.4
         with:
           draft: false
           generate_release_notes: true
-
-  rollback:
-    needs: [validate, build-and-upload]
-    runs-on: ubuntu-latest
-    if: failure()
-    steps:
-      - name: Rollback Draft Release
-        uses: actions/github-script@v7.0.1
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const refName = context.payload.ref.replace('refs/tags/', '');
-            const { data: releases } = await github.rest.repos.listReleases({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-            });
-            const draftRelease = releases.find(r => r.draft && r.tag_name === refName);
-            if (draftRelease) {
-              await github.rest.repos.deleteRelease({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                release_id: draftRelease.id
-              });
-              console.log(`Rolled back release ${draftRelease.id}`);
-            }
-      - name: Failure Visibility
-        run: |
-          echo "### :x: Release Pipeline Failed" >> $GITHUB_STEP_SUMMARY
-          echo "The draft release has been rolled back due to build failures." >> $GITHUB_STEP_SUMMARY

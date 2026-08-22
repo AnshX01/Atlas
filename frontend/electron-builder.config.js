@@ -21,8 +21,9 @@ module.exports = {
     ],
     icon: "public/icon.png",
     darkModeSupport: true,
-    hardenedRuntime: true,
+    hardenedRuntime: false,
     gatekeeperAssess: false,
+    identity: null,
     artifactName: "${productName}-${version}-mac-${arch}.${ext}",
   },
   win: {
