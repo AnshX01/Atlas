@@ -20,12 +20,10 @@ jobs:
             exit 1
           fi
 
-      - name: Fail-fast on Missing Secrets
+      - name: Validate GITHUB_TOKEN
         env:
-          SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           GITHUB_TKN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ -z "$SUPABASE_URL" ]; then echo "Missing NEXT_PUBLIC_SUPABASE_URL"; exit 1; fi
           if [ -z "$GITHUB_TKN" ]; then echo "Missing GITHUB_TOKEN"; exit 1; fi
 
   build-and-upload:

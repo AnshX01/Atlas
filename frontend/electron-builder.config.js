@@ -15,28 +15,39 @@ module.exports = {
   icon: "public/icon.png",
   mac: {
     category: "public.app-category.productivity",
-    target: [{ target: "dmg", arch: ["arm64", "x64"] }],
+    target: [
+      { target: "dmg", arch: ["arm64", "x64"] },
+      { target: "zip", arch: ["arm64", "x64"] },
+    ],
     icon: "public/icon.png",
     darkModeSupport: true,
     hardenedRuntime: true,
     gatekeeperAssess: false,
+    artifactName: "${productName}-${version}-mac-${arch}.${ext}",
   },
   win: {
-    target: [{ target: "nsis", arch: ["x64"] }],
+    target: [
+      { target: "nsis", arch: ["x64"] },
+      { target: "zip", arch: ["x64"] },
+    ],
     icon: "public/icon.png",
+    artifactName: "${productName}-Setup-${version}.${ext}",
   },
   linux: {
-    target: ["AppImage", "deb"],
+    target: ["AppImage", "deb", "tar.gz"],
     icon: "public/icon.png",
     category: "Office",
+    artifactName: "${productName}-${version}-linux-${arch}.${ext}",
   },
   nsis: {
     oneClick: false,
     allowToChangeInstallationDirectory: true,
-    artifactName: "Atlas Setup.exe",
+    artifactName: "${productName}-Setup-${version}.${ext}",
   },
   publish: {
     provider: "github",
+    owner: "AnshX01",
+    repo: "Atlas",
     releaseType: "draft",
   },
 };
